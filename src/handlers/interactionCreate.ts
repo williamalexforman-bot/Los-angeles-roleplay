@@ -11,10 +11,19 @@ import {
     handleTicketModal,
     ticketOpeningModalForValue,
 } from '../commands/tickets';
+import { safelyGetTicketByChannel } from '../services/ticketRepository';
 import { handleStaffManagementButton, handleStaffManagementModal } from '../commands/staffManagement';
 import { handleCommunityButton, handleCommunityModal } from '../commands/community';
 import { logSlashCommand, takeSlashCommandFailure } from '../utils/commandAudit';
 import { logger } from '../utils/logger';
+import { TICKET_CATEGORY_IDS } from '../config/constants';
+
+const TICKET_COMMAND_NAMES = new Set([
+    'ticket-panel', 'ticket-message', 'ticket', 'ticket-add', 'ticket-close',
+    'ticket-claim', 'ticket-remove', 'ticket-rename', 'ticket-transfer',
+    'ticket-reopen', 'ticket-switchpanel', 'ticket-notes', 'ticket-edit',
+    'ticket-closerequest',
+]);
 
 const MANAGEMENT_COMMANDS = new Set(['infraction', 'promotion', 'training-results', 'training-result', 'teamswitch']);
 const MODERATION_PERMISSIONS = new Map<string, bigint>([
@@ -107,6 +116,20 @@ async function handleChatCommand(interaction: ChatInputCommandInteraction): Prom
             await interaction.reply({ content: 'You do not have permission to use this moderation command.', ephemeral: true });
             return;
         }
+
+        // Block non-ticket commands in closed/inactive ticket channels
+        if (!TICKET_COMMAND_NAMES.has(interaction.commandName) && interaction.channel?.isTextBased() && interaction.inGuild()) {
+            const ticketCategoryIds = new Set(Object.values(TICKET_CATEGORY_IDS));
+            const channel = await interaction.guild?.channels.fetch(interaction.channelId).catch(() => null);
+            if (channel?.parentId && ticketCategoryIds.has(channel.parentId)) {
+                const ticket = await safelyGetTicketByChannel(interaction.channelId);
+                if (!ticket || ticket.status !== 'open') {
+                    await interaction.reply({ content: 'This is not an active ticket channel.', ephemeral: true });
+                    return;
+                }
+            }
+        }
+
         await handler(interaction);
         success = true;
     } catch (error) {

@@ -18,7 +18,6 @@ import {
     TextChannel,
     TextInputBuilder,
     TextInputStyle,
-    User,
 } from 'discord.js';
 import { BRAND, CHANNEL_IDS, SUPPORT_ROLE_IDS, TICKET_CATEGORY_IDS, type TicketCategory } from '../config/constants';
 import { type TicketRecord } from '../database/models';
@@ -600,13 +599,13 @@ async function requireTicket(
     }
     const ticket = await safelyGetTicketByChannel(channelId);
     if (!ticket) {
-        if (interaction.deferred || interaction.replied) await interaction.editReply('This channel is not an active ticket.');
-        else await interaction.reply({ content: 'This channel is not an active ticket.', ephemeral: true });
+        if (interaction.deferred || interaction.replied) await interaction.editReply('This is not an active ticket channel.');
+        else await interaction.reply({ content: 'This is not an active ticket channel.', ephemeral: true });
         return null;
     }
     if (!allowClosed && ticket.status !== 'open') {
-        if (interaction.deferred || interaction.replied) await interaction.editReply('This ticket is already closed.');
-        else await interaction.reply({ content: 'This ticket is already closed.', ephemeral: true });
+        if (interaction.deferred || interaction.replied) await interaction.editReply('This ticket channel is no longer active.');
+        else await interaction.reply({ content: 'This ticket channel is no longer active.', ephemeral: true });
         return null;
     }
     return ticket;

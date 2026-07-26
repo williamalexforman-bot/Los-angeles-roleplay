@@ -117,11 +117,13 @@ async function processOfficialErlcEvent(client: Client, payload: Record<string, 
 }
 
 export function startWebhookServer(client: Client) {
-    const configuredPort = Number(process.env.WEBHOOK_PORT || 3000);
+    // Railway sets PORT automatically; prefer WEBHOOK_PORT if explicitly configured.
+    const portSource = process.env.WEBHOOK_PORT || process.env.PORT || '3000';
+    const configuredPort = Number(portSource);
     const port = Number.isInteger(configuredPort) && configuredPort >= 1 && configuredPort <= 65_535
         ? configuredPort
         : 3000;
-    if (port !== configuredPort) logger.warn('WEBHOOK_PORT is invalid; using port 3000.');
+    if (port !== configuredPort) logger.warn('WEBHOOK_PORT or PORT is invalid; using port 3000.');
     const server = createServer(async (request, response) => {
         if (request.method === 'GET' && request.url === '/health') {
             respond(response, 200, { ok: true });
