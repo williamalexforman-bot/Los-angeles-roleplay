@@ -1,0 +1,39 @@
+import type { ChatInputCommandInteraction } from 'discord.js';
+import { moderationCommands } from './moderation';
+import { adminCommands } from './admin';
+import { staffCommands } from './staff';
+import { miscCommands } from './misc';
+import { gameCommands } from './game';
+import { ticketCommandDefinitions } from './tickets';
+import { data as verificationCommandData, execute as executeVerification } from './verification';
+import { communityCommands } from './community';
+import { staffManagementCommands } from './staffManagement';
+import { prohibitedWordCommand } from './prohibitedWords';
+import { sayCommand } from './say';
+
+export interface CommandDefinition {
+    data: {
+        name: string;
+        toJSON(): unknown;
+    };
+    execute(interaction: ChatInputCommandInteraction): Promise<unknown>;
+}
+
+const retainedStaffCommands = staffCommands.filter(command => ['application', 'training'].includes(command.data.name));
+const retainedMiscCommands = miscCommands.filter(command => !['movie-feedback', 'staff-feedback', 'partnership', 'staff-complaint'].includes(command.data.name));
+
+export const commandDefinitions: CommandDefinition[] = [
+    ...moderationCommands,
+    adminCommands,
+    { data: verificationCommandData, execute: executeVerification as (interaction: ChatInputCommandInteraction) => Promise<unknown> },
+    ...retainedStaffCommands,
+    ...retainedMiscCommands,
+    ...gameCommands,
+    ...ticketCommandDefinitions,
+    ...communityCommands,
+    ...staffManagementCommands,
+    sayCommand,
+    prohibitedWordCommand,
+] as CommandDefinition[];
+
+export const commandHandlers = new Map(commandDefinitions.map(command => [command.data.name, command.execute]));
