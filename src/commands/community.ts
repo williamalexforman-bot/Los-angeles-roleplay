@@ -546,7 +546,6 @@ export async function handleCommunityModal(interaction: ModalSubmitInteraction):
                 { name: 'Server Name', value: serverName, inline: true },
                 { name: 'Representative', value: representative, inline: true },
                 { name: 'Invite Link', value: `[Join Server](${inviteLink})`, inline: true },
-                { name: 'Server Ad', value: serverAd, inline: false },
                 { name: 'Submitted By', value: `<@${interaction.user.id}> • ${interaction.user.tag}`, inline: false },
             );
         await destination.send({
@@ -554,6 +553,13 @@ export async function handleCommunityModal(interaction: ModalSubmitInteraction):
             components: partnershipReviewComponents(interaction.user.id),
             allowedMentions: { parse: [] },
         });
+        // Send the server advertisement as a separate message for better visibility
+        if (serverAd) {
+            await destination.send({
+                content: `**📢 Server Advertisement — ${serverName}**\n\n${serverAd}`,
+                allowedMentions: { parse: [] },
+            });
+        }
         await interaction.editReply('Your partnership request was submitted for review.');
         return true;
     } catch (error) {
