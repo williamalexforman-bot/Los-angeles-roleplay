@@ -193,7 +193,7 @@ async function getInfractionRecord(threadId: string): Promise<InfractionRecord |
 function buildInfractionEmbed(record: InfractionRecord): EmbedBuilder {
     return brandedEmbed(`Staff Infraction | ${record.caseNumber}`)
         .setDescription(
-            'The complete infraction record is displayed here in the infraction channel. '
+            'The high ranking team at California State Roleplay has issued you an infraction. '
             + 'Open the linked evidence thread to upload screenshots, recordings, links, and other supporting material.',
         )
         .addFields(
@@ -201,7 +201,7 @@ function buildInfractionEmbed(record: InfractionRecord): EmbedBuilder {
             { name: 'Action', value: record.action, inline: true },
             { name: 'Status', value: record.status, inline: true },
             { name: 'Reason', value: record.reason },
-            { name: 'Rule Broken', value: record.ruleBroken },
+            { name: 'Notes', value: record.ruleBroken },
             { name: 'Evidence', value: record.evidence || 'No evidence supplied.' },
             { name: 'Internal Notes', value: record.internalNotes || 'No internal notes supplied.' },
             { name: 'Expiration', value: record.expiration || 'No expiration set.', inline: true },
@@ -370,7 +370,7 @@ function promotionCommand() {
                     .setName('issue')
                     .setDescription('Issue and publish a staff promotion')
                     .addUserOption(option => option.setName('member').setDescription('The member being promoted').setRequired(true))
-                    .addStringOption(option => option.setName('old-rank').setDescription('The member\'s current rank').setRequired(true).setMaxLength(100))
+                    .addRoleOption(option => option.setName('old-rank').setDescription('The member\'s current rank').setRequired(true))
                     .addRoleOption(option => option.setName('new-role').setDescription('The new server role for this promotion').setRequired(true))
                     .addStringOption(option => option.setName('reason').setDescription('The reason for the promotion').setRequired(true).setMaxLength(1024))
                     .addUserOption(option => option.setName('approved-by').setDescription('The person who approved the promotion').setRequired(true))
@@ -383,7 +383,7 @@ function promotionCommand() {
             try {
                 interaction.options.getSubcommand(true);
                 const member = interaction.options.getUser('member', true);
-                const oldRank = interaction.options.getString('old-rank', true);
+                const oldRankRole = interaction.options.getRole('old-rank', true);
                 const newRole = interaction.options.getRole('new-role', true);
                 const reason = interaction.options.getString('reason', true);
                 const approvedBy = interaction.options.getUser('approved-by', true);
@@ -395,9 +395,11 @@ function promotionCommand() {
                     return;
                 }
 
-                const embed = brandedEmbed('🎖️ Staff Promotion').addFields(
+                const embed = brandedEmbed('🎖️ Staff Promotion')
+                    .setDescription('The high ranking team at California State Roleplay has issued you a promotion.')
+                    .addFields(
                     { name: 'Member', value: `<@${member.id}>`, inline: true },
-                    { name: 'Old Rank', value: oldRank, inline: true },
+                    { name: 'Old Rank', value: `<@&${oldRankRole.id}>`, inline: true },
                     { name: 'New Role', value: `<@&${newRole.id}>`, inline: true },
                     { name: 'Reason', value: reason },
                     { name: 'Approved By', value: `<@${approvedBy.id}>`, inline: true },
@@ -440,7 +442,7 @@ function infractionCommand() {
                             .addChoices(...INFRACTION_ACTIONS.map(action => ({ name: action, value: action }))),
                     )
                     .addStringOption(option => option.setName('reason').setDescription('The reason for this infraction').setRequired(true).setMaxLength(1024))
-                    .addStringOption(option => option.setName('rule-broken').setDescription('The rule or policy that was broken').setRequired(true).setMaxLength(1024))
+                    .addStringOption(option => option.setName('notes').setDescription('Notes about this infraction').setRequired(true).setMaxLength(1024))
                     .addStringOption(option => option.setName('evidence').setDescription('Evidence link or supporting information').setMaxLength(1024))
                     .addStringOption(option => option.setName('internal-notes').setDescription('Private notes for authorized staff').setMaxLength(1024))
                     .addBooleanOption(option => option.setName('notify-member').setDescription('Also notify the member by direct message'))
@@ -460,7 +462,7 @@ function infractionCommand() {
                 const member = interaction.options.getUser('member', true);
                 const action = interaction.options.getString('action', true) as InfractionAction;
                 const reason = interaction.options.getString('reason', true);
-                const ruleBroken = interaction.options.getString('rule-broken', true);
+                const notes = interaction.options.getString('notes', true);
                 const evidence = interaction.options.getString('evidence') || 'No evidence supplied.';
                 const internalNotes = interaction.options.getString('internal-notes') || 'No internal notes supplied.';
                 const notifyMember = interaction.options.getBoolean('notify-member') ?? false;
@@ -482,7 +484,7 @@ function infractionCommand() {
                     issuedById: interaction.user.id,
                     action,
                     reason,
-                    ruleBroken,
+                    ruleBroken: notes,
                     evidence,
                     internalNotes,
                     notifyMember,
@@ -534,10 +536,12 @@ function infractionCommand() {
 
                 let memberNotified = !notifyMember;
                 if (notifyMember) {
-                    const notificationEmbed = brandedEmbed(`Staff Infraction | ${caseNumber}`).addFields(
+                    const notificationEmbed = brandedEmbed(`Staff Infraction | ${caseNumber}`)
+                        .setDescription('The high ranking team at California State Roleplay has issued you an infraction.')
+                        .addFields(
                         { name: 'Action', value: action, inline: true },
                         { name: 'Reason', value: reason },
-                        { name: 'Rule Broken', value: ruleBroken },
+                        { name: 'Notes', value: notes },
                         { name: 'Expiration', value: expiration },
                     );
                     memberNotified = await member
@@ -619,7 +623,7 @@ function editInfractionModal(threadId: string, record?: InfractionRecord): Modal
         .setTitle(record ? `Edit ${record.caseNumber}` : 'Edit Infraction')
         .addComponents(
             modalRow(textInput('reason', 'Reason', TextInputStyle.Paragraph, true, record?.reason)),
-            modalRow(textInput('rule-broken', 'Rule Broken', TextInputStyle.Paragraph, true, record?.ruleBroken)),
+            modalRow(textInput('notes', 'Notes', TextInputStyle.Paragraph, true, record?.ruleBroken)),
             modalRow(textInput('evidence', 'Evidence', TextInputStyle.Paragraph, false, record?.evidence)),
             modalRow(textInput('internal-notes', 'Internal Notes', TextInputStyle.Paragraph, false, record?.internalNotes)),
             modalRow(textInput('expiration', 'Expiration', TextInputStyle.Short, false, record?.expiration)),
@@ -793,7 +797,7 @@ export async function handleStaffManagementModal(interaction: ModalSubmitInterac
         switch (modalType) {
             case 'edit-modal': {
                 record.reason = interaction.fields.getTextInputValue('reason');
-                record.ruleBroken = interaction.fields.getTextInputValue('rule-broken');
+                record.ruleBroken = interaction.fields.getTextInputValue('notes');
                 record.evidence = interaction.fields.getTextInputValue('evidence') || 'No evidence supplied.';
                 record.internalNotes = interaction.fields.getTextInputValue('internal-notes') || 'No internal notes supplied.';
                 record.expiration = interaction.fields.getTextInputValue('expiration') || 'No expiration set.';
