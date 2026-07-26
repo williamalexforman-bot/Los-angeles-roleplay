@@ -56,15 +56,12 @@ Please do not troll in the tickets. If caught trolling you will be punished.
 📋 **Internal Affairs Support**
 › Staff report
 › Application inquiries
-› Partnerships
-› Partnership concerns and issues
 
 🏛️ **Management Support**
 › High Rank+ report
 › Perk claim
 › Prize claim
 › Paid advertisement
-› Partnerships
 › Staff transfers
 › Staff fast passes
 
