@@ -4,8 +4,9 @@
   "description": "A professional Discord management bot for a Roblox roleplay community.",
   "main": "dist/index.js",
   "scripts": {
-    "start": "node dist/index.js",
+    "start": "node .",
     "build": "tsc",
+    "postinstall": "npm run build",
     "test": "ts-node --transpile-only tests/smoke.ts",
     "check": "npm run build && npm test",
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts"
