@@ -25,6 +25,14 @@ import { configureInfractionAuthorization } from './commands/staffManagement';
 import { cleanupStaleTicketReservations } from './services/ticketRepository';
 import { getBloxlinkApiKey, getDiscordBotToken, getOpenAiApiKey, getOpenAiModel } from './config/env';
 
+// Keep the process alive by logging crashes instead of dying on unhandled errors
+process.on('unhandledRejection', (reason: unknown) => {
+    logger.error(`[Process] Unhandled rejection: ${reason instanceof Error ? reason.message : String(reason)}`);
+});
+process.on('uncaughtException', (error: Error) => {
+    logger.error(`[Process] Uncaught exception: ${error.message}`);
+});
+
 const enablePrivileged = (process.env.ENABLE_PRIVILEGED_INTENTS || 'false').toLowerCase() === 'true';
 let erlcMonitor: ErlcMonitor | null = null;
 let webhookServer: Server | null = null;
@@ -208,8 +216,8 @@ async function shutdown(signal: string): Promise<void> {
     logger.info('Shutdown complete.');
 }
 
-process.once('SIGINT', () => void shutdown('SIGINT'));
-process.once('SIGTERM', () => void shutdown('SIGTERM'));
+process.once('SIGINT', () => void shutdown('SIGINT').catch(error => logger.error(`Shutdown error: ${error instanceof Error ? error.message : 'Unknown'}`)));
+process.once('SIGTERM', () => void shutdown('SIGTERM').catch(error => logger.error(`Shutdown error: ${error instanceof Error ? error.message : 'Unknown'}`)));
 
 void bootstrap().catch(error => {
     logger.error(`Startup failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
