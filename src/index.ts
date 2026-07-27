@@ -25,13 +25,16 @@ import { configureInfractionAuthorization } from './commands/staffManagement';
 import { cleanupStaleTicketReservations } from './services/ticketRepository';
 import { getBloxlinkApiKey, getDiscordBotToken, getOpenAiApiKey, getOpenAiModel } from './config/env';
 
-// Keep the process alive by logging crashes instead of dying on unhandled errors
+// Crash-proof error handling — prevents Node.js from exiting on unhandled rejections (Node 24+ default)
 process.on('unhandledRejection', (reason: unknown) => {
     logger.error(`[Process] Unhandled rejection: ${reason instanceof Error ? reason.message : String(reason)}`);
 });
 process.on('uncaughtException', (error: Error) => {
     logger.error(`[Process] Uncaught exception: ${error.message}`);
 });
+
+// Keep-alive timer to prevent event loop from emptying if all timers/promises resolve
+setInterval(() => {}, 60_000).unref();
 
 const enablePrivileged = (process.env.ENABLE_PRIVILEGED_INTENTS || 'false').toLowerCase() === 'true';
 let erlcMonitor: ErlcMonitor | null = null;
@@ -160,47 +163,79 @@ function createConfiguredClient(privilegedIntents: boolean): Client {
 let client = createConfiguredClient(enablePrivileged);
 
 async function bootstrap(): Promise<void> {
-    await connectDatabase();
+    // Wrap every startup step so nothing crashes the process
+    await connectDatabase().catch(error => {
+        logger.warn(`Database connection failed: ${error instanceof Error ? error.message : 'Unknown'}`);
+    });
     await cleanupStaleTicketReservations().catch(error => {
         logger.warn(`Startup ticket-reservation cleanup was unavailable: ${error instanceof Error ? error.name : 'UnknownError'}`);
     });
-    configureInfractionDatabaseAdapter();
-    configureInfractionAuthorization(async (interaction, record) => {
-        if (interaction.user.id === record.issuedById) return true;
-        if (interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)
-            || interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)
-            || interaction.memberPermissions?.has(PermissionFlagsBits.ManageThreads)) return true;
-        const authorizedUsers = (process.env.INFRACTION_AUTHORIZED_USER_IDS || '')
-            .split(',').map(value => value.trim()).filter(Boolean);
-        if (authorizedUsers.includes(interaction.user.id)) return true;
-        const member = interaction.member;
-        const memberRoleIds = member instanceof GuildMember ? [...member.roles.cache.keys()] : member?.roles || [];
-        const roleIds = [
-            process.env.BOT_PERMISSIONS_ROLE_ID,
-            process.env.ADMIN_ROLE_ID,
-            process.env.HIGH_RANK_ROLE_ID,
-            process.env.MANAGEMENT_ROLE_ID,
-            ...(process.env.INFRACTION_AUTHORIZED_ROLE_IDS || '').split(',').map(value => value.trim()),
-        ].filter((roleId): roleId is string => Boolean(roleId));
-        return roleIds.some(roleId => memberRoleIds.includes(roleId));
-    });
+
+    try {
+        configureInfractionDatabaseAdapter();
+    } catch (error) {
+        logger.warn(`Infraction database adapter failed: ${error instanceof Error ? error.message : 'Unknown'}`);
+    }
+
+    try {
+        configureInfractionAuthorization(async (interaction, record) => {
+            if (interaction.user.id === record.issuedById) return true;
+            if (interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)
+                || interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)
+                || interaction.memberPermissions?.has(PermissionFlagsBits.ManageThreads)) return true;
+            const authorizedUsers = (process.env.INFRACTION_AUTHORIZED_USER_IDS || '')
+                .split(',').map(value => value.trim()).filter(Boolean);
+            if (authorizedUsers.includes(interaction.user.id)) return true;
+            const member = interaction.member;
+            const memberRoleIds = member instanceof GuildMember ? [...member.roles.cache.keys()] : member?.roles || [];
+            const roleIds = [
+                process.env.BOT_PERMISSIONS_ROLE_ID,
+                process.env.ADMIN_ROLE_ID,
+                process.env.HIGH_RANK_ROLE_ID,
+                process.env.MANAGEMENT_ROLE_ID,
+                ...(process.env.INFRACTION_AUTHORIZED_ROLE_IDS || '').split(',').map(value => value.trim()),
+            ].filter((roleId): roleId is string => Boolean(roleId));
+            return roleIds.some(roleId => memberRoleIds.includes(roleId));
+        });
+    } catch (error) {
+        logger.warn(`Infraction authorization config failed: ${error instanceof Error ? error.message : 'Unknown'}`);
+    }
+
     const token = getDiscordBotToken();
-    if (!token) throw new Error('TOKEN or BOT_TOKEN must be configured.');
+    if (!token) {
+        logger.error('TOKEN or BOT_TOKEN must be configured in environment variables.');
+        return;
+    }
+
     try {
         await client.login(token);
     } catch (error) {
-        if (!enablePrivileged || !/disallowed intents/i.test(error instanceof Error ? error.message : String(error))) throw error;
+        if (!enablePrivileged || !/disallowed intents/i.test(error instanceof Error ? error.message : String(error))) {
+            logger.error(`Discord login failed: ${error instanceof Error ? error.message : 'Unknown'}`);
+            return;
+        }
         logger.warn('Discord rejected privileged intents. Retrying with slash-command-only intents so the bot can remain online.');
         client.destroy();
         client = createConfiguredClient(false);
-        await client.login(token);
+        try {
+            await client.login(token);
+        } catch (loginError) {
+            logger.error(`Discord login (fallback) failed: ${loginError instanceof Error ? loginError.message : 'Unknown'}`);
+            return;
+        }
     }
-    webhookServer = startWebhookServer(client);
+
+    // Start webhook server — if port is taken, just log and continue
+    try {
+        webhookServer = startWebhookServer(client);
+    } catch (error) {
+        logger.warn(`Webhook server failed to start: ${error instanceof Error ? error.message : 'Unknown'}`);
+    }
 }
 
 async function shutdown(signal: string): Promise<void> {
     logger.info(`Received ${signal}; shutting down.`);
-    erlcMonitor?.stop();
+    if (erlcMonitor) try { erlcMonitor.stop(); } catch { /* ignore */ }
     client.destroy();
     const activeServer = webhookServer;
     webhookServer = null;
@@ -212,14 +247,14 @@ async function shutdown(signal: string): Promise<void> {
             });
         });
     }
-    await disconnectDatabase();
+    await disconnectDatabase().catch(() => undefined);
     logger.info('Shutdown complete.');
 }
 
-process.once('SIGINT', () => void shutdown('SIGINT').catch(error => logger.error(`Shutdown error: ${error instanceof Error ? error.message : 'Unknown'}`)));
-process.once('SIGTERM', () => void shutdown('SIGTERM').catch(error => logger.error(`Shutdown error: ${error instanceof Error ? error.message : 'Unknown'}`)));
+process.once('SIGINT', () => void shutdown('SIGINT').catch(() => undefined));
+process.once('SIGTERM', () => void shutdown('SIGTERM').catch(() => undefined));
 
-void bootstrap().catch(error => {
+// Bootstrap and never let errors exit the process
+bootstrap().catch(error => {
     logger.error(`Startup failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    process.exitCode = 1;
 });
