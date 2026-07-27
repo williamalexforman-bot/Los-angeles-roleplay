@@ -1,4 +1,4 @@
-Ok wimport {
+import {
     ActionRowBuilder,
     ButtonBuilder,
     ButtonInteraction,
