@@ -1,4 +1,5 @@
-// Bootstrap: loads the compiled bot from the dist/ directory
-// This file exists so hosting providers that expect index.js at the root
-// (e.g. bot-hosting.net, Railway, etc.) can still run the bot correctly.
-require('./dist/index.js');
+// Bootstrap: registers ts-node for runtime TypeScript transpilation,
+// then loads the bot directly from source. This avoids running tsc
+// during npm install (which causes OOM on memory-constrained hosts).
+require('ts-node').register({ transpileOnly: true, project: require('path').join(__dirname, 'tsconfig.json') });
+require('./src/index.ts');

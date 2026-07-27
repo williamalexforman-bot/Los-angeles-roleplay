@@ -1,4 +1,4 @@
-import {
+Ok wimport {
     ActionRowBuilder,
     ButtonBuilder,
     ButtonInteraction,
@@ -276,7 +276,7 @@ const staffFeedbackCommand = {
 };
 
 const PARTNERSHIP_PANEL_TEXT = [
-    'Thank you for choosing to partner with CSRP!',
+    'Thank you for choosing to partner with LARP!',
     '',
     'We have a few rules about partnering with us:',
     '- You must stay in the server the whole time; leaving will delete your partnership.',
@@ -284,7 +284,7 @@ const PARTNERSHIP_PANEL_TEXT = [
     '',
     'Perks of partnering with us:',
     '- Gain the partnership role.',
-    '- Show everyone that you are a proud partner of CSRP!',
+    '- Show everyone that you are a proud partner of LARP!',
     '',
     'Please wait as we review your request.',
 ].join('\n');
@@ -314,7 +314,7 @@ function partnershipRequestModal(): ModalBuilder {
             new ActionRowBuilder<TextInputBuilder>().addComponents(new TextInputBuilder()
                 .setCustomId('server_name')
                 .setLabel('Server name')
-                .setPlaceholder('California State Roleplay')
+                .setPlaceholder('Los Angeles Roleplay')
                 .setStyle(TextInputStyle.Short)
                 .setMaxLength(100)
                 .setRequired(true)),
@@ -393,7 +393,7 @@ function partnershipInviteIsValid(value: string): boolean {
 const partnershipCommand = {
     data: new SlashCommandBuilder()
         .setName('partnership')
-        .setDescription('Post or submit a CSRP partnership request')
+        .setDescription('Post or submit a LARP partnership request')
         .addSubcommand(subcommand => subcommand
             .setName('request')
             .setDescription('Post the professional partnership request panel in this channel')),

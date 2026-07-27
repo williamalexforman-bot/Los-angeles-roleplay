@@ -6,18 +6,18 @@ export async function sendToChannel(client: Client, channelId: string, content: 
         if (!channel || !channel.isSendable()) return;
 
         if (typeof content === 'string') {
-            await channel.send({ content, allowedMentions: { parse: [] } });
+            await channel.send({ content, allowedMentions: { parse: ['users'] } });
             return;
         }
 
         if (content instanceof EmbedBuilder) {
-            await channel.send({ embeds: [content], allowedMentions: { parse: [] } });
+            await channel.send({ embeds: [content], allowedMentions: { parse: ['users'] } });
             return;
         }
 
         await channel.send({
             ...content,
-            allowedMentions: content.allowedMentions ?? { parse: [] },
+            allowedMentions: content.allowedMentions ?? { parse: ['users'] },
         });
     } catch (err) {
         // best-effort
@@ -26,3 +26,4 @@ export async function sendToChannel(client: Client, channelId: string, content: 
 }
 
 export default sendToChannel;
+

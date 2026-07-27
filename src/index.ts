@@ -24,6 +24,7 @@ import { logger } from './utils/logger';
 import { configureInfractionAuthorization } from './commands/staffManagement';
 import { cleanupStaleTicketReservations } from './services/ticketRepository';
 import { getBloxlinkApiKey, getDiscordBotToken, getOpenAiApiKey, getOpenAiModel } from './config/env';
+import { setDiscordClientForDm } from './commands/punishment';
 
 // Crash-proof error handling — prevents Node.js from exiting on unhandled rejections (Node 24+ default)
 process.on('unhandledRejection', (reason: unknown) => {
@@ -70,6 +71,11 @@ function createConfiguredClient(privilegedIntents: boolean): Client {
         }
         if (!process.env.ERLC_SERVER_KEY) {
             logger.warn('ERLC_SERVER_KEY is not configured; ER:LC monitoring is disabled.');
+            return;
+        }
+        // OOM fix — set DISABLE_ERLC_MONITOR=true on bot-hosting.net to save ~50MB RAM
+        if (process.env.DISABLE_ERLC_MONITOR === 'true') {
+            logger.info('ER:LC monitor disabled via DISABLE_ERLC_MONITOR=true (saves memory).');
             return;
         }
         const guildId = process.env.GUILD_ID || bot.guilds.cache.firstKey();
@@ -225,6 +231,17 @@ async function bootstrap(): Promise<void> {
         }
     }
 
+    // Enable /punish and /punishment commands to send DMs
+    setDiscordClientForDm(client);
+
+    // Log raid-threat monitoring configuration status so you can confirm it at a glance
+    logger.info(
+        `[Raid Threat Monitor] ${enablePrivileged ? 'Active (ENABLE_PRIVILEGED_INTENTS=true)' : 'DISABLED (ENABLE_PRIVILEGED_INTENTS not set)'}` +
+        ` | EMERGENCY_STAFF_ROLE_ID: ${process.env.EMERGENCY_STAFF_ROLE_ID || 'NOT SET (High confidence alerts will not ping)'}` +
+        ` | RAID_THREAT_LOG_CHANNEL_ID: ${process.env.RAID_THREAT_LOG_CHANNEL_ID || CHANNEL_IDS.raidThreatLog}` +
+        ` | Rapid join threshold: 5 joins in 10 seconds, 60s cooldown`
+    );
+
     // Start webhook server — if port is taken, just log and continue
     try {
         webhookServer = startWebhookServer(client);
@@ -258,3 +275,4 @@ process.once('SIGTERM', () => void shutdown('SIGTERM').catch(() => undefined));
 bootstrap().catch(error => {
     logger.error(`Startup failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
 });
+

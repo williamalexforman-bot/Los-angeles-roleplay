@@ -24,7 +24,7 @@ import { markSlashCommandFailed } from '../utils/commandAudit';
 const BRAND_COLOR = 0x14b8a6;
 const PASS_COLOR = 0x22c55e;
 const FAIL_COLOR = 0xef4444;
-const BRAND_FOOTER = 'California State Roleplay | Realism at its Finest';
+const BRAND_FOOTER = 'Los Angeles Roleplay | Realism at its Finest';
 const LOGO_NAME = 'csrp-logo.png';
 const LOGO_PATH = resolve(__dirname, '..', '..', 'assets', LOGO_NAME);
 
@@ -193,7 +193,7 @@ async function getInfractionRecord(threadId: string): Promise<InfractionRecord |
 function buildInfractionEmbed(record: InfractionRecord): EmbedBuilder {
     return brandedEmbed(`Staff Infraction | ${record.caseNumber}`)
         .setDescription(
-            'The high ranking team at California State Roleplay has issued you an infraction. '
+            'The high ranking team at Los Angeles Roleplay has issued you an infraction. '
             + 'Open the linked evidence thread to upload screenshots, recordings, links, and other supporting material.',
         )
         .addFields(
@@ -396,7 +396,7 @@ function promotionCommand() {
                 }
 
                 const embed = brandedEmbed('🎖️ Staff Promotion')
-                    .setDescription('The high ranking team at California State Roleplay has issued you a promotion.')
+                    .setDescription('The high ranking team at Los Angeles Roleplay has issued you a promotion.')
                     .addFields(
                     { name: 'Member', value: `<@${member.id}>`, inline: true },
                     { name: 'Old Rank', value: `<@&${oldRankRole.id}>`, inline: true },
@@ -537,7 +537,7 @@ function infractionCommand() {
                 let memberNotified = !notifyMember;
                 if (notifyMember) {
                     const notificationEmbed = brandedEmbed(`Staff Infraction | ${caseNumber}`)
-                        .setDescription('The high ranking team at California State Roleplay has issued you an infraction.')
+                        .setDescription('The high ranking team at Los Angeles Roleplay has issued you an infraction.')
                         .addFields(
                         { name: 'Action', value: action, inline: true },
                         { name: 'Reason', value: reason },

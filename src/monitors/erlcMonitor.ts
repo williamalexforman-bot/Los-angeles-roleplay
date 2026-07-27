@@ -15,7 +15,7 @@ export const ERLC_TEAM_CHANGE_LOG_CHANNEL_ID = CHANNEL_IDS.erlcTeamChangeLog;
 export const ERLC_PUNISHMENT_LOG_CHANNEL_ID = CHANNEL_IDS.erlcPunishmentLog;
 
 const CSRP_TEAL = 0x18b6a4;
-const CSRP_FOOTER = 'California State Roleplay | Realism at its Finest';
+const CSRP_FOOTER = 'Los Angeles Roleplay | Realism at its Finest';
 const DEFAULT_POLL_INTERVAL_MS = 30_000;
 const DEFAULT_MAX_SEEN_COMMAND_IDS = 1_000;
 const MAX_TIMER_DELAY_MS = 2_147_483_647;

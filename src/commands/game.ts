@@ -1,5 +1,4 @@
-import { SlashCommandBuilder } from '@discordjs/builders';
-import { ChatInputCommandInteraction, EmbedBuilder } from 'discord.js';
+import { ChatInputCommandInteraction, EmbedBuilder, SlashCommandBuilder } from 'discord.js';
 import { sendToChannel } from '../utils/notify';
 import { BRAND } from '../config/constants';
 import { createLogoAttachment } from '../utils/embeds';

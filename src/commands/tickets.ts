@@ -37,7 +37,7 @@ import {
     updateTicket,
 } from '../services/ticketRepository';
 
-const PANEL_DESCRIPTION = `Welcome to California State Roleplay support system!
+const PANEL_DESCRIPTION = `Welcome to Los Angeles Roleplay support system!
 
 If you have any issue, select the correct department from the dropdown below.
 
@@ -371,7 +371,7 @@ function ticketControlRows(ticket: TicketRecord, disabled = false): ActionRowBui
 
 export async function postTicketPanel(interaction: ChatInputCommandInteraction): Promise<void> {
     if (!interaction.inGuild()) {
-        await interaction.reply({ content: 'This command can only be used in the CSRP server.', ephemeral: true });
+        await interaction.reply({ content: 'This command can only be used in the LARP server.', ephemeral: true });
         return;
     }
     await interaction.deferReply({ ephemeral: true });
@@ -471,7 +471,7 @@ async function sendTicketCreationLog(ticket: TicketRecord, channel: TextChannel)
 
 export async function createTicketFromModal(interaction: ModalSubmitInteraction, category: TicketCategory): Promise<void> {
     if (!interaction.guild) {
-        await interaction.reply({ content: 'Tickets can only be opened inside the CSRP server.', ephemeral: true });
+        await interaction.reply({ content: 'Tickets can only be opened inside the LARP server.', ephemeral: true });
         return;
     }
     await interaction.deferReply({ ephemeral: true });
@@ -540,7 +540,7 @@ export async function createTicketFromModal(interaction: ModalSubmitInteraction,
             name: channelName,
             type: ChannelType.GuildText,
             parent: definition.categoryId,
-            topic: `CSRP ticket #${reservedTicket.number} | ${definition.label} | Creator ${interaction.user.id}`,
+            topic: `LARP ticket #${reservedTicket.number} | ${definition.label} | Creator ${interaction.user.id}`,
             reason: `Ticket #${reservedTicket.number} opened by ${interaction.user.tag}`,
             permissionOverwrites: [
                 { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
@@ -571,7 +571,7 @@ export async function createTicketFromModal(interaction: ModalSubmitInteraction,
             await channel.send({ embeds: [overflowEmbed] });
         }
         await channel.send({
-            content: '👋 Hello! I’m the automated CSRP support assistant. I can help collect information before staff assists you.\n\nPlease explain your question or issue. If I am unsure, I will ask you to wait for a staff member.',
+            content: '👋 Hello! I’m the automated LARP support assistant. I can help collect information before staff assists you.\n\nPlease explain your question or issue. If I am unsure, I will ask you to wait for a staff member.',
             allowedMentions: { parse: [] },
         });
         await sendTicketCreationLog(active, channel);
@@ -703,7 +703,7 @@ export async function buildTicketTranscriptFile(channel: TextChannel, ticket: Ti
         return `[${timestamp}] ${message.author.tag} (${message.author.id}): ${body}`;
     });
     const header = [
-        `California State Roleplay — Ticket #${ticket.number}`,
+        `Los Angeles Roleplay — Ticket #${ticket.number}`,
         `Channel: ${channel.name} (${channel.id})`,
         `Creator: ${ticket.creatorId}`,
         `Generated: ${new Date().toISOString()}`,
@@ -1195,7 +1195,7 @@ export const ticketCommands = {
 };
 
 export const ticketCommandDefinitions = [
-    { data: new SlashCommandBuilder().setName('ticket-panel').setDescription('Post the CSRP Help & Support ticket panel'), execute: executeTicketSlashCommand },
+    { data: new SlashCommandBuilder().setName('ticket-panel').setDescription('Post the LARP Help & Support ticket panel'), execute: executeTicketSlashCommand },
     { data: new SlashCommandBuilder().setName('ticket').setDescription('Ticket utilities').addSubcommand(command => command.setName('refresh-user').setDescription('Refresh the ticket creator’s Bloxlink and Roblox information')), execute: executeTicketSlashCommand },
     { data: new SlashCommandBuilder().setName('ticket-message').setDescription('Legacy alias: post the ticket panel'), execute: executeTicketSlashCommand },
     { data: new SlashCommandBuilder().setName('ticket-add').setDescription('Add a user to this ticket').addUserOption(option => option.setName('user').setDescription('User to add').setRequired(true)), execute: executeTicketSlashCommand },
@@ -1242,8 +1242,8 @@ async function processTicketAssistantMessage(message: Message): Promise<void> {
                 if (item.author.id === ticket.creatorId && item.content.trim()) {
                     return [{ role: 'user' as const, content: item.content }];
                 }
-                if (item.author.id === message.client.user?.id && item.content.startsWith('🤖 **Automated CSRP Support Assistant**')) {
-                    return [{ role: 'assistant' as const, content: item.content.replace(/^🤖 \*\*Automated CSRP Support Assistant\*\*\s*/u, '') }];
+                if (item.author.id === message.client.user?.id && item.content.startsWith('🤖 **Automated LARP Support Assistant**')) {
+                    return [{ role: 'assistant' as const, content: item.content.replace(/^🤖 \*\*Automated LARP Support Assistant\*\*\s*/u, '') }];
                 }
                 return [];
             })
@@ -1275,7 +1275,7 @@ async function processTicketAssistantMessage(message: Message): Promise<void> {
     if (result.status === 'unavailable' && !aiUnavailableNotified.has(message.channelId)) {
         aiUnavailableNotified.add(message.channelId);
         await message.channel.send({
-            content: `🤖 **Automated CSRP Support Assistant**\n${result.message}`,
+            content: `🤖 **Automated LARP Support Assistant**\n${result.message}`,
             allowedMentions: { parse: [] },
         });
     }

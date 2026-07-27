@@ -1,9 +1,9 @@
 import path from 'path';
 
 export const BRAND = {
-    name: 'California State Roleplay',
+    name: 'Los Angeles Roleplay',
     color: 0x14b8a6,
-    footer: 'California State Roleplay | Realism at its Finest',
+    footer: 'Los Angeles Roleplay | Realism at its Finest',
     panelFooter: 'Realism at its Finest',
     logoName: 'csrp-logo.png',
     logoPath: path.resolve(process.cwd(), 'assets', 'csrp-logo.png'),

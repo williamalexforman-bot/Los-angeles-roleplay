@@ -47,7 +47,7 @@ export const staffCommands = [
 
                 const embed = new EmbedBuilder()
                     .setTitle('Staff Infraction')
-                    .setDescription('The High Ranking Team at California State Roleplay has noticed that you\'ve violated our policies. We will be taking actions upon your account. Arguing about your recent infraction will result in another strike.')
+                    .setDescription('The High Ranking Team at Los Angeles Roleplay has noticed that you\'ve violated our policies. We will be taking actions upon your account. Arguing about your recent infraction will result in another strike.')
                     .setColor(BRAND.color)
                     .setThumbnail(LOGO)
                     .addFields(
