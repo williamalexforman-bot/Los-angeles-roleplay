@@ -11,6 +11,7 @@ import { staffManagementCommands } from './staffManagement';
 import { prohibitedWordCommand } from './prohibitedWords';
 import { sayCommand } from './say';
 import { punishmentCommands } from './punishment';
+import { data as cmdsCommandData, execute as executeCmds } from './cmds';
 
 export interface CommandDefinition {
     data: {
@@ -36,6 +37,7 @@ export const commandDefinitions: CommandDefinition[] = [
     sayCommand,
     prohibitedWordCommand,
     ...punishmentCommands,
+    { data: cmdsCommandData, execute: executeCmds as (interaction: ChatInputCommandInteraction) => Promise<unknown> },
 ] as CommandDefinition[];
 
 export const commandHandlers = new Map(commandDefinitions.map(command => [command.data.name, command.execute]));

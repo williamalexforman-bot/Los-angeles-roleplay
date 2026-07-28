@@ -1,0 +1,136 @@
+import { ChatInputCommandInteraction, EmbedBuilder, SlashCommandBuilder } from 'discord.js';
+import { BRAND } from '../config/constants';
+import { createLogoAttachment } from '../utils/embeds';
+
+interface CommandEntry {
+    name: string;
+    description: string;
+    category: string;
+}
+
+const COMMANDS: CommandEntry[] = [
+    // ── Moderation ──
+    { name: '/warn', description: 'Issue a warning to a user with a reason and optional proof', category: 'Moderation' },
+    { name: '/kick', description: 'Kick a user from the server with a reason', category: 'Moderation' },
+    { name: '/ban', description: 'Ban a user from the server with a reason', category: 'Moderation' },
+    { name: '/timeout', description: 'Timeout a user for a specified duration (seconds)', category: 'Moderation' },
+    { name: '/purge', description: 'Bulk delete a specified number of messages', category: 'Moderation' },
+    { name: '/lock', description: 'Lock the current channel to prevent messages', category: 'Moderation' },
+    { name: '/unlock', description: 'Unlock the current channel to allow messages', category: 'Moderation' },
+    { name: '/slowmode', description: 'Set slowmode duration (seconds) for the current channel', category: 'Moderation' },
+    { name: '/punish', description: 'Punish a user (warn/kick/ban) with a case number and DM notification', category: 'Moderation' },
+    { name: '/punishment view', description: 'View punishment history for a user', category: 'Moderation' },
+    { name: '/punishment remove', description: 'Remove/void a punishment by case number', category: 'Moderation' },
+
+    // ── Admin ──
+    { name: '/admin role-add', description: 'Add a role to a user', category: 'Admin' },
+    { name: '/admin role-remove', description: 'Remove a role from a user', category: 'Admin' },
+    { name: '/admin staff-list', description: 'Display a list of all staff members', category: 'Admin' },
+    { name: '/say', description: 'Make the bot say a message in a specified channel', category: 'Admin' },
+    { name: '/prohibited-words', description: 'Manage prohibited words (add/remove/list) for auto-moderation', category: 'Admin' },
+
+    // ── Staff Management ──
+    { name: '/infraction issue', description: 'Issue a new staff infraction with evidence thread', category: 'Staff Management' },
+    { name: '/promotion issue', description: 'Issue and publish a staff promotion', category: 'Staff Management' },
+    { name: '/training-results', description: 'Publish a completed staff training result with scores', category: 'Staff Management' },
+    { name: '/application', description: 'Start or review a staff application', category: 'Staff Management' },
+    { name: '/training', description: 'Manage a training request for a user', category: 'Staff Management' },
+    { name: '/training-result', description: 'Post an authorized legacy/manual training result', category: 'Staff Management' },
+
+    // ── Tickets ──
+    { name: '/ticket-panel', description: 'Post the LARP Help & Support ticket panel with dropdown', category: 'Tickets' },
+    { name: '/ticket-message', description: 'Legacy alias to post the ticket panel', category: 'Tickets' },
+    { name: '/ticket', description: 'Ticket utilities (refresh-user for Bloxlink info)', category: 'Tickets' },
+    { name: '/ticket-add', description: 'Add a user to the current ticket', category: 'Tickets' },
+    { name: '/ticket-remove', description: 'Remove a user from the current ticket', category: 'Tickets' },
+    { name: '/ticket-close', description: 'Close the current ticket', category: 'Tickets' },
+    { name: '/ticket-closerequest', description: 'Close the current ticket with a reason', category: 'Tickets' },
+    { name: '/ticket-claim', description: 'Claim the current ticket for yourself', category: 'Tickets' },
+    { name: '/ticket-rename', description: 'Rename the current ticket channel', category: 'Tickets' },
+    { name: '/ticket-transfer', description: 'Transfer ticket ownership to another user', category: 'Tickets' },
+    { name: '/ticket-reopen', description: 'Reopen a closed ticket', category: 'Tickets' },
+
+    // ── Community ──
+    { name: '/movie-feedback', description: 'Submit feedback about a movie with rating (1-10)', category: 'Community' },
+    { name: '/staff-feedback', description: 'Submit feedback about a staff member with rating', category: 'Community' },
+    { name: '/partnership request', description: 'Post the professional partnership request panel', category: 'Community' },
+    { name: '/staff-complaint', description: 'Submit a private complaint about a staff member', category: 'Community' },
+
+    // ── Game ──
+    { name: '/teamswitch', description: 'Submit an authorized manual ER:LC team-switch report', category: 'Game' },
+
+    // ── Verification ──
+    { name: '/verify-message', description: 'Post the professional LARP ticket verification panel', category: 'Verification' },
+
+    // ── Utility ──
+    { name: '/cmds', description: 'Show this list of all available commands and their descriptions', category: 'Utility' },
+];
+
+const CATEGORY_ORDER = ['Moderation', 'Admin', 'Staff Management', 'Tickets', 'Community', 'Game', 'Verification', 'Utility'];
+const CATEGORY_EMOJIS: Record<string, string> = {
+    'Moderation': '🛡️',
+    'Admin': '⚙️',
+    'Staff Management': '📋',
+    'Tickets': '🎫',
+    'Community': '💬',
+    'Game': '🎮',
+    'Verification': '✅',
+    'Utility': '🔧',
+};
+
+export const data = new SlashCommandBuilder()
+    .setName('cmds')
+    .setDescription('Show a list of all available commands and their descriptions');
+
+export async function execute(interaction: ChatInputCommandInteraction): Promise<void> {
+    await interaction.deferReply();
+
+    try {
+        const grouped = new Map<string, CommandEntry[]>();
+        for (const cmd of COMMANDS) {
+            const list = grouped.get(cmd.category) || [];
+            list.push(cmd);
+            grouped.set(cmd.category, list);
+        }
+
+        const embeds: EmbedBuilder[] = [];
+        let currentEmbed = new EmbedBuilder()
+            .setColor(BRAND.color)
+            .setTitle('📋 LARP Command List')
+            .setDescription('All available commands for **Los Angeles Roleplay**. Use `/cmds` anytime to see this list.')
+            .setThumbnail(BRAND.logoUrl)
+            .setFooter({ text: BRAND.footer })
+            .setTimestamp();
+
+        let fieldCount = 0;
+
+        for (const category of CATEGORY_ORDER) {
+            const cmds = grouped.get(category);
+            if (!cmds || cmds.length === 0) continue;
+
+            const emoji = CATEGORY_EMOJIS[category] || '📌';
+            const value = cmds.map(cmd => `**\`${cmd.name}\`** — ${cmd.description}`).join('\n');
+
+            if (fieldCount >= 25) {
+                embeds.push(currentEmbed);
+                currentEmbed = new EmbedBuilder()
+                    .setColor(BRAND.color)
+                    .setTitle('📋 LARP Command List (continued)')
+                    .setThumbnail(BRAND.logoUrl)
+                    .setFooter({ text: BRAND.footer })
+                    .setTimestamp();
+                fieldCount = 0;
+            }
+
+            currentEmbed.addFields({ name: `${emoji} ${category}`, value, inline: false });
+            fieldCount++;
+        }
+
+        embeds.push(currentEmbed);
+
+        await interaction.editReply({ embeds, files: [createLogoAttachment()] });
+    } catch (error) {
+        console.error('[Cmds] Failed to generate command list.', error);
+        await interaction.editReply({ content: 'Unable to generate the command list right now. Please try again later.' });
+    }
+}
