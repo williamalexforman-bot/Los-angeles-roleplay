@@ -541,7 +541,9 @@ export async function handleCommunityModal(interaction: ModalSubmitInteraction):
             return true;
         }
 
-        const requestEmbed = partnershipEmbed('🤝 Partnership Request', undefined, 0x3b82f6)
+        // Include the full ad inside the embed description (Discord supports up to 4096 chars)
+        const adTruncated = serverAd.length > 4000 ? serverAd.slice(0, 3997) + '...' : serverAd;
+        const requestEmbed = partnershipEmbed('🤝 Partnership Request', `📢 **Advertisement**\n\n${adTruncated}`, 0x3b82f6)
             .addFields(
                 { name: 'Server Name', value: serverName, inline: true },
                 { name: 'Representative', value: representative, inline: true },
@@ -553,13 +555,6 @@ export async function handleCommunityModal(interaction: ModalSubmitInteraction):
             components: partnershipReviewComponents(interaction.user.id),
             allowedMentions: { parse: [] },
         });
-        // Send the server advertisement as a separate message for better visibility
-        if (serverAd) {
-            await destination.send({
-                content: `**📢 Server Advertisement — ${serverName}**\n\n${serverAd}`,
-                allowedMentions: { parse: [] },
-            });
-        }
         await interaction.editReply('Your partnership request was submitted for review.');
         return true;
     } catch (error) {
