@@ -1,24 +1,26 @@
 # Render Blueprint Configuration
 # Deploy on Render: https://render.com
 # Free tier supports this bot 24/7
+#
+# IMPORTANT: After deploying via Blueprint, go to your Render Dashboard,
+# open the "Environment" tab for this service, and add ALL environment
+# variables listed in your .env file (BOT_TOKEN, MONGODB_URI, etc.).
 
 services:
   - type: worker
     name: discord-management-bot
     env: node
     buildCommand: npm install
-    startCommand: node index.js
-    healthCheckPath: /health
+    startCommand: npm start
     numInstances: 1
     plan: free
+    healthCheckPath: /health
     envVars:
       - key: NODE_ENV
         value: production
       - key: BOT_TOKEN
-        sync: false  # Set this in Render dashboard
+        sync: false
       - key: MONGODB_URI
         sync: false
       - key: ENABLE_PRIVILEGED_INTENTS
         value: "true"
-      # Add all other env vars from your .env in the Render dashboard
-
