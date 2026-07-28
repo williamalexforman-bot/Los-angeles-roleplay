@@ -21,11 +21,11 @@ import {
 } from 'discord.js';
 import { markSlashCommandFailed } from '../utils/commandAudit';
 
-const BRAND_COLOR = 0x14b8a6;
+const BRAND_COLOR = 0x3b82f6;
 const PASS_COLOR = 0x22c55e;
 const FAIL_COLOR = 0xef4444;
 const BRAND_FOOTER = 'Los Angeles Roleplay | Realism at its Finest';
-const LOGO_NAME = 'csrp-logo.png';
+const LOGO_NAME = 'larp-logo.png';
 const LOGO_PATH = resolve(__dirname, '..', '..', 'assets', LOGO_NAME);
 
 const TRAINING_RESULTS_CHANNEL_ID = process.env.TRAINING_RESULTS_CHANNEL_ID || '1526490481398124614';

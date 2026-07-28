@@ -9,7 +9,7 @@ import { createLogoAttachment } from '../utils/embeds';
 
 const PROFANITY_LOG_CHANNEL_ID = CHANNEL_IDS.profanityLog;
 const RAID_THREAT_LOG_CHANNEL_ID = CHANNEL_IDS.raidThreatLog;
-const EMBED_COLOR = 0x14b8a6;
+const EMBED_COLOR = 0x3b82f6;
 const EMBED_FOOTER = 'Los Angeles Roleplay | Realism at its Finest';
 const DEDUPE_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_DEDUPE_ENTRIES = 10_000;

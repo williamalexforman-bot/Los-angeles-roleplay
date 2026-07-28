@@ -2,12 +2,12 @@ import path from 'path';
 
 export const BRAND = {
     name: 'Los Angeles Roleplay',
-    color: 0x14b8a6,
+    color: 0x3b82f6,
     footer: 'Los Angeles Roleplay | Realism at its Finest',
     panelFooter: 'Realism at its Finest',
-    logoName: 'csrp-logo.png',
-    logoPath: path.resolve(process.cwd(), 'assets', 'csrp-logo.png'),
-    logoUrl: 'attachment://csrp-logo.png',
+    logoName: 'larp-logo.png',
+    logoPath: path.resolve(process.cwd(), 'assets', 'larp-logo.png'),
+    logoUrl: 'attachment://larp-logo.png',
 } as const;
 
 export const CHANNEL_IDS = {
