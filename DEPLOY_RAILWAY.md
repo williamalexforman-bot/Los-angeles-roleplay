@@ -1,5 +1,18 @@
 # 🚄 Deploy to Railway.app or Render — 24/7 Free Cloud Hosting
 
+> ## ✅ Critical fixes applied (commit `9dcbfb8`)
+> 1. **Build now installs dev dependencies** (`npm install --include=dev`) — Render sets `NODE_ENV=production` during builds, which previously skipped `typescript`, so `npm run build` failed and **no deploy ever actually started**. This was the real reason the bot only ran from your Mac.
+> 2. **Webhook server starts before Discord login** — `/health` now responds immediately, so Render never kills the service during slow logins.
+> 3. **Built-in self keep-alive** — the bot pings its own `/health` URL every 5 minutes using `RENDER_EXTERNAL_URL`, so it stays awake on the free tier **even without UptimeRobot**.
+>
+> ## ⚠️ Most important step: verify Render is actually running it
+> If the bot only worked while your Mac was open, **it was running from your Mac, not Render**.
+> After the redeploy finishes, confirm in the Render dashboard:
+> - Go to **Render Dashboard → your service → Logs**
+> - You must see: `Logged in as Los Angeles Roleplay#3665` and `Webhook server listening on port 3000`
+> - Then **close your Mac completely** and wait 2 minutes — the bot must stay online.
+>
+
 This guide will get your bot running 24/7 in the cloud so you don't need your Mac on.
 
 ---
