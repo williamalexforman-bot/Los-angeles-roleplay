@@ -35,6 +35,11 @@ const RAID_THREAT_RULES: readonly RaidThreatRule[] = [
             /\b(?:the\s+)?raid\s+(?:is\s+)?(?:underway|happening|starting|started)(?:\s+now)?\b/iu,
             /\b(?:everyone|all\s+of\s+you)\s+(?:join|spam|flood|mass[ -]?ping)\b[^\n]{0,80}\b(?:server|channels?)\b/iu,
             /\b(?:mass[ -]?(?:spam|ping)|spam\s+(?:every|all)\s+channels?|flood\s+(?:every|all)\s+channels?)\s+(?:this|the|your)?\s*(?:discord\s+)?server\b/iu,
+            // Extra aggressive patterns for better raid detection
+            /\b(?:let'?s|we(?:'re|\s+are)|gonna|going\s+to)\s+(?:crash|destroy|nuke|flood|spam|mass[ -]?ping)\s+(?:this|the|their|a)\s+(?:server|discord|channel)\b/iu,
+            /\b(?:ping\s+(?:everyone|here|everyone|all)|@everyone|@here)\s+(?:to\s+)?(?:join|raid|spam|flood)\b/iu,
+            /\b(?:nuke|crash|destroy)\s+(?:this|the|their|a)\s+(?:server|discord)\b/iu,
+            /\b(?:spam|flood)\s+(?:the|this|their)\s+(?:chat|server|channels|discord)\s+(?:with|using|and)\b/iu,
         ],
     },
     {
@@ -45,6 +50,12 @@ const RAID_THREAT_RULES: readonly RaidThreatRule[] = [
             /\b(?:i(?:'ll|\s+will)|we(?:'ll|\s+will)|gonna|going\s+to)\s+raid\b/iu,
             /\b(?:join|bring|get)\b[^\n]{0,60}\b(?:people|everyone|members?)\b[^\n]{0,60}\b(?:spam|flood|raid|disrupt)\b/iu,
             /\bcoordinated\s+(?:mass\s+)?(?:disruption|attack|spam|harassment)\b/iu,
+            // Additional medium-confidence patterns
+            /\b(?:mass[ -]?ping|spam\s+ping|ping\s+spam)\b/iu,
+            /\b(?:raid|attack)\s+party|raiding\s+(?:time|party|crew)\b/iu,
+            /\b(?:discord\s+)?(?:raider|attacker)\s+(?:incoming|coming|arriving)\b/iu,
+            /\b(?:ready|prepare|get\s+ready)\s+(?:to|for)\s+(?:raid|attack)\b/iu,
+            /\b(?:invite|bring|call)\s+(?:in|more|everyone|people)\s+(?:to\s+)?(?:raid|spam|flood)\b/iu,
         ],
     },
     {
@@ -54,6 +65,9 @@ const RAID_THREAT_RULES: readonly RaidThreatRule[] = [
             /\b(?:we(?:'re|\s+are)|server\s+is|you(?:'re|\s+are))\s+(?:being\s+)?raided\b/iu,
             /\b(?:someone|they)\s+(?:is|are|said\s+they(?:'re|\s+are|\s+will)|threatened\s+to)\s+raid(?:ing)?\b/iu,
             /\b(?:server\s+raid|raid\s+threat)\b/iu,
+            // Additional low-confidence patterns
+            /\b(?:dm\s+me|add\s+me|message\s+me)\s+(?:for|to)\s+(?:raid|join|attack)\b/iu,
+            /\braid\s+(?:night|day|time|hour)\b/iu,
         ],
     },
 ];

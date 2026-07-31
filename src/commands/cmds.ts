@@ -62,8 +62,14 @@ const COMMANDS: CommandEntry[] = [
     // ── Verification ──
     { name: '/verify-message', description: 'Post the professional LARP ticket verification panel', category: 'Verification' },
 
-    // ── Utility ──
+// ── Utility ──
     { name: '/cmds', description: 'Show this list of all available commands and their descriptions', category: 'Utility' },
+    { name: '/roleplay-log', description: 'Log a roleplay session with details', category: 'Utility' },
+    { name: '/activitycheck start', description: 'Start a staff activity check', category: 'Utility' },
+    { name: '/activitycheck view', description: 'View activity check results', category: 'Utility' },
+    { name: '/activitycheck end', description: 'End the current activity check', category: 'Utility' },
+    { name: '/request-training', description: 'Request a training session (Training Dept only)', category: 'Utility' },
+    { name: '/view-infractions', description: 'View your own infraction count and history', category: 'Utility' },
 ];
 
 const CATEGORY_ORDER = ['Moderation', 'Admin', 'Staff Management', 'Tickets', 'Community', 'Game', 'Verification', 'Utility'];

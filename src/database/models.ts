@@ -160,6 +160,28 @@ const auditEventSchema = new Schema({
     createdAt: { type: Date, default: Date.now },
 });
 
+export interface ActivityCheckRecord {
+    guildId: string;
+    channelId: string;
+    messageId: string;
+    startedById: string;
+    startedAt: Date;
+    endsAt?: Date;
+    active: boolean;
+    voters: Array<{ userId: string; username: string; votedAt: Date }>;
+}
+
+const activityCheckSchema = new Schema<ActivityCheckRecord>({
+    guildId: { type: String, required: true, index: true },
+    channelId: { type: String, required: true },
+    messageId: { type: String, required: true },
+    startedById: { type: String, required: true },
+    startedAt: { type: Date, default: Date.now },
+    endsAt: Date,
+    active: { type: Boolean, default: true },
+    voters: { type: [{ userId: String, username: String, votedAt: { type: Date, default: Date.now } }], default: [] },
+});
+
 const User = model('User', userSchema);
 const Log = model('Log', logSchema);
 const Ticket = model<TicketRecord>('Ticket', ticketSchema);
@@ -168,5 +190,6 @@ const Infraction = model<InfractionRecord>('Infraction', infractionSchema);
 const ErlcState = model('ErlcState', erlcStateSchema);
 const ProhibitedWord = model('ProhibitedWord', prohibitedWordSchema);
 const AuditEvent = model('AuditEvent', auditEventSchema);
+const ActivityCheck = model<ActivityCheckRecord>('ActivityCheck', activityCheckSchema);
 
-export { User, Log, Ticket, Counter, Infraction, ErlcState, ProhibitedWord, AuditEvent };
+export { User, Log, Ticket, Counter, Infraction, ErlcState, ProhibitedWord, AuditEvent, ActivityCheck };

@@ -12,6 +12,10 @@ import { prohibitedWordCommand } from './prohibitedWords';
 import { sayCommand } from './say';
 import { punishmentCommands } from './punishment';
 import { data as cmdsCommandData, execute as executeCmds } from './cmds';
+import { roleplayLogCommand } from './roleplayLog';
+import { activityCheckCommand } from './activityCheck';
+import { requestTrainingCommand } from './requestTraining';
+import { viewInfractionsCommand } from './viewInfractions';
 
 export interface CommandDefinition {
     data: {
@@ -21,8 +25,14 @@ export interface CommandDefinition {
     execute(interaction: ChatInputCommandInteraction): Promise<unknown>;
 }
 
-const retainedStaffCommands = staffCommands.filter(command => ['application', 'training'].includes(command.data.name));
-const retainedMiscCommands = miscCommands.filter(command => !['movie-feedback', 'staff-feedback', 'partnership', 'staff-complaint'].includes(command.data.name));
+const retainedStaffCommands = staffCommands.filter(command =>
+    ['application', 'training'].includes(command.data.name)
+    && !['infraction', 'promotion'].includes(command.data.name),
+);
+const retainedMiscCommands = miscCommands.filter(command =>
+    !['movie-feedback', 'staff-feedback', 'partnership', 'staff-complaint'].includes(command.data.name)
+    && command.data.name !== 'training-result',
+);
 
 export const commandDefinitions: CommandDefinition[] = [
     ...moderationCommands,
@@ -37,6 +47,10 @@ export const commandDefinitions: CommandDefinition[] = [
     sayCommand,
     prohibitedWordCommand,
     ...punishmentCommands,
+    roleplayLogCommand,
+    activityCheckCommand,
+    requestTrainingCommand,
+    viewInfractionsCommand,
     { data: cmdsCommandData, execute: executeCmds as (interaction: ChatInputCommandInteraction) => Promise<unknown> },
 ] as CommandDefinition[];
 

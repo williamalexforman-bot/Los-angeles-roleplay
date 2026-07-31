@@ -26,21 +26,49 @@ import { cleanupStaleTicketReservations } from './services/ticketRepository';
 import { getBloxlinkApiKey, getDiscordBotToken, getOpenAiApiKey, getOpenAiModel } from './config/env';
 import { setDiscordClientForDm } from './commands/punishment';
 
-// Crash-proof error handling — prevents Node.js from exiting on unhandled rejections (Node 24+ default)
+// Crash-proof error handling — keeps the process alive on errors and prevents premature exit
 process.on('unhandledRejection', (reason: unknown) => {
     logger.error(`[Process] Unhandled rejection: ${reason instanceof Error ? reason.message : String(reason)}`);
 });
 process.on('uncaughtException', (error: Error) => {
     logger.error(`[Process] Uncaught exception: ${error.message}`);
+    // Keep the process alive so PM2 / platform can restart gracefully
+    process.exitCode = 1;
+});
+process.on('exit', (code: number) => {
+    logger.info(`[Process] Exiting with code ${code}.`);
 });
 
 // Keep-alive timer to prevent event loop from emptying if all timers/promises resolve
-setInterval(() => {}, 60_000).unref();
+setInterval(() => {}, 60_000);
 
 const enablePrivileged = (process.env.ENABLE_PRIVILEGED_INTENTS || 'false').toLowerCase() === 'true';
 let erlcMonitor: ErlcMonitor | null = null;
 let webhookServer: Server | null = null;
 const rapidJoinStates = new Map<string, { joins: number[]; lastAlertAt: number }>();
+
+let loginRetryCount = 0;
+const MAX_LOGIN_RETRIES = 5;
+
+async function recoverDiscordClient(bot: Client, token: string, privileged: boolean): Promise<void> {
+    logger.info('[Recovery] Attempting to reinitialize the Discord client after disconnection...');
+    try {
+        bot.destroy();
+    } catch {
+        // ignore destroy errors during recovery
+    }
+    const replacement = createConfiguredClient(privileged);
+    (globalThis as Record<string, unknown>).__discordClient = replacement;
+    client = replacement;
+    try {
+        await replacement.login(token);
+        logger.info('[Recovery] Discord client reconnected successfully.');
+        loginRetryCount = 0;
+    } catch (loginError) {
+        logger.error(`[Recovery] Re-login failed: ${loginError instanceof Error ? loginError.message : 'Unknown'}`);
+        throw loginError;
+    }
+}
 
 function createConfiguredClient(privilegedIntents: boolean): Client {
     const intents = [GatewayIntentBits.Guilds];
@@ -51,7 +79,52 @@ function createConfiguredClient(privilegedIntents: boolean): Client {
     }
     const bot = new Client({ intents });
     bot.on('interactionCreate', interactionCreate);
-    bot.on('error', error => logger.error(`Discord client error: ${error.message}`));
+
+    // Auto-reconnect when Discord disconnects (e.g., network interruption, gateway reconnect)
+    bot.on('disconnect', () => {
+        logger.warn('[Recovery] Discord client disconnected. Will attempt to reconnect...');
+        const token = getDiscordBotToken();
+        if (token && loginRetryCount < MAX_LOGIN_RETRIES) {
+            loginRetryCount++;
+            const delay = Math.min(loginRetryCount * 10_000, 60_000);
+            setTimeout(() => {
+                recoverDiscordClient(bot, token, enablePrivileged).catch(recoveryError => {
+                    logger.error(`[Recovery] Reconnect after disconnect failed: ${recoveryError instanceof Error ? recoveryError.message : 'Unknown'}`);
+                });
+            }, delay);
+        }
+    });
+
+    // Reconnection logic on fatal Discord client errors
+    bot.on('error', async (error: Error) => {
+        logger.error(`Discord client error: ${error.message}`);
+        const errorMsg = error.message.toLowerCase();
+        // Trigger reconnection on gateway/disconnect/rate-limit fatal errors
+        if (
+            errorMsg.includes('disallowed intents')
+            || errorMsg.includes('invalid token')
+            || errorMsg.includes('shard')
+            || errorMsg.includes('connection')
+            || errorMsg.includes('timeout')
+            || errorMsg.includes('websocket')
+            || errorMsg.includes('eternal')
+            || errorMsg.includes('rate limit')
+        ) {
+            const token = getDiscordBotToken();
+            if (token && loginRetryCount < MAX_LOGIN_RETRIES) {
+                loginRetryCount++;
+                const delay = Math.min(loginRetryCount * 10_000, 60_000);
+                logger.info(`[Recovery] Will attempt reconnection in ${delay / 1_000}s (attempt ${loginRetryCount}/${MAX_LOGIN_RETRIES})...`);
+                setTimeout(() => {
+                    recoverDiscordClient(bot, token, enablePrivileged).catch(recoveryError => {
+                        logger.error(`[Recovery] Failed to reconnect: ${recoveryError instanceof Error ? recoveryError.message : 'Unknown'}`);
+                    });
+                }, delay);
+            } else if (loginRetryCount >= MAX_LOGIN_RETRIES) {
+                logger.error('[Recovery] Max reconnection attempts reached. The bot will remain offline until restarted manually.');
+            }
+        }
+    });
 
     bot.once(Events.ClientReady, async () => {
         await onReady(bot);
@@ -271,8 +344,25 @@ async function shutdown(signal: string): Promise<void> {
 process.once('SIGINT', () => void shutdown('SIGINT').catch(() => undefined));
 process.once('SIGTERM', () => void shutdown('SIGTERM').catch(() => undefined));
 
-// Bootstrap and never let errors exit the process
-bootstrap().catch(error => {
-    logger.error(`Startup failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-});
+// Startup retry loop — keeps trying to bootstrap so the process never stays dead
+const MAX_BOOTSTRAP_RETRIES = 5;
+
+async function runBootstrapWithRetry(attempt = 1): Promise<void> {
+    try {
+        await bootstrap();
+        logger.info('[Bootstrap] Bot started successfully.');
+    } catch (error) {
+        logger.error(`[Bootstrap] Startup failed (attempt ${attempt}/${MAX_BOOTSTRAP_RETRIES}): ${error instanceof Error ? error.message : 'Unknown error'}`);
+        if (attempt < MAX_BOOTSTRAP_RETRIES) {
+            const delay = Math.min(attempt * 15_000, 60_000);
+            logger.info(`[Bootstrap] Retrying in ${delay / 1_000}s...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            await runBootstrapWithRetry(attempt + 1);
+        } else {
+            logger.error('[Bootstrap] Max retries reached. The bot could not start. Please check environment configuration.');
+        }
+    }
+}
+
+runBootstrapWithRetry();
 

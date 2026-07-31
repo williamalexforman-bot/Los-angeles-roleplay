@@ -14,6 +14,8 @@ import {
 import { safelyGetTicketByChannel } from '../services/ticketRepository';
 import { handleStaffManagementButton, handleStaffManagementModal } from '../commands/staffManagement';
 import { handleCommunityButton, handleCommunityModal } from '../commands/community';
+import { handleActivityCheckButton } from '../commands/activityCheck';
+import { handleTrainingModal } from '../commands/requestTraining';
 import { logSlashCommand, takeSlashCommandFailure } from '../utils/commandAudit';
 import { logger } from '../utils/logger';
 import { TICKET_CATEGORY_IDS } from '../config/constants';
@@ -149,6 +151,7 @@ async function handleChatCommand(interaction: ChatInputCommandInteraction): Prom
 export const interactionCreate = async (interaction: Interaction): Promise<void> => {
     try {
         if (interaction.isButton()) {
+            if (await handleActivityCheckButton(interaction)) return;
             if (await handleCommunityButton(interaction)) return;
             if (await handleTicketButton(interaction)) return;
             if (await handleStaffManagementButton(interaction)) return;
@@ -156,6 +159,7 @@ export const interactionCreate = async (interaction: Interaction): Promise<void>
         }
 
         if (interaction.isModalSubmit()) {
+            if (await handleTrainingModal(interaction)) return;
             if (await handleCommunityModal(interaction)) return;
             if (await handleTicketModal(interaction)) return;
             if (await handleStaffManagementModal(interaction)) return;

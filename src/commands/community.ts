@@ -244,9 +244,10 @@ const staffFeedbackCommand = {
             );
 
             await destination.send({
+                content: `📬 Staff Feedback for <@${staffMember.id}>`,
                 embeds: [publicEmbed],
                 files: [logoAttachment()],
-                allowedMentions: { parse: [] },
+                allowedMentions: { users: [staffMember.id], parse: [] },
             });
 
             const auditWritten = await sendPrivateAudit(

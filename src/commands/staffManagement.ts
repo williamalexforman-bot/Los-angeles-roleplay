@@ -20,6 +20,7 @@ import {
     type ThreadChannel,
 } from 'discord.js';
 import { markSlashCommandFailed } from '../utils/commandAudit';
+import { logger } from '../utils/logger';
 
 const BRAND_COLOR = 0x3b82f6;
 const PASS_COLOR = 0x22c55e;
@@ -349,7 +350,12 @@ function trainingResultCommand() {
                     { name: 'Submitted', value: discordTimestamp() },
                 );
 
-                await destination.send({ embeds: [embed], files: [logoAttachment()], allowedMentions: { parse: [] } });
+                await destination.send({
+                    content: `<@${trainee.id}> — Training Result`,
+                    embeds: [embed],
+                    files: [logoAttachment()],
+                    allowedMentions: { users: [trainee.id], parse: [] },
+                });
                 await interaction.editReply('The training result has been published successfully.');
             } catch (error) {
                 console.error('[Staff Management] Training result submission failed.', error);
@@ -414,6 +420,21 @@ function promotionCommand() {
                     files: [logoAttachment()],
                     allowedMentions: { parse: [], users: [member.id] },
                 });
+
+                // Send DM to the promoted member
+                const dmEmbed = brandedEmbed('🎖️ You Have Been Promoted!')
+                    .setDescription('Congratulations! The high ranking team at Los Angeles Roleplay has issued you a promotion.')
+                    .addFields(
+                        { name: 'New Role', value: `<@&${newRole.id}>`, inline: true },
+                        { name: 'Reason', value: reason },
+                        { name: 'Approved By', value: `<@${approvedBy.id}>`, inline: true },
+                        { name: 'Effective Date', value: effectiveDate, inline: true },
+                        { name: 'Issued By', value: `<@${interaction.user.id}>`, inline: true },
+                    );
+                await member.send({ embeds: [dmEmbed], files: [logoAttachment()] }).catch(() => {
+                    logger.warn(`Could not send promotion DM to ${member.tag} (${member.id}).`);
+                });
+
                 await interaction.editReply(`The promotion for ${member.username} has been published successfully.`);
             } catch (error) {
                 console.error('[Staff Management] Promotion submission failed.', error);
@@ -543,6 +564,7 @@ function infractionCommand() {
                         { name: 'Reason', value: reason },
                         { name: 'Notes', value: notes },
                         { name: 'Expiration', value: expiration },
+                        { name: 'Evidence Thread', value: thread ? thread.url : 'Not available' },
                     );
                     memberNotified = await member
                         .send({ embeds: [notificationEmbed], files: [logoAttachment()] })

@@ -14,7 +14,7 @@ module.exports = {
     apps: [
         {
             name: 'discord-management-bot',
-            script: 'index.js',
+            script: 'dist/index.js',
             cwd: __dirname,
 
             // Auto-restart behavior

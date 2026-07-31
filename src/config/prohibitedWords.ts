@@ -6,11 +6,27 @@
  * test without coupling it to Discord.
  */
 export const prohibitedWords: string[] = [
+    'nigger',
+    'nigha',
+    'nigg',
+    'nig',
+    'niggha',
+    'fuh',
     'fuck',
-    'shit',
-    'bitch',
+    'fuk',
+    'pussy',
+    'ass',
+    'dih',
+    'a$$',
+    'dick',
+    'cunt',
+    'tits',
+    'tit',
+    'titties',
     'asshole',
-    'bastard',
+    'wtf',
+    'syfm',
+    'sybau',
 ];
 
 export function addProhibitedWord(word: string): boolean {
