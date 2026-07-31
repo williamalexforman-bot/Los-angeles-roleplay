@@ -1,6 +1,8 @@
 import { createPublicKey, verify } from 'crypto';
-import { createServer, type IncomingMessage, type ServerResponse } from 'http';
+import { createServer, get as httpGet, type IncomingMessage, type ServerResponse } from 'http';
+import { get as httpsGet } from 'https';
 import { Client, EmbedBuilder } from 'discord.js';
+import { isDatabaseAvailable } from '../database/connection';
 import { BRAND, CHANNEL_IDS } from '../config/constants';
 import { createLogoAttachment } from '../utils/embeds';
 import { logger } from '../utils/logger';
@@ -219,7 +221,14 @@ export function startWebhookServer(client: Client) {
             return;
         }
         if (request.method === 'GET' && request.url === '/health') {
-            respond(response, 200, { ok: true });
+            respond(response, 200, {
+                ok: true,
+                service: 'discord-management-bot',
+                uptime: Math.floor(process.uptime()),
+                discord: client.isReady() ? 'connected' : 'connecting',
+                database: isDatabaseAvailable(),
+                timestamp: new Date().toISOString(),
+            });
             return;
         }
         if (request.method !== 'POST' || !['/roblox-event', '/erlc-event'].includes(request.url || '')) {
@@ -274,5 +283,20 @@ export function startWebhookServer(client: Client) {
 
     server.on('error', error => logger.warn(`Webhook server unavailable: ${error.message}`));
     server.listen(port, () => logger.info(`Webhook server listening on port ${port}.`));
+
+    // Self-keep-alive: Render free tier spins down after ~15 minutes without
+    // inbound traffic. Render injects RENDER_EXTERNAL_URL automatically; we
+    // ping our own public /health endpoint so the service stays awake even
+    // without UptimeRobot.
+    const externalUrl = process.env.RENDER_EXTERNAL_URL || process.env.RENDER_URL || process.env.SELF_URL;
+    if (externalUrl) {
+        const healthUrl = `${externalUrl.replace(/\/+$/, '')}/health`;
+        const requester = healthUrl.startsWith('https') ? httpsGet : httpGet;
+        const pinger = setInterval(() => {
+            requester(healthUrl, res => res.resume()).on('error', () => undefined);
+        }, 5 * 60_000);
+        pinger.unref?.();
+        logger.info(`Keep-alive pinger enabled; will ping ${healthUrl} every 5 minutes.`);
+    }
     return server;
 }

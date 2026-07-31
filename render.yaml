@@ -21,7 +21,10 @@ services:
   - type: web
     name: discord-management-bot
     env: node
-    buildCommand: npm install && npm run build
+    # --include=dev is REQUIRED: Render sets NODE_ENV=production during build,
+    # which makes `npm install` skip devDependencies (typescript, ts-node).
+    # Without them `npm run build` (tsc) fails and the deploy never starts.
+    buildCommand: npm install --include=dev && npm run build
     startCommand: node dist/index.js
     numInstances: 1
     plan: free

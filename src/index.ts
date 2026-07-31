@@ -242,6 +242,16 @@ function createConfiguredClient(privilegedIntents: boolean): Client {
 let client = createConfiguredClient(enablePrivileged);
 
 async function bootstrap(): Promise<void> {
+    // Start the HTTP/webhook server FIRST so platform health checks (/health)
+    // respond immediately. This prevents Render/Railway from treating a slow
+    // or failed Discord login as a dead service (which causes restart loops
+    // and free-tier spin-down).
+    try {
+        webhookServer = startWebhookServer(client);
+    } catch (error) {
+        logger.warn(`Webhook server failed to start: ${error instanceof Error ? error.message : 'Unknown'}`);
+    }
+
     // Wrap every startup step so nothing crashes the process
     await connectDatabase().catch(error => {
         logger.warn(`Database connection failed: ${error instanceof Error ? error.message : 'Unknown'}`);
@@ -315,12 +325,6 @@ async function bootstrap(): Promise<void> {
         ` | Rapid join threshold: 5 joins in 10 seconds, 60s cooldown`
     );
 
-    // Start webhook server — if port is taken, just log and continue
-    try {
-        webhookServer = startWebhookServer(client);
-    } catch (error) {
-        logger.warn(`Webhook server failed to start: ${error instanceof Error ? error.message : 'Unknown'}`);
-    }
 }
 
 async function shutdown(signal: string): Promise<void> {
