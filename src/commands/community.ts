@@ -553,6 +553,7 @@ export async function handleCommunityModal(interaction: ModalSubmitInteraction):
             );
         await destination.send({
             embeds: [requestEmbed],
+            files: [logoAttachment()],
             components: partnershipReviewComponents(interaction.user.id),
             allowedMentions: { parse: [] },
         });

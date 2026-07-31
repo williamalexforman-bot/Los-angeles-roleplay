@@ -463,7 +463,7 @@ function infractionCommand() {
                             .addChoices(...INFRACTION_ACTIONS.map(action => ({ name: action, value: action }))),
                     )
                     .addStringOption(option => option.setName('reason').setDescription('The reason for this infraction').setRequired(true).setMaxLength(1024))
-                    .addStringOption(option => option.setName('notes').setDescription('Notes about this infraction').setRequired(true).setMaxLength(1024))
+                    .addStringOption(option => option.setName('rule-broken').setDescription('The rule that was broken').setRequired(true).setMaxLength(1024))
                     .addStringOption(option => option.setName('evidence').setDescription('Evidence link or supporting information').setMaxLength(1024))
                     .addStringOption(option => option.setName('internal-notes').setDescription('Private notes for authorized staff').setMaxLength(1024))
                     .addBooleanOption(option => option.setName('notify-member').setDescription('Also notify the member by direct message'))
@@ -483,7 +483,7 @@ function infractionCommand() {
                 const member = interaction.options.getUser('member', true);
                 const action = interaction.options.getString('action', true) as InfractionAction;
                 const reason = interaction.options.getString('reason', true);
-                const notes = interaction.options.getString('notes', true);
+                const ruleBroken = interaction.options.getString('rule-broken', true);
                 const evidence = interaction.options.getString('evidence') || 'No evidence supplied.';
                 const internalNotes = interaction.options.getString('internal-notes') || 'No internal notes supplied.';
                 const notifyMember = interaction.options.getBoolean('notify-member') ?? false;
@@ -505,7 +505,7 @@ function infractionCommand() {
                     issuedById: interaction.user.id,
                     action,
                     reason,
-                    ruleBroken: notes,
+                    ruleBroken,
                     evidence,
                     internalNotes,
                     notifyMember,
@@ -562,7 +562,7 @@ function infractionCommand() {
                         .addFields(
                         { name: 'Action', value: action, inline: true },
                         { name: 'Reason', value: reason },
-                        { name: 'Notes', value: notes },
+                        { name: 'Rule Broken', value: ruleBroken },
                         { name: 'Expiration', value: expiration },
                         { name: 'Evidence Thread', value: thread ? thread.url : 'Not available' },
                     );

@@ -223,7 +223,7 @@ async function run(): Promise<void> {
     const panelEmbed = panelSends[0].embeds[0].toJSON();
     assert.equal(panelEmbed.title, 'Help & Support');
     assert.equal(panelEmbed.footer.text, 'Realism at its Finest');
-    assert(panelEmbed.description.includes('Welcome to California State Roleplay support system!'));
+    assert(panelEmbed.description.includes('Welcome to Los Angeles Roleplay support system!'));
     const panelMenu = panelSends[0].components[0].toJSON().components[0];
     assert.equal(panelMenu.custom_id, 'ticket_select');
     assert.equal(panelMenu.placeholder, 'Select a support department');
@@ -257,6 +257,7 @@ async function run(): Promise<void> {
     const exactSayMessage = '**CSRP Announcement**\n@everyone <@1489388257925005508> Please review the update.';
     const sayTarget = {
         id: 'say-target-channel',
+        isTextBased: () => true,
         isSendable: () => true,
         toString: () => '<#say-target-channel>',
         send: async (payload: any) => {
@@ -293,6 +294,7 @@ async function run(): Promise<void> {
         isModalSubmit: () => false,
         isStringSelectMenu: () => false,
         isChatInputCommand: () => true,
+        inGuild: () => false,
     };
     await interactionCreate(authorizedSayInteraction);
     assert.deepEqual(sayPayloads, [{ content: exactSayMessage, allowedMentions: { parse: [] } }]);
@@ -354,11 +356,11 @@ async function run(): Promise<void> {
         ['📍 Where', 'Netflix', true],
     ]);
     assert(moviePublic.fields.some((field: any) => field.name === '⭐ Rating' && field.value === `${'⭐'.repeat(8)}\n**8/10**`));
-    assert.equal(moviePublic.thumbnail.url, 'attachment://csrp-logo.png');
+    assert.equal(moviePublic.thumbnail.url, 'attachment://larp-logo.png');
     assert(moviePublic.footer.text.includes('Submitted by therealstickyz_35430'));
-    assert(moviePublic.footer.text.includes('California State Roleplay | Realism at its Finest'));
+    assert(moviePublic.footer.text.includes('Los Angeles Roleplay | Realism at its Finest'));
     assert(moviePublic.timestamp, 'movie feedback should include its submission timestamp');
-    assert(movieSends[0].payload.files.some((file: any) => file.name === 'csrp-logo.png'));
+    assert(movieSends[0].payload.files.some((file: any) => file.name === 'larp-logo.png'));
     assert(movieAudit.fields.some((field: any) => field.name === 'Discord ID' && field.value === '1489388257925005508'));
     assert(movieAudit.fields.some((field: any) => field.name === 'When' && field.value === 'Every day'));
     assert(movieAudit.fields.some((field: any) => field.name === 'Where' && field.value === 'Netflix'));
@@ -408,7 +410,7 @@ async function run(): Promise<void> {
     assert.equal(trainingSends[1].embeds[0].toJSON().color, 0xef4444, 'Fail training results must be red');
 
     const promotionSends: any[] = [];
-    const promotedMember = { id: '1489388257925005508', username: 'PromotedUser' };
+    const promotedMember = { id: '1489388257925005508', username: 'PromotedUser', send: async () => undefined };
     const approvedBy = { id: '1523122912201277590', username: 'Approver' };
     const selectedRole = { id: '1523122834161926238', name: 'Senior Staff', toString: () => '<@&1523122834161926238>' };
     const promotionInteraction = {
@@ -527,7 +529,7 @@ async function run(): Promise<void> {
     assert.equal(openThreadButton.url, infractionThread.url);
     assert(savedInfraction && savedInfraction.threadId === infractionThread.id);
     assert.equal(savedInfraction.detailMessageId, '1526044664975851777');
-    assert(infractionDetail.embeds[0].toJSON().description.includes('infraction channel'));
+    assert(infractionDetail.embeds[0].toJSON().description.includes('linked evidence thread'));
     const infractionFields = infractionDetail.embeds[0].toJSON().fields;
     assert(infractionFields.some((field: any) => field.name === 'Internal Notes' && field.value === 'Management review complete.'));
     const controlLabels = updatedInfractionDetail.components.flatMap((row: any) => row.toJSON().components.map((button: any) => button.label));
@@ -647,11 +649,11 @@ async function run(): Promise<void> {
         for (const answer of Object.values(answerValues)) {
             assert(submittedText.includes(answer), `${category} opening embeds must retain: ${answer}`);
         }
-        assert(sentPayloads.some(payload => String(payload.content || '').includes('automated CSRP support assistant')));
+        assert(sentPayloads.some(payload => String(payload.content || '').includes('automated LARP support assistant')));
         const controlPayload = sentPayloads.find(payload => payload.content === '**Ticket Controls**');
         assert(controlPayload && controlPayload.components.length >= 2, `${category} controls should be persistent`);
         const welcomeIndex = sentPayloads.findIndex(payload => payload.embeds?.length);
-        const assistantIndex = sentPayloads.findIndex(payload => String(payload.content || '').includes('automated CSRP support assistant'));
+        const assistantIndex = sentPayloads.findIndex(payload => String(payload.content || '').includes('automated LARP support assistant'));
         assert(welcomeIndex > 0 && assistantIndex > welcomeIndex, `${category} controls should appear above the welcome and assistant messages`);
         assert(replies.some(reply => reply.includes('ticket is ready')));
     }
@@ -695,6 +697,7 @@ async function run(): Promise<void> {
         closureChannelSends.push(payload);
         return { id: `closure-message-${closureChannelSends.length}` };
     };
+    closureChannel.delete = async () => undefined;
 
     const archiveSends: any[] = [];
     const archiveChannel = {
@@ -738,7 +741,7 @@ async function run(): Promise<void> {
     const archivedTicket = await getTicketByChannel(closureChannelId);
     assert.equal(archivedTicket?.status, 'closed');
     assert.equal(archivedTicket?.closeReason, 'The member confirmed their question was answered.');
-    assert(closureReplies.some(reply => reply.includes(`<#${CHANNEL_IDS.ticketTranscript}>`)));
+    assert(closureChannelSends.some(send => String(send.content || '').includes(`<#${CHANNEL_IDS.ticketTranscript}>`)));
     await removeTicketRecord(closureChannelId);
 
     const longReason = `${'A'.repeat(1000)} ${'B'.repeat(1000)}\n${'C'.repeat(1500)}`;
@@ -827,7 +830,7 @@ async function run(): Promise<void> {
         channelId: '1526034504953892925',
         id: '1529999999999999991',
         url: 'https://discord.com/channels/789699000047370261/1526034504953892925/1529999999999999991',
-        content: "We're going to raid this Discord server right now. This is shit.",
+        content: "We're going to raid this Discord server right now. This is ass.",
         webhookId: null,
         createdTimestamp: Date.now(),
         createdAt: new Date(),
@@ -925,7 +928,7 @@ async function run(): Promise<void> {
     if (originalOpenAiModel === undefined) delete process.env.OPENAI_MODEL;
     else process.env.OPENAI_MODEL = originalOpenAiModel;
     assert.equal(aiResult.status, 'ok');
-    if (aiResult.status === 'ok') assert(aiResult.reply.includes('Automated CSRP Support Assistant'));
+    if (aiResult.status === 'ok') assert(aiResult.reply.includes('Automated LARP Support Assistant'));
     assert.equal(aiRequestUrl, 'https://api.openai.com/v1/responses');
     assert.equal(new Headers(aiRequestInit?.headers).get('authorization'), 'Bearer test-key');
     assert.equal(JSON.parse(String(aiRequestInit?.body || '{}')).model, DEFAULT_OPENAI_MODEL);
