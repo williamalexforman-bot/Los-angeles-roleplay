@@ -33,6 +33,8 @@ interface PendingLoa {
     reason: string;
     requestedAt: string;
     approvedBy?: string;
+    channelId?: string;
+    messageId?: string;
     timer: NodeJS.Timeout;
 }
 
@@ -69,26 +71,6 @@ function brandedEmbed(title: string, color: number = BRAND.color): EmbedBuilder 
         .setThumbnail(BRAND.logoUrl)
         .setFooter({ text: BRAND.footer })
         .setTimestamp();
-}
-
-function loaRequestPanelEmbed(): EmbedBuilder {
-    return brandedEmbed('📋 Leave of Absence (LOA)')
-        .setDescription(
-            'Taking a **Leave of Absence (LOA)** allows you to step away from your duties while keeping your rank.\n\n'
-            + '**If you want to have an LOA, you must request it.**\n'
-            + 'Click the red **Request LOA** button below and fill out the form with your name, the start and end dates, and the reason for your leave.\n\n'
-            + 'A member of management will review your request and approve or deny it.',
-        );
-}
-
-function requestActionRow(): ActionRowBuilder<ButtonBuilder> {
-    return new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder()
-            .setCustomId('loa:request:open')
-            .setLabel('Request LOA')
-            .setEmoji('📝')
-            .setStyle(ButtonStyle.Danger),
-    );
 }
 
 function reviewActionRows(pendingId: string): ActionRowBuilder<ButtonBuilder>[] {
@@ -164,7 +146,6 @@ function approvedEmbed(active: ActiveLoa): EmbedBuilder {
             { name: 'Name', value: active.name, inline: true },
             { name: 'Start Date', value: dateTimestamp(active.startDate), inline: true },
             { name: 'End Date', value: dateTimestamp(active.endDate), inline: true },
-            { name: 'Reason', value: active.reason },
             { name: 'Approved At', value: dateTimestamp(active.approvedAt), inline: true },
             { name: 'Role', value: `<@&${LOA_ROLE_ID}>`, inline: true },
         );
@@ -189,7 +170,9 @@ async function fetchMember(guildId: string, userId: string, botClient: AnyClient
 
 async function assignLoaRole(member: GuildMember): Promise<boolean> {
     try {
-        if (LOA_ROLE_ID && !member.roles.cache.has(LOA_ROLE_ID)) await member.roles.add(LOA_ROLE_ID, 'LOA approved');
+        if (!LOA_ROLE_ID) return false;
+        await member.roles.add(LOA_ROLE_ID, 'LOA approved');
+        logger.info(`Assigned LOA role (${LOA_ROLE_ID}) to ${member.user.tag} (${member.id}).`);
         return true;
     } catch (error) {
         logger.warn(`Could not assign LOA role to ${member.user.tag} (${member.id}): ${error instanceof Error ? error.message : 'Unknown'}`);
@@ -199,7 +182,9 @@ async function assignLoaRole(member: GuildMember): Promise<boolean> {
 
 async function removeLoaRole(member: GuildMember): Promise<boolean> {
     try {
-        if (LOA_ROLE_ID && member.roles.cache.has(LOA_ROLE_ID)) await member.roles.remove(LOA_ROLE_ID, 'LOA period ended');
+        if (!LOA_ROLE_ID) return false;
+        await member.roles.remove(LOA_ROLE_ID, 'LOA period ended');
+        logger.info(`Removed LOA role (${LOA_ROLE_ID}) from ${member.user.tag} (${member.id}).`);
         return true;
     } catch (error) {
         logger.warn(`Could not remove LOA role from ${member.user.tag} (${member.id}): ${error instanceof Error ? error.message : 'Unknown'}`);
@@ -217,7 +202,7 @@ function scheduleLoaExpiry(active: ActiveLoa, client: AnyClient): void {
         inMemoryActive.delete(active.userId);
         logger.info(`LOA for ${active.memberUsername} (${active.userId}) has expired; LOA role removed.`);
     }, delay);
-    // Allow the timer to keep Node alive for long leaves (up to a safe maximum).
+    // Allow the timer to keep Node alive for short leaves, but not block graceful shutdown on long ones.
     if (delay < 2_147_483_647) timer.unref?.();
     active.expiredAt = new Date(endTime).toISOString();
     active.timer = timer;
@@ -229,11 +214,35 @@ async function sendApprovalConfirmation(member: GuildMember, active: ActiveLoa):
         .addFields(
             { name: 'Start Date', value: dateTimestamp(active.startDate), inline: true },
             { name: 'End Date', value: dateTimestamp(active.endDate), inline: true },
-            { name: 'Reason', value: active.reason },
         );
     await member.send({ embeds: [dmEmbed], files: [createLogoAttachment()] }).catch(() => {
         logger.warn(`Could not send LOA approval DM to ${member.user.tag} (${member.id}).`);
     });
+}
+
+async function sendDenialConfirmation(member: GuildMember, pending: PendingLoa, reviewedBy: string): Promise<void> {
+    const dmEmbed = brandedEmbed('❌ Your LOA Was Denied', 0xef4444)
+        .setDescription(`We are sorry, **${pending.name}**, your Leave of Absence request was not approved.`)
+        .addFields(
+            { name: 'Requested Start', value: dateTimestamp(pending.startDate), inline: true },
+            { name: 'Requested End', value: dateTimestamp(pending.endDate), inline: true },
+            { name: 'Reviewed By', value: `<@${reviewedBy}>`, inline: true },
+        );
+    await member.send({ embeds: [dmEmbed], files: [createLogoAttachment()] }).catch(() => {
+        logger.warn(`Could not send LOA denial DM to ${member.user.tag} (${member.id}).`);
+    });
+}
+
+async function deleteOriginalRequest(pending: PendingLoa, client: AnyClient): Promise<void> {
+    if (!pending.channelId || !pending.messageId) return;
+    try {
+        const channel = await client.channels.fetch(pending.channelId).catch(() => null);
+        if (!channel?.isTextBased()) return;
+        const message = await channel.messages.fetch(pending.messageId).catch(() => null);
+        if (message) await message.delete().catch(() => undefined);
+    } catch {
+        logger.warn(`LOA: could not delete original request message for ${pending.userId}.`);
+    }
 }
 
 export async function handleLoaButton(interaction: ButtonInteraction): Promise<boolean> {
@@ -268,6 +277,9 @@ export async function handleLoaButton(interaction: ButtonInteraction): Promise<b
             clearTimeout(pending.timer);
             inMemoryPending.delete(pendingId);
 
+            // Remove the request message that contains the private reason.
+            await deleteOriginalRequest(pending, interaction.client);
+
             const member = await fetchMember(pending.guildId, pending.userId, interaction.client);
 
             if (action === 'approve') {
@@ -283,8 +295,9 @@ export async function handleLoaButton(interaction: ButtonInteraction): Promise<b
                     expiredAt: '',
                 };
 
+                let roleAssigned = false;
                 if (member) {
-                    await assignLoaRole(member);
+                    roleAssigned = await assignLoaRole(member);
                     await sendApprovalConfirmation(member, active);
                 } else {
                     logger.warn(`LOA approve: member ${pending.userId} not found in guild ${pending.guildId}.`);
@@ -303,23 +316,16 @@ export async function handleLoaButton(interaction: ButtonInteraction): Promise<b
                     });
                 }
 
-                await interaction.editReply(`✅ LOA for **${pending.name}** approved. The member was notified, the LOA role was assigned, and the approved LOA was posted to <#${LOA_REQUEST_CHANNEL_ID}>.`);
+                const roleMessage = roleAssigned ? 'the LOA role was assigned' : '⚠️ the LOA role could NOT be assigned';
+                await interaction.editReply(`✅ LOA for **${pending.name}** approved. The member was notified, ${roleMessage}, and the approved LOA was posted to <#${LOA_REQUEST_CHANNEL_ID}>.`);
                 return true;
             }
 
             if (action === 'deny') {
                 if (member) {
-                    const dmEmbed = brandedEmbed('❌ Your LOA Was Denied', 0xef4444)
-                        .setDescription(`We are sorry, **${pending.name}**, your Leave of Absence request was not approved.`)
-                        .addFields(
-                            { name: 'Requested Start', value: dateTimestamp(pending.startDate), inline: true },
-                            { name: 'Requested End', value: dateTimestamp(pending.endDate), inline: true },
-                            { name: 'Reason Provided', value: pending.reason },
-                            { name: 'Reviewed By', value: `<@${interaction.user.id}>`, inline: true },
-                        );
-                    await member.send({ embeds: [dmEmbed], files: [createLogoAttachment()] }).catch(() => {
-                        logger.warn(`Could not send LOA denial DM to ${member.user.tag} (${member.id}).`);
-                    });
+                    await sendDenialConfirmation(member, pending, interaction.user.id);
+                } else {
+                    logger.warn(`LOA deny: member ${pending.userId} not found in guild ${pending.guildId}.`);
                 }
 
                 const channel = await interaction.client.channels.fetch(LOA_REQUEST_CHANNEL_ID).catch(() => null);
@@ -356,6 +362,10 @@ export async function handleLoaModal(interaction: ModalSubmitInteraction): Promi
         const endDate = interaction.fields.getTextInputValue('end_date').trim();
         const reason = interaction.fields.getTextInputValue('reason').trim();
 
+        if (!interaction.guildId || !interaction.guild) {
+            await interaction.editReply('This command can only be used in a server.');
+            return true;
+        }
         if (!name || !startDate || !endDate || !reason) {
             await interaction.editReply('All fields are required. Please submit the form again.');
             return true;
@@ -363,7 +373,7 @@ export async function handleLoaModal(interaction: ModalSubmitInteraction): Promi
 
         const pendingId = `${interaction.user.id}-${Date.now()}`;
         const pending: PendingLoa = {
-            guildId: interaction.guildId || '',
+            guildId: interaction.guildId,
             userId: interaction.user.id,
             memberUsername: interaction.user.username,
             name,
@@ -385,13 +395,15 @@ export async function handleLoaModal(interaction: ModalSubmitInteraction): Promi
             return true;
         }
 
-        await channel.send({
+        const sent = await channel.send({
             content: `<@${interaction.user.id}>`,
             embeds: [requestEmbed(pending)],
             components: reviewActionRows(pendingId),
             files: [createLogoAttachment()],
             allowedMentions: { parse: [], users: [interaction.user.id] },
         });
+        pending.channelId = channel.id;
+        pending.messageId = sent.id;
 
         await interaction.editReply('✅ Your LOA request has been submitted for review. You will be notified once management decides.');
         return true;
@@ -405,16 +417,11 @@ export async function handleLoaModal(interaction: ModalSubmitInteraction): Promi
 export const loaCommand = {
     data: new SlashCommandBuilder()
         .setName('loa')
-        .setDescription('Manage Leave of Absence requests')
+        .setDescription('Request a Leave of Absence')
         .addSubcommand(subcommand =>
             subcommand
-                .setName('setup')
-                .setDescription('Post the LOA request panel in the current channel'),
-        )
-        .addSubcommand(subcommand =>
-            subcommand
-                .setName('status')
-                .setDescription('View active LOA requests and their status'),
+                .setName('request')
+                .setDescription('Open the Leave of Absence request form'),
         ),
 
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -423,45 +430,12 @@ export const loaCommand = {
         try {
             const subcommand = interaction.options.getSubcommand();
 
-            if (subcommand === 'setup') {
-                if (!interaction.memberPermissions?.has(LOA_MANAGEMENT_PERMISSION)) {
-                    await interaction.editReply('Only management may post the LOA request panel.');
+            if (subcommand === 'request') {
+                if (!interaction.guild) {
+                    await interaction.editReply('This command can only be used in a server.');
                     return;
                 }
-
-                const channel = interaction.channel;
-                if (!channel?.isSendable()) {
-                    await interaction.editReply('This channel cannot receive the LOA panel.');
-                    return;
-                }
-
-                await channel.send({
-                    embeds: [loaRequestPanelEmbed()],
-                    components: [requestActionRow()],
-                    files: [createLogoAttachment()],
-                });
-                await interaction.editReply('✅ The LOA request panel has been posted.');
-                return;
-            }
-
-            if (subcommand === 'status') {
-                if (inMemoryPending.size === 0 && inMemoryActive.size === 0) {
-                    await interaction.editReply('There are no LOA requests currently being tracked.');
-                    return;
-                }
-
-                const lines: string[] = [];
-                for (const loa of inMemoryPending.values()) {
-                    lines.push(`🕐 **Pending:** <@${loa.userId}> — ${loa.name} (${loa.startDate} → ${loa.endDate})`);
-                }
-                for (const loa of inMemoryActive.values()) {
-                    lines.push(`✅ **Active:** <@${loa.userId}> — ${loa.name} (${loa.startDate} → ${loa.endDate})`);
-                }
-
-                await interaction.editReply({
-                    embeds: [brandedEmbed('📋 LOA Status').setDescription(lines.slice(0, 20).join('\n') || 'No LOA requests tracked.')],
-                    files: [createLogoAttachment()],
-                });
+                await interaction.showModal(loaRequestModal());
                 return;
             }
         } catch (error) {

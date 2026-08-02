@@ -1,34 +1,22 @@
-# TODO — LOA System, Activity Check Fix & Infraction Rename
+# TODO — LOA Improvements
 
-## 1. ✅ Activity Check — In-Memory Fallback
-- [x] Add in-memory Map store for activity checks when MongoDB is down
-- [x] Button handler works with in-memory data when DB unavailable
+## 1. ✅ `/loa` Command — replaced `setup`/`status` subcommands with `request` only
+- [x] `/loa request` — opens the LOA request modal directly (no separate management-only setup panel)
+- [x] `/loa setup` and `/loa status` removed from command definition
 
-## 2. ✅ Infraction — Rename `rule-broken` to `notes`
-- [x] Change option `rule-broken` → `notes` in command definition
-- [x] Change `getString('rule-broken')` → `getString('notes')`
-- [x] Update internal field usage/labels
+## 2. ✅ Role Assignment — automatic on approval
+- [x] Assign role `1521593407795888329` to the member when an LOA is approved
+- [x] Log success/failure and reflect it in the staff confirmation message
+- [x] Auto-remove the role when the LOA end date passes (timer-based)
 
-## 3. ✅ LOA System — New `/loa` command
-- [x] Create `src/commands/loa.ts`
-- [x] `/loa setup` — posts LOA request panel (embed + red button)
-- [x] Button → modal (name, start date, end date, reason)
-- [x] Modal submit → sends request to channel 1528206019237515344 with approve/deny buttons
-- [x] Approve — DM user, post confirmation embed, assign role 1521593407795888329
-- [x] Deny — DM user
-- [x] Auto-remove role when end date passes
-- [x] Empty in-memory state cleanup
+## 3. ✅ Privacy — delete original request on review
+- [x] Track the pending request channel + message ID after posting
+- [x] Delete the original request message (with its private reason) when approved or denied
+- [x] Post a clean confirmation embed without the private reason
 
-## 4. ✅ Wire Up
-- [x] Register `loaCommand` in `registry.ts`
-- [x] Add LOA button/modal handlers to `interactionCreate.ts`
-
-## 5. ✅ Tests & Build
-- [x] Update smoke tests for `notes` rename
-- [x] Add LOA smoke tests
+## 4. ✅ Verified
 - [x] `npm run build` passes
-- [x] `npm test` passes
-
-## 6. ✅ Push to GitHub
-- [ ] Commit and push to `origin/main`
+- [x] `npm test` passes (44 commands)
+- [x] Bot restarted, logged in, and registered 44 guild slash commands
+- [x] Push to GitHub
 
