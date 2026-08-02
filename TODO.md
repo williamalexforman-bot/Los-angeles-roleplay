@@ -20,3 +20,20 @@
 - [x] Bot restarted, logged in, and registered 44 guild slash commands
 - [x] Push to GitHub
 
+---
+
+# Custom Status — "Watching [member count] members"
+
+## 1. ✅ Presence Update Logic
+- [x] `updateMemberCountPresence(client)` helper in `src/events/ready.ts`
+- [x] Uses `client.user.setActivity(\`${memberCount} members\`, { type: ActivityType.Watching })`
+- [x] Refreshes via `client.guilds.fetch()` so the count stays accurate without the Server Members Intent
+
+## 2. ✅ Background Refresh — every 5 minutes
+- [x] `setInterval(..., 5 * 60 * 1000)` scheduled in `onReady`
+- [x] Runs once immediately on `onReady` so the status appears at startup
+- [x] Clears any prior timer on reconnect so intervals never stack
+
+## 3. ✅ Verified
+- [x] `npm run build` passes
+
