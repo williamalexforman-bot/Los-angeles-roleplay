@@ -16,6 +16,7 @@ import { handleStaffManagementButton, handleStaffManagementModal } from '../comm
 import { handleCommunityButton, handleCommunityModal } from '../commands/community';
 import { handleActivityCheckButton } from '../commands/activityCheck';
 import { handleTrainingModal } from '../commands/requestTraining';
+import { handleLoaButton, handleLoaModal } from '../commands/loa';
 import { logSlashCommand, takeSlashCommandFailure } from '../utils/commandAudit';
 import { logger } from '../utils/logger';
 import { TICKET_CATEGORY_IDS } from '../config/constants';
@@ -155,6 +156,7 @@ export const interactionCreate = async (interaction: Interaction): Promise<void>
             if (await handleCommunityButton(interaction)) return;
             if (await handleTicketButton(interaction)) return;
             if (await handleStaffManagementButton(interaction)) return;
+            if (await handleLoaButton(interaction)) return;
             return;
         }
 
@@ -163,6 +165,7 @@ export const interactionCreate = async (interaction: Interaction): Promise<void>
             if (await handleCommunityModal(interaction)) return;
             if (await handleTicketModal(interaction)) return;
             if (await handleStaffManagementModal(interaction)) return;
+            if (await handleLoaModal(interaction)) return;
             return;
         }
 

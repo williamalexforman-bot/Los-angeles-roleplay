@@ -44,7 +44,7 @@ import { DEFAULT_OPENAI_MODEL, getBloxlinkApiKey, getOpenAiApiKey } from '../src
 async function run(): Promise<void> {
     const names = commandDefinitions.map(command => command.data.name);
     assert.equal(new Set(names).size, names.length, 'slash command names must be unique');
-    for (const required of ['ticket-panel', 'ticket', 'movie-feedback', 'staff-feedback', 'partnership', 'staff-complaint', 'training-results', 'promotion', 'infraction', 'prohibited-word', 'say']) {
+    for (const required of ['ticket-panel', 'ticket', 'movie-feedback', 'staff-feedback', 'partnership', 'staff-complaint', 'training-results', 'promotion', 'infraction', 'prohibited-word', 'say', 'loa', 'activitycheck', 'request-training', 'roleplay-log']) {
         assert(names.includes(required), `missing /${required}`);
     }
     for (const command of commandDefinitions) assert.doesNotThrow(() => command.data.toJSON());
@@ -163,7 +163,7 @@ async function run(): Promise<void> {
         options: Array<{ name: string; options?: Array<{ name: string }> }>;
     };
     const issueOptions = infractionSchema.options.find(option => option.name === 'issue')?.options || [];
-    for (const optionName of ['member', 'action', 'reason', 'rule-broken', 'evidence', 'internal-notes', 'notify-member', 'expiration']) {
+for (const optionName of ['member', 'action', 'reason', 'notes', 'evidence', 'internal-notes', 'notify-member', 'expiration']) {
         assert(issueOptions.some(option => option.name === optionName), `missing /infraction issue ${optionName}`);
     }
 
@@ -504,7 +504,7 @@ async function run(): Promise<void> {
             getString: (name: string) => ({
                 action: 'Warning',
                 reason: 'Repeated policy violation.',
-                'rule-broken': 'Staff Conduct 2.1',
+notes: 'Staff Conduct 2.1',
                 evidence: 'https://evidence.example/case',
                 'internal-notes': 'Management review complete.',
                 expiration: '30 days',
@@ -697,7 +697,6 @@ async function run(): Promise<void> {
         closureChannelSends.push(payload);
         return { id: `closure-message-${closureChannelSends.length}` };
     };
-    closureChannel.delete = async () => undefined;
 
     const archiveSends: any[] = [];
     const archiveChannel = {

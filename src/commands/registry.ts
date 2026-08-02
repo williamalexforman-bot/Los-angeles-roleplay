@@ -16,6 +16,7 @@ import { roleplayLogCommand } from './roleplayLog';
 import { activityCheckCommand } from './activityCheck';
 import { requestTrainingCommand } from './requestTraining';
 import { viewInfractionsCommand } from './viewInfractions';
+import { loaCommand } from './loa';
 
 export interface CommandDefinition {
     data: {
@@ -51,6 +52,7 @@ export const commandDefinitions: CommandDefinition[] = [
     activityCheckCommand,
     requestTrainingCommand,
     viewInfractionsCommand,
+    loaCommand,
     { data: cmdsCommandData, execute: executeCmds as (interaction: ChatInputCommandInteraction) => Promise<unknown> },
 ] as CommandDefinition[];
 

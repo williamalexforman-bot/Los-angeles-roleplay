@@ -1,48 +1,34 @@
-# Feature Implementation & Fixes
+# TODO — LOA System, Activity Check Fix & Infraction Rename
 
-## ✅ Bot Shutdown Fixes (Completed)
+## 1. ✅ Activity Check — In-Memory Fallback
+- [x] Add in-memory Map store for activity checks when MongoDB is down
+- [x] Button handler works with in-memory data when DB unavailable
 
-## ✅ New Features & Fixes (Completed)
+## 2. ✅ Infraction — Rename `rule-broken` to `notes`
+- [x] Change option `rule-broken` → `notes` in command definition
+- [x] Change `getString('rule-broken')` → `getString('notes')`
+- [x] Update internal field usage/labels
 
-### 1. ✅ `/roleplay-log` Command
-- New file: `src/commands/roleplayLog.ts`
-- Sends branded embed to channel `1532141552108048514`
-- Fields: Username(s), Type of Roleplay, Location, Permission Expires At, Log created by, auto timestamp
+## 3. ✅ LOA System — New `/loa` command
+- [x] Create `src/commands/loa.ts`
+- [x] `/loa setup` — posts LOA request panel (embed + red button)
+- [x] Button → modal (name, start date, end date, reason)
+- [x] Modal submit → sends request to channel 1528206019237515344 with approve/deny buttons
+- [x] Approve — DM user, post confirmation embed, assign role 1521593407795888329
+- [x] Deny — DM user
+- [x] Auto-remove role when end date passes
+- [x] Empty in-memory state cleanup
 
-### 2. ✅ `/activitycheck` Command Suite
-- New file: `src/commands/activityCheck.ts`
-- `/activitycheck start` — pings role `1521593407791825036`, creates embed with "I'm Active" button, optional end time
-- Button "I'm Active" — logs voter to MongoDB
-- `/activitycheck view` — shows results including voter list
-- `/activitycheck end` — ends check, disables button, updates embed
-- MongoDB model `ActivityCheck` added to `src/database/models.ts`
+## 4. ✅ Wire Up
+- [x] Register `loaCommand` in `registry.ts`
+- [x] Add LOA button/modal handlers to `interactionCreate.ts`
 
-### 3. ✅ `/request-training` Command
-- New file: `src/commands/requestTraining.ts`
-- Restricted to Training Department role `1524013351850737835`
-- Modal asks for timezone + preferred training time
-- Sends branded embed to channel `1526488294945198150` pinging role `1521593407795888330`
+## 5. ✅ Tests & Build
+- [x] Update smoke tests for `notes` rename
+- [x] Add LOA smoke tests
+- [x] `npm run build` passes
+- [x] `npm test` passes
 
-### 4. ✅ Training Results — Pings Trainee
-- Edit: `src/commands/staffManagement.ts`
-- Added `content: `<@${trainee.id}>`` + `allowedMentions: { users: [trainee.id] }`
-
-### 5. ✅ Staff Feedback — Pings Staff Member
-- Edit: `src/commands/community.ts`
-- Added `content: `📬 Staff Feedback for <@${staffMember.id}>`` + `allowedMentions: { users: [staffMember.id] }`
-
-### 6. ✅ Updated Prohibited Words
-- Edit: `src/config/prohibitedWords.ts` — Full new list (nigger, nigha, nigg, nig, niggha, fuh, fuck, fuk, pussy, ass, dih, a$$, dick, cunt, tits, tit, titties, asshole, wtf, syfm, sybau)
-
-### 7. ✅ Improved Raid Detection
-- Edit: `src/events/messageModeration.ts`
-- Added High: crash/destroy/nuke patterns, ping-everyone-to-raid, spam/flood chat with
-- Added Medium: mass ping, raid party, raider incoming, prepare to raid, invite people to raid
-- Added Low: dm me for raid, raid night patterns
-
-### 8. ✅ Registration + Wiring
-- Updated `src/commands/registry.ts` — imported and registered all 3 new commands
-- Updated `src/handlers/interactionCreate.ts` — added activity check button + training modal handlers
-
-### 9. ✅ TypeScript Compilation — PASSED (no errors)
+## 6. ✅ Push to GitHub
+- [ ] Commit and push to `origin/main`
 
