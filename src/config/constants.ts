@@ -21,6 +21,7 @@ export const CHANNEL_IDS = {
     discordCommandLog: process.env.DISCORD_COMMAND_LOG_CHANNEL_ID || '1528917592604020917',
     erlcTeamChangeLog: process.env.ERLC_TEAM_CHANGE_LOG_CHANNEL_ID || '1528917232153923635',
     erlcPunishmentLog: process.env.ERLC_PUNISHMENT_LOG_CHANNEL_ID || '1528917189699043439',
+    sessionAnnouncements: process.env.SESSION_ANNOUNCEMENT_CHANNEL_ID || '1526036392147423404',
     trainingResults: process.env.TRAINING_RESULTS_CHANNEL_ID || '1526490481398124614',
     infractionParent: process.env.INFRACTION_PARENT_CHANNEL_ID || '1526044664975851642',
     staffFeedback: process.env.STAFF_FEEDBACK_CHANNEL_ID || '1526041844515868745',

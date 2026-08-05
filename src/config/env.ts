@@ -11,7 +11,7 @@ const PLACEHOLDER_SECRET = /^(?:your(?:[_ -].*)?|replace(?:[_ -]?me)?|change(?:[
  * whitespace and placeholder handling. Values such as `your_openai_api_key`
  * are documentation examples, not valid runtime configuration.
  */
-export function getConfiguredSecret(name: 'OPENAI_API_KEY' | 'BLOXLINK_API_KEY'): string | undefined {
+export function getConfiguredSecret(name: 'OPENAI_API_KEY' | 'BLOXLINK_API_KEY' | 'MELONY_API_KEY'): string | undefined {
     const value = process.env[name]?.trim();
     if (!value || PLACEHOLDER_SECRET.test(value)) return undefined;
     return value;
@@ -23,6 +23,22 @@ export function getOpenAiApiKey(): string | undefined {
 
 export function getBloxlinkApiKey(): string | undefined {
     return getConfiguredSecret('BLOXLINK_API_KEY');
+}
+
+export function getMelonyApiKey(): string | undefined {
+    return getConfiguredSecret('MELONY_API_KEY');
+}
+
+export function getMelonyApiUrl(): string | undefined {
+    const value = process.env.MELONY_API_URL?.trim();
+    if (!value) return undefined;
+    return value;
+}
+
+export function getInGameApiUrl(): string | undefined {
+    const value = process.env.INGAME_API_URL?.trim();
+    if (!value) return undefined;
+    return value;
 }
 
 export function getOpenAiModel(): string {
@@ -56,6 +72,8 @@ const config = {
     BOT_PERMISSIONS_ROLE_ID: process.env.BOT_PERMISSIONS_ROLE_ID,
     EMERGENCY_STAFF_ROLE_ID: process.env.EMERGENCY_STAFF_ROLE_ID,
     BLOXLINK_API_KEY: getBloxlinkApiKey(),
+    MELONY_API_KEY: getMelonyApiKey(),
+    MELONY_API_URL: getMelonyApiUrl(),
     ERLC_SERVER_KEY: process.env.ERLC_SERVER_KEY,
     OPENAI_API_KEY: getOpenAiApiKey(),
     OPENAI_MODEL: getOpenAiModel(),

@@ -169,10 +169,37 @@ function createConfiguredClient(privilegedIntents: boolean): Client {
     });
 
     if (privilegedIntents) {
+        const formatRoleSummary = (roles: readonly string[] | Set<string>, guildRoles: Map<string, string>): string => {
+            const ids = Array.isArray(roles) ? roles : [...roles];
+            const visible = ids.filter(id => id !== guildRoles.get('everyone')).slice(0, 12);
+            if (!visible.length) return 'None';
+            return visible.map(roleId => `<@&${roleId}>`).join(' • ');
+        };
+
+        const accountCreatedField = (userId: string): { name: string; value: string; inline: true } => {
+            const timestamp = Math.floor(Number(BigInt(userId) >> 22n) / 1000);
+            return { name: 'Account Created', value: `<t:${timestamp}:F> • <t:${timestamp}:R>`, inline: true };
+        };
+
         bot.on('guildMemberAdd', async member => {
             const joinChannelId = process.env.JOIN_LOG_CHANNEL_ID || '1529283685168447698';
             const joinChannel = await member.client.channels.fetch(joinChannelId).catch(() => null);
-            if (joinChannel?.isSendable()) await joinChannel.send(`${member.user.tag} joined the server.`).catch(() => undefined);
+            const embed = new EmbedBuilder()
+                .setColor(BRAND.color)
+                .setTitle('Member Joined')
+                .setDescription(`<@${member.id}> has joined the server.`)
+                .setThumbnail(member.user.displayAvatarURL())
+                .addFields(
+                    { name: 'Discord Tag', value: member.user.tag, inline: true },
+                    accountCreatedField(member.id),
+                    { name: 'Joined Server', value: member.joinedAt ? `<t:${Math.floor(member.joinedAt.getTime() / 1000)}:F>` : 'Unknown', inline: true },
+                )
+                .setFooter({ text: BRAND.footer })
+                .setTimestamp();
+
+            if (joinChannel?.isSendable()) {
+                await joinChannel.send({ embeds: [embed], files: [createLogoAttachment()] }).catch(() => undefined);
+            }
 
             const now = Date.now();
             const state = rapidJoinStates.get(member.guild.id) || { joins: [], lastAlertAt: 0 };
@@ -185,7 +212,7 @@ function createConfiguredClient(privilegedIntents: boolean): Client {
             const raidChannel = await member.client.channels.fetch(CHANNEL_IDS.raidThreatLog).catch(() => null);
             if (!raidChannel?.isSendable()) return;
             const emergencyRoleId = process.env.EMERGENCY_STAFF_ROLE_ID;
-            const embed = new EmbedBuilder()
+            const alertEmbed = new EmbedBuilder()
                 .setColor(BRAND.color)
                 .setTitle('Rapid Join Alert')
                 .setDescription('A burst of new members may require staff review. No automatic moderation action was taken.')
@@ -198,7 +225,7 @@ function createConfiguredClient(privilegedIntents: boolean): Client {
                 .setTimestamp();
             await raidChannel.send({
                 content: emergencyRoleId ? `<@&${emergencyRoleId}>` : undefined,
-                embeds: [embed],
+                embeds: [alertEmbed],
                 files: [createLogoAttachment()],
                 allowedMentions: emergencyRoleId ? { roles: [emergencyRoleId] } : { parse: [] },
             }).catch(() => undefined);
@@ -207,7 +234,24 @@ function createConfiguredClient(privilegedIntents: boolean): Client {
         bot.on('guildMemberRemove', async member => {
             const leaveChannelId = process.env.LEAVE_LOG_CHANNEL_ID || '1529283711466606815';
             const leaveChannel = await member.client.channels.fetch(leaveChannelId).catch(() => null);
-            if (leaveChannel?.isSendable()) await leaveChannel.send(`${member.user.tag} left the server.`).catch(() => undefined);
+            const roles = member.roles.cache
+                ? Array.from(member.roles.cache.keys()).filter(roleId => roleId !== member.guild.roles.everyone.id)
+                : [];
+            const leaveEmbed = new EmbedBuilder()
+                .setColor(0xf59e0b)
+                .setTitle('Member Left')
+                .setDescription(`<@${member.id}> has left the server.`)
+                .setThumbnail(member.user.displayAvatarURL())
+                .addFields(
+                    { name: 'Discord Tag', value: member.user.tag, inline: true },
+                    accountCreatedField(member.id),
+                    { name: 'Roles Before Leave', value: roles.length ? roles.map(roleId => `<@&${roleId}>`).join(' • ') : 'None', inline: false },
+                )
+                .setFooter({ text: BRAND.footer })
+                .setTimestamp();
+            if (leaveChannel?.isSendable()) {
+                await leaveChannel.send({ embeds: [leaveEmbed], files: [createLogoAttachment()] }).catch(() => undefined);
+            }
 
             try {
                 const logs = await member.guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.MemberKick });
@@ -215,18 +259,60 @@ function createConfiguredClient(privilegedIntents: boolean): Client {
                 if (entry?.targetId !== member.id) return;
                 const kickChannelId = process.env.DISCORD_KICK_LOG_CHANNEL_ID || '1529286532706467922';
                 const kickChannel = await member.client.channels.fetch(kickChannelId).catch(() => null);
-                if (kickChannel?.isSendable()) {
-                    await kickChannel.send(`${member.user.tag} was kicked by <@${entry.executor?.id}>.`).catch(() => undefined);
-                }
+                if (!kickChannel?.isSendable()) return;
+
+                const kickEmbed = new EmbedBuilder()
+                    .setColor(0xef4444)
+                    .setTitle('Member Kicked')
+                    .setDescription(`<@${member.id}> was kicked by <@${entry.executor?.id}>.`)
+                    .setThumbnail(member.user.displayAvatarURL())
+                    .addFields(
+                        { name: 'Discord Tag', value: member.user.tag, inline: true },
+                        accountCreatedField(member.id),
+                        { name: 'Kick Reason', value: entry.reason ? entry.reason : 'Unspecified', inline: false },
+                        { name: 'Roles Before Kick', value: roles.length ? roles.map(roleId => `<@&${roleId}>`).join(' • ') : 'None', inline: false },
+                    )
+                    .setFooter({ text: BRAND.footer })
+                    .setTimestamp();
+                await kickChannel.send({ embeds: [kickEmbed], files: [createLogoAttachment()] }).catch(() => undefined);
             } catch {
-                // Missing audit-log permissions should not interrupt other member events.
+                // Ignore audit-log failures.
             }
         });
 
         bot.on('guildBanAdd', async ban => {
             const banChannelId = process.env.DISCORD_BAN_LOG_CHANNEL_ID || '1529286560271306995';
             const channel = await ban.client.channels.fetch(banChannelId).catch(() => null);
-            if (channel?.isSendable()) await channel.send(`${ban.user.tag} was banned.`).catch(() => undefined);
+            if (!channel?.isSendable()) return;
+            let bannedBy = 'Unknown';
+            let reason = 'Unspecified';
+
+            try {
+                const logs = await ban.guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.MemberBanAdd });
+                const entry = logs.entries.first();
+                if (entry?.targetId === ban.user.id) {
+                    bannedBy = entry.executor ? `<@${entry.executor.id}>` : 'Unknown';
+                    if (entry.reason) reason = entry.reason;
+                }
+            } catch {
+                // ignore
+            }
+
+            const banEmbed = new EmbedBuilder()
+                .setColor(0xdc2626)
+                .setTitle('Member Banned')
+                .setDescription(`<@${ban.user.id}> was banned from the server.`)
+                .setThumbnail(ban.user.displayAvatarURL())
+                .addFields(
+                    { name: 'Discord Tag', value: ban.user.tag, inline: true },
+                    accountCreatedField(ban.user.id),
+                    { name: 'Banned By', value: bannedBy, inline: true },
+                    { name: 'Ban Reason', value: reason, inline: false },
+                )
+                .setFooter({ text: BRAND.footer })
+                .setTimestamp();
+
+            await channel.send({ embeds: [banEmbed], files: [createLogoAttachment()] }).catch(() => undefined);
         });
 
         bot.on('messageCreate', async message => {

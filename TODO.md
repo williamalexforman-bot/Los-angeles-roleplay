@@ -1,4 +1,4 @@
-# TODO — LOA Improvements
+TODO — LOA Improvements
 
 ## 1. ✅ `/loa` Command — replaced `setup`/`status` subcommands with `request` only
 - [x] `/loa request` — opens the LOA request modal directly (no separate management-only setup panel)

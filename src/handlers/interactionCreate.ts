@@ -28,7 +28,11 @@ const TICKET_COMMAND_NAMES = new Set([
     'ticket-closerequest',
 ]);
 
-const MANAGEMENT_COMMANDS = new Set(['infraction', 'promotion', 'training-results', 'training-result', 'request-training', 'teamswitch', 'punishment']);
+const MANAGEMENT_COMMANDS = new Set([
+    'infraction', 'promotion', 'training-results', 'training-result',
+    'request-training', 'teamswitch', 'punishment',
+    'session-start', 'session-end', 'session-full', 'session-boost',
+]);
 const MODERATION_PERMISSIONS = new Map<string, bigint>([
     ['punish', PermissionFlagsBits.ModerateMembers],
     ['warn', PermissionFlagsBits.ModerateMembers],

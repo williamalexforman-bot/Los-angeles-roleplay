@@ -4,6 +4,7 @@ import { adminCommands } from './admin';
 import { staffCommands } from './staff';
 import { miscCommands } from './misc';
 import { gameCommands } from './game';
+import sessionCommands from './sessions';
 import { ticketCommandDefinitions } from './tickets';
 import { data as verificationCommandData, execute as executeVerification } from './verification';
 import { communityCommands } from './community';
@@ -42,6 +43,7 @@ export const commandDefinitions: CommandDefinition[] = [
     ...retainedStaffCommands,
     ...retainedMiscCommands,
     ...gameCommands,
+    ...sessionCommands,
     ...ticketCommandDefinitions,
     ...communityCommands,
     ...staffManagementCommands,
