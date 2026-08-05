@@ -1,4 +1,8 @@
 import {
+    ActionRowBuilder,
+    ButtonInteraction,
+    ButtonStyle,
+    ButtonBuilder,
     ChatInputCommandInteraction,
     GuildMember,
     Interaction,
@@ -17,6 +21,7 @@ import { handleCommunityButton, handleCommunityModal } from '../commands/communi
 import { handleActivityCheckButton } from '../commands/activityCheck';
 import { handleTrainingModal } from '../commands/requestTraining';
 import { handleLoaButton, handleLoaModal } from '../commands/loa';
+import { handleSessionNotifyButton, handleSessionVoteButton } from '../commands/sessions';
 import { logSlashCommand, takeSlashCommandFailure } from '../utils/commandAudit';
 import { logger } from '../utils/logger';
 import { TICKET_CATEGORY_IDS } from '../config/constants';
@@ -31,7 +36,7 @@ const TICKET_COMMAND_NAMES = new Set([
 const MANAGEMENT_COMMANDS = new Set([
     'infraction', 'promotion', 'training-results', 'training-result',
     'request-training', 'teamswitch', 'punishment',
-    'session-start', 'session-end', 'session-full', 'session-boost',
+    'session-start', 'session-end', 'session-full', 'session-boost', 'session-role',
 ]);
 const MODERATION_PERMISSIONS = new Map<string, bigint>([
     ['punish', PermissionFlagsBits.ModerateMembers],
@@ -160,6 +165,8 @@ export const interactionCreate = async (interaction: Interaction): Promise<void>
             if (await handleCommunityButton(interaction)) return;
             if (await handleTicketButton(interaction)) return;
             if (await handleStaffManagementButton(interaction)) return;
+            if (await handleSessionNotifyButton(interaction)) return;
+            if (await handleSessionVoteButton(interaction)) return;
             if (await handleLoaButton(interaction)) return;
             return;
         }

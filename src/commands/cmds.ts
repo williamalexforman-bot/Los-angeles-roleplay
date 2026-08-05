@@ -56,8 +56,14 @@ const COMMANDS: CommandEntry[] = [
     { name: '/partnership request', description: 'Post the professional partnership request panel', category: 'Community' },
     { name: '/staff-complaint', description: 'Submit a private complaint about a staff member', category: 'Community' },
 
-    // ── Game ──
+// ── Game ──
     { name: '/teamswitch', description: 'Submit an authorized manual ER:LC team-switch report', category: 'Game' },
+    { name: '/session-start', description: 'Announce a new session start with a join link', category: 'Game' },
+    { name: '/session-end', description: 'Announce that the current session has ended', category: 'Game' },
+    { name: '/session-full', description: 'Announce that the session is full', category: 'Game' },
+    { name: '/session-boost', description: 'Announce a session boost or special event', category: 'Game' },
+    { name: '/session-role add', description: 'Add the session notification role to a user', category: 'Game' },
+    { name: '/session-role remove', description: 'Remove the session notification role from a user', category: 'Game' },
 
     // ── Verification ──
     { name: '/verify-message', description: 'Post the professional LARP ticket verification panel', category: 'Verification' },

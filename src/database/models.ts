@@ -182,6 +182,28 @@ const activityCheckSchema = new Schema<ActivityCheckRecord>({
     voters: { type: [{ userId: String, username: String, votedAt: { type: Date, default: Date.now } }], default: [] },
 });
 
+export interface SessionVoteRecord {
+    guildId: string;
+    channelId: string;
+    messageId: string;
+    startedById: string;
+    startedAt: Date;
+    active: boolean;
+    requiredVotes: number;
+    voters: Array<{ userId: string; username: string; votedAt: Date }>;
+}
+
+const sessionVoteSchema = new Schema<SessionVoteRecord>({
+    guildId: { type: String, required: true, index: true },
+    channelId: { type: String, required: true },
+    messageId: { type: String, required: true },
+    startedById: { type: String, required: true },
+    startedAt: { type: Date, default: Date.now },
+    active: { type: Boolean, default: true },
+    requiredVotes: { type: Number, required: true, default: 18 },
+    voters: { type: [{ userId: String, username: String, votedAt: { type: Date, default: Date.now } }], default: [] },
+});
+
 const User = model('User', userSchema);
 const Log = model('Log', logSchema);
 const Ticket = model<TicketRecord>('Ticket', ticketSchema);
@@ -191,5 +213,6 @@ const ErlcState = model('ErlcState', erlcStateSchema);
 const ProhibitedWord = model('ProhibitedWord', prohibitedWordSchema);
 const AuditEvent = model('AuditEvent', auditEventSchema);
 const ActivityCheck = model<ActivityCheckRecord>('ActivityCheck', activityCheckSchema);
+const SessionVote = model<SessionVoteRecord>('SessionVote', sessionVoteSchema);
 
-export { User, Log, Ticket, Counter, Infraction, ErlcState, ProhibitedWord, AuditEvent, ActivityCheck };
+export { User, Log, Ticket, Counter, Infraction, ErlcState, ProhibitedWord, AuditEvent, ActivityCheck, SessionVote };
