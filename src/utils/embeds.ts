@@ -104,7 +104,16 @@ export const createSessionEmbed = (
     color: ColorResolvable = BRAND.color,
     emblemType: SessionEmblemType = 'start',
 ) => {
+    // Main embed gets the TOP banner via .setImage() (BIG, full-width).
     const bannerUrl = resolveTopBannerUrl(emblemType);
+
+    // Validation log so you can confirm the URL is never undefined/empty.
+    if (!bannerUrl || bannerUrl === 'attachment://undefined') {
+        console.warn(`[session] TOP_BANNER URL missing for emblemType="${emblemType}" -> "${bannerUrl}"`);
+    } else {
+        console.log(`[session] TOP_BANNER for "${title}" -> ${bannerUrl}`);
+    }
+
     return new EmbedBuilder()
         .setColor(color)
         .setTitle(title)
