@@ -1,12 +1,23 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonInteraction, ButtonStyle, ChatInputCommandInteraction, GuildMember, MessageFlags, SlashCommandBuilder, TextChannel } from 'discord.js';
-import { createSessionAttachments, createSessionEmbed, SessionEmblemType } from '../utils/embeds';
+import { createSessionAttachments, createSessionEmbed, createUnderbannerEmbed, resolveTopBannerUrl, SessionEmblemType } from '../utils/embeds';
 import { getMelonyApiKey, getMelonyApiUrl, getInGameApiUrl } from '../config/env';
-import { BRAND, CHANNEL_IDS } from '../config/constants';
+import { CHANNEL_IDS } from '../config/constants';
 import { isDatabaseAvailable } from '../database/connection';
 import { SessionVote as SessionVoteModel, type SessionVoteRecord } from '../database/models';
 
 const SESSION_ROLE_ID = process.env.SESSION_ROLE_ID || '1521593407749754990';
+const SESSION_FOOTER = 'Los Angeles Roleplay | Realism at its Finest';
+const GAME = 'Los Angeles Roleplay';
 const DEFAULT_JOIN_LINK = 'https://erlc.gg/join/LARPSRF';
+
+// Embed colors for each session type.
+const SESSION_COLORS = {
+    start: 0x3b82f6,
+    end: 0xef4444,
+    full: 0xf59e0b,
+    boost: 0x8b5cf6,
+    vote: 0x3b82f6,
+} as const;
 
 interface InMemorySessionVote {
     id: string;
@@ -24,7 +35,8 @@ const inMemorySessionVotes = new Map<string, InMemorySessionVote>();
 const inMemoryActiveVoteByGuild = new Map<string, string>();
 
 function sessionVoteId(voteId: string): string {
-    return `memory:${voteId}`;
+    // No colon separators so the custom-id parser (split(':')) works reliably.
+    return `mem_${voteId.replace(/[^a-zA-Z0-9]/g, '_')}`;
 }
 
 function chooseRequiredVotes(interaction: ChatInputCommandInteraction): number {
@@ -39,13 +51,15 @@ function createSessionVoteEmbed(
     color: number,
     currentVotes: number,
     requiredVotes: number,
+    startedAt: Date = new Date(),
 ) {
+    const startedUnix = Math.floor(startedAt.getTime() / 1000);
     return createSessionEmbed(title, description, color, 'vote')
+        .setFooter({ text: `${SESSION_FOOTER}` })
         .setFields(
-            { name: 'Session Status', value: title.replace('SESSION ', ''), inline: true },
-            { name: 'Game', value: 'Los Angeles Roleplay', inline: true },
-            { name: 'Votes needed', value: `${currentVotes}/${requiredVotes}`, inline: true },
-            { name: 'Notified Role', value: `<@&${SESSION_ROLE_ID}>`, inline: true },
+            { name: 'Session Status', value: 'VOTE', inline: true },
+            { name: 'Votes Needed', value: `${currentVotes}/${requiredVotes}`, inline: true },
+            { name: 'Voting Started', value: `<t:${startedUnix}:R>`, inline: true },
         );
 }
 
@@ -119,16 +133,23 @@ async function postSessionAnnouncement(
     const channel = announcementChannel as TextChannel;
     if (clearPrevious) await cleanupPreviousSessionMessages(channel);
 
+const status = title.replace('SESSION ', '').trim();
+
+    // Main top embed: title/author, top banner image, description, fields,
+    // text-only footer. NO thumbnail.
     const embed = createSessionEmbed(title, description, color, emblemType)
+        .setFooter({ text: SESSION_FOOTER })
         .setFields(
-            { name: 'Session Status', value: title.replace('SESSION ', ''), inline: true },
-            { name: 'Game', value: 'Los Angeles Roleplay', inline: true },
+            { name: 'Session Status', value: status, inline: true },
+            { name: 'Game', value: GAME, inline: true },
             { name: 'Notified Role', value: `<@&${SESSION_ROLE_ID}>`, inline: true },
         );
 
+    // Dual-embed layout: [mainEmbed, underbannerEmbed].
+    const embeds = [embed, createUnderbannerEmbed(color)];
     const attachments = createSessionAttachments(emblemType);
     const messageOptions: Record<string, unknown> = {
-        embeds: [embed],
+        embeds,
         files: attachments,
         components: row ? [row] : [],
         allowedMentions: { roles: [SESSION_ROLE_ID] },
@@ -147,17 +168,15 @@ const sessionCommands = [
         data: new SlashCommandBuilder()
             .setName('session-start')
             .setDescription('Announce a new session start with an embedded join link')
-            .addStringOption(opt => opt.setName('summary').setDescription('Short session summary').setRequired(true))
             .addStringOption(opt => opt.setName('join-code').setDescription('The ER:LC join code (e.g. LARPSRF). Defaults to the community link if omitted.').setRequired(false)),
         async execute(interaction: ChatInputCommandInteraction) {
-            const summary = interaction.options.getString('summary')?.trim() ?? 'A new session is starting now!';
             const joinCode = interaction.options.getString('join-code')?.trim();
             const inviteLink = joinCode
                 ? `https://erlc.gg/join/${joinCode}`
-                : (await fetchSessionInvite()) || DEFAULT_JOIN_LINK;
+: (await fetchSessionInvite()) || DEFAULT_JOIN_LINK;
 
             await interaction.deferReply({ ephemeral: true });
-            const description = summary;
+            const description = 'Do you want to join our current session? Join the game using the link below!';
             const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
                 new ButtonBuilder()
                     .setLabel('Quick Join')
@@ -165,7 +184,7 @@ const sessionCommands = [
                     .setURL(inviteLink),
             );
 
-            await postSessionAnnouncement(interaction, 'SESSION START', description, BRAND.color, 'start', false, true, row);
+            await postSessionAnnouncement(interaction, 'SESSION START', description, SESSION_COLORS.start, 'start', false, true, row);
         },
     },
     {
@@ -176,7 +195,7 @@ const sessionCommands = [
             const description = 'Do you want to be notified for our next session? If so click the button below!';
             const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
                 new ButtonBuilder()
-                    .setCustomId('session:notify')
+                    .setCustomId('claim_notify_role')
                     .setLabel('🔔 Sessions')
                     .setStyle(ButtonStyle.Primary),
             );
@@ -187,7 +206,12 @@ const sessionCommands = [
         data: new SlashCommandBuilder()
             .setName('session-vote')
             .setDescription('Start a vote to open a new session')
-            .addStringOption(opt => opt.setName('summary').setDescription('Short vote summary').setRequired(false)),
+            .addIntegerOption(opt => opt
+                .setName('vote-amounts')
+                .setDescription('Vote amounts required to start the session (1-50)')
+                .setMinValue(1)
+                .setMaxValue(50)
+                .setRequired(true)),
         async execute(interaction: ChatInputCommandInteraction) {
             await interaction.deferReply({ ephemeral: true });
             if (!interaction.guildId || !interaction.guild) {
@@ -203,9 +227,8 @@ const sessionCommands = [
                 return;
             }
 
-            const summary = interaction.options.getString('summary')?.trim() ?? 'Vote now to start the next session!';
-            const requiredVotes = chooseRequiredVotes(interaction);
-            const description = `${summary}\n\n**Votes needed:** ${requiredVotes}`;
+            const requiredVotes = interaction.options.getInteger('vote-amounts') ?? chooseRequiredVotes(interaction);
+            const description = 'Session voting has started! If you vote, you are required to join in-game within 15 minutes after it starts.';
             const placeholderId = `session:vote:placeholder:${Date.now()}`;
             const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
                 new ButtonBuilder()
@@ -224,9 +247,9 @@ const sessionCommands = [
             const channel = announcementChannel as TextChannel;
             await cleanupPreviousSessionMessages(channel);
 
-            const message = await channel.send({
+const message = await channel.send({
                 content: `<@&${SESSION_ROLE_ID}>`,
-                embeds: [createSessionVoteEmbed('SESSION VOTE', description, BRAND.color, 0, requiredVotes)],
+                embeds: [createSessionVoteEmbed('SESSION VOTE', description, SESSION_COLORS.vote, 0, requiredVotes), createUnderbannerEmbed(SESSION_COLORS.vote)],
                 components: [row],
                 files: createSessionAttachments('vote'),
                 allowedMentions: { roles: [SESSION_ROLE_ID] },
@@ -319,7 +342,7 @@ const sessionCommands = [
 
             await interaction.editReply({
                 embeds: [
-                    createSessionEmbed('SESSION VOTE', `Current votes: ${voteRecord.voters.length}/${voteRecord.requiredVotes}`, BRAND.color, 'vote')
+createSessionEmbed('SESSION VOTE', `Current votes: ${voteRecord.voters.length}/${voteRecord.requiredVotes}`, SESSION_COLORS.vote, 'vote')
                         .addFields(
                             { name: 'Started by', value: `<@${voteRecord.startedById}>`, inline: true },
                             { name: 'Votes needed', value: `${voteRecord.requiredVotes}`, inline: true },
@@ -420,8 +443,8 @@ export async function handleSessionVoteButton(interaction: ButtonInteraction): P
     const currentVotes = voteRecord.voters.length;
     const embed = createSessionVoteEmbed(
         'SESSION VOTE',
-        `Vote now to start the next session!\n\n**Votes needed:** ${voteRecord.requiredVotes}`,
-        BRAND.color,
+'Session voting has started! If you vote, you are required to join in-game within 15 minutes after it starts.',
+        SESSION_COLORS.vote,
         currentVotes,
         voteRecord.requiredVotes,
     );
@@ -440,10 +463,10 @@ export async function handleSessionVoteButton(interaction: ButtonInteraction): P
 }
 
 export async function handleSessionNotifyButton(interaction: import('discord.js').ButtonInteraction): Promise<boolean> {
-    if (interaction.customId !== 'session:notify') return false;
+    if (interaction.customId !== 'claim_notify_role') return false;
     if (!interaction.inGuild() || !interaction.guild) return false;
 
-    const roleId = process.env.SESSION_ROLE_ID || '1521593407749754990';
+    const roleId = '1521593407749754990';
     const guildMember = interaction.member instanceof GuildMember
         ? interaction.member
         : await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
@@ -454,13 +477,18 @@ export async function handleSessionNotifyButton(interaction: import('discord.js'
     }
 
     if (guildMember.roles.cache.has(roleId)) {
-        await interaction.reply({ content: 'You already have session notifications enabled.', ephemeral: true });
+        try {
+            await guildMember.roles.remove(roleId);
+            await interaction.reply({ content: 'Removed the session notification role!', ephemeral: true });
+        } catch {
+            await interaction.reply({ content: 'Unable to update the session notification role. Please check your server permissions.', ephemeral: true });
+        }
         return true;
     }
 
     try {
         await guildMember.roles.add(roleId);
-        await interaction.reply({ content: 'You have been added to session notifications.', ephemeral: true });
+        await interaction.reply({ content: 'You will now be notified for future sessions!', ephemeral: true });
     } catch {
         await interaction.reply({ content: 'Unable to assign the session notification role. Please check your server permissions.', ephemeral: true });
     }
