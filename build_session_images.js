@@ -1,8 +1,9 @@
 const sharp = require('sharp');
 const fs = require('fs');
 
-// LARGE embeds: make the banner wider (max Discord embed width) and taller so it displays large.
-const EMBLEM_WIDTH = 4096;
+// 16:9 HD banner size (per user request): 1920x1080.
+const BANNER_WIDTH = 1920;
+const BANNER_HEIGHT = 1080;
 
 const BASE_EMBLEMS = {
     start: 'assets/session-start.png',
@@ -20,20 +21,14 @@ async function build() {
             continue;
         }
 
-        const emblemMeta = await sharp(emblemPath).metadata();
-
-        // Scale the emblem up to the target width (keeps aspect ratio).
-        const emblemScaledHeight = Math.round((emblemMeta.height / emblemMeta.width) * EMBLEM_WIDTH);
-
-        // Resize the top banner to the target width. The underbanner is NOT
-        // merged here anymore - it is sent as its own separate embed at the
-        // very bottom so it never appears twice.
+        // Resize the emblem to fill the 1920x1080 (16:9) canvas.
+        // Resize to cover width first, then crop any overflow to exactly 16:9.
         await sharp(emblemPath)
-            .resize(EMBLEM_WIDTH, emblemScaledHeight)
+            .resize(BANNER_WIDTH, BANNER_HEIGHT, { fit: 'cover', position: 'centre' })
             .png()
             .toFile(`assets/session-${type}-banner.png`);
 
-        console.log(`Generated assets/session-${type}-banner.png (${EMBLEM_WIDTH}x${emblemScaledHeight})`);
+        console.log(`Generated assets/session-${type}-banner.png (${BANNER_WIDTH}x${BANNER_HEIGHT})`);
     }
 }
 

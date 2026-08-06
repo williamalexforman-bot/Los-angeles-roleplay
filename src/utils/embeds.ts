@@ -17,7 +17,7 @@ import { BRAND } from '../config/constants';
 /* -------------------------------------------------------------------------- */
 
 const SESSION_BANNER_NAME_START = 'session-start-banner.png';
-const SESSION_BANNER_NAME_END = 'session-end.png';
+const SESSION_BANNER_NAME_END = 'session-end-banner.png';
 const SESSION_BANNER_NAME_VOTE = 'session-vote-banner.png';
 const SESSION_BANNER_NAME_BOOST = 'session-boost-banner.png';
 const SESSION_BANNER_NAME_FULL = 'session-full-banner.png';
@@ -95,20 +95,23 @@ export const createEmbed = (title: string, description: string, color: ColorReso
 };
 
 /**
- * Main session embed — TEXT ONLY (title, description, fields, footer).
- * The big banner is attached as a full-width message attachment (Option A),
- * which Discord renders at maximum chat width. NO .setImage() on this embed.
+ * Main session embed. The banner is rendered INSIDE the embed via
+ * .setImage() (attachment:// URL), just like the original layout — but the
+ * banner graphics are now generated wider/larger (16:9) so they fill more of
+ * the embed. The banner file is attached via createSessionAttachments().
  */
 export const createSessionEmbed = (
     title: string,
     description: string,
     color: ColorResolvable = BRAND.color,
-    _emblemType: SessionEmblemType = 'start',
+    emblemType: SessionEmblemType = 'start',
 ) => {
+    const bannerUrl = resolveTopBannerUrl(emblemType);
     return new EmbedBuilder()
         .setColor(color)
         .setTitle(title)
         .setDescription(description)
+        .setImage(bannerUrl)
         .setFooter({ text: SESSION_FOOTER })
         .setTimestamp();
 };
@@ -124,17 +127,22 @@ export const createUnderbannerEmbed = (color: ColorResolvable = BRAND.color) => 
 };
 
 /**
- * Attachments for a session announcement. Returns ONLY the top banner as a
- * direct message file so Discord renders it BIG and full-width in the chat.
- * The underbanner stays in the last embed (createUnderbannerEmbed).
+ * Attachments for a session announcement. Both the top banner and the
+ * underbanner are attached because they are rendered inside embeds via
+ * .setImage() with attachment:// URLs.
  */
 export const createSessionAttachments = (emblemType: SessionEmblemType = 'start'): AttachmentBuilder[] => {
     const attachments: AttachmentBuilder[] = [];
 
-    // Top banner for the current session type — sent as a full-width file.
+    // Top banner for the current session type (rendered in the main embed).
     const banner = resolveSessionBanner(emblemType);
     if (assetExists(banner.path)) {
         attachments.push(new AttachmentBuilder(banner.path, { name: banner.name }));
+    }
+
+    // Bottom underbanner bar (rendered in the last embed).
+    if (assetExists(SESSION_UNDERBANNER_PATH)) {
+        attachments.push(new AttachmentBuilder(SESSION_UNDERBANNER_PATH, { name: SESSION_UNDERBANNER_NAME }));
     }
 
     return attachments;
