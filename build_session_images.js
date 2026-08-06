@@ -1,9 +1,10 @@
 const sharp = require('sharp');
 const fs = require('fs');
 
-// 16:9 HD banner size (per user request): 1920x1080.
-const BANNER_WIDTH = 1920;
-const BANNER_HEIGHT = 1080;
+// Target width for the upscaled emblem. The original emblems are 1600x400
+// (4:1 wide). We upscale them larger while PRESERVING the original 4:1 aspect
+// ratio (fit: inside / no cropping) so the full emblem stays intact and big.
+const EMBLEM_WIDTH = 4096;
 
 const BASE_EMBLEMS = {
     start: 'assets/session-start.png',
@@ -21,14 +22,17 @@ async function build() {
             continue;
         }
 
-        // Resize the emblem to fill the 1920x1080 (16:9) canvas.
-        // Resize to cover width first, then crop any overflow to exactly 16:9.
+        const meta = await sharp(emblemPath).metadata();
+        const scaledHeight = Math.round((meta.height / meta.width) * EMBLEM_WIDTH);
+
+        // Upscale the emblem to the target width, preserving the wide aspect
+        // ratio. No 16:9 cropping — the full emblem is kept and rendered big.
         await sharp(emblemPath)
-            .resize(BANNER_WIDTH, BANNER_HEIGHT, { fit: 'cover', position: 'centre' })
+            .resize(EMBLEM_WIDTH, scaledHeight, { fit: 'inside', withoutEnlargement: false })
             .png()
             .toFile(`assets/session-${type}-banner.png`);
 
-        console.log(`Generated assets/session-${type}-banner.png (${BANNER_WIDTH}x${BANNER_HEIGHT})`);
+        console.log(`Generated assets/session-${type}-banner.png (${EMBLEM_WIDTH}x${scaledHeight})`);
     }
 }
 
