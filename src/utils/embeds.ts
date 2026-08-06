@@ -4,54 +4,59 @@ import { AttachmentBuilder, ChatInputCommandInteraction, ColorResolvable, EmbedB
 import { BRAND } from '../config/constants';
 
 /* -------------------------------------------------------------------------- */
-/*  Image URL constants (replace 'YOUR_URL' with your hosted image URLs)      */
+/*  Image URL constants.                                                      */
 /*                                                                            */
-/*  TOP_BANNER_*  -> Wide main header banners for each session type           */
-/*                   (giant bold white title + "most immersive Los Angeles    */
-/*                   experience" subtext over a blurred ERLC vehicle grid).   */
-/*  BOTTOM_UNDERBANNER -> Thin wide bar: bold italic "LOS ANGELES ROLEPLAY"   */
-/*                   over a dark blurred vehicle background. Sits at the VERY */
-/*                   BOTTOM as its own separate embed.                        */
+/*  We use the user's OWN local session banner images, referenced as          */
+/*  attachment:// URLs and attached as files alongside each embed. Because    */
+/*  they are set via .setImage(), Discord renders them BIG and full-width.    */
+/*  No AI-generated graphics are used.                                        */
+/*                                                                            */
+/*  TOP_BANNER_*  -> Wide main header banner for each session type.           */
+/*  BOTTOM_UNDERBANNER -> Thin wide "LOS ANGELES ROLEPLAY" underbanner bar    */
+/*                   (own separate embed, .setImage()).                       */
 /* -------------------------------------------------------------------------- */
 
-export const TOP_BANNER_START = 'YOUR_URL';
-export const TOP_BANNER_END = 'YOUR_URL';
-export const TOP_BANNER_VOTE = 'YOUR_URL';
-export const TOP_BANNER_BOOST = 'YOUR_URL';
-export const TOP_BANNER_FULL = 'YOUR_URL';
-export const BOTTOM_UNDERBANNER = 'YOUR_URL';
+const SESSION_BANNER_NAME_START = 'session-start-banner.png';
+const SESSION_BANNER_NAME_END = 'session-end.png';
+const SESSION_BANNER_NAME_VOTE = 'session-vote-banner.png';
+const SESSION_BANNER_NAME_BOOST = 'session-boost-banner.png';
+const SESSION_BANNER_NAME_FULL = 'session-full-banner.png';
+const SESSION_UNDERBANNER_NAME = 'underbanner.webp';
+
+export const TOP_BANNER_START = `attachment://${SESSION_BANNER_NAME_START}`;
+export const TOP_BANNER_END = `attachment://${SESSION_BANNER_NAME_END}`;
+export const TOP_BANNER_VOTE = `attachment://${SESSION_BANNER_NAME_VOTE}`;
+export const TOP_BANNER_BOOST = `attachment://${SESSION_BANNER_NAME_BOOST}`;
+export const TOP_BANNER_FULL = `attachment://${SESSION_BANNER_NAME_FULL}`;
+export const BOTTOM_UNDERBANNER = `attachment://${SESSION_UNDERBANNER_NAME}`;
 
 export const SESSION_BACKGROUND_NAME = 'los_angeles_roleplay_4.webp';
 export const SESSION_BACKGROUND_PATH = path.resolve(process.cwd(), 'assets', SESSION_BACKGROUND_NAME);
 export const SESSION_BACKGROUND_URL = `attachment://${SESSION_BACKGROUND_NAME}`;
-export const SESSION_UNDERBANNER_NAME = 'underbanner.webp';
 export const SESSION_UNDERBANNER_PATH = path.resolve(process.cwd(), 'assets', SESSION_UNDERBANNER_NAME);
 
 /**
- * Map a session type to its TOP image URL constant.
- * Defaults to fall back to the local background attachment if a constant has
- * not been set to a real hosted URL yet.
+ * Map a session type to its TOP banner image filename.
  */
-export function resolveTopBannerUrl(emblemType: SessionEmblemType): string {
+export function resolveTopBannerName(emblemType: SessionEmblemType): string {
     switch (emblemType) {
-        case 'start': return TOP_BANNER_START;
-        case 'end': return TOP_BANNER_END;
-        case 'vote': return TOP_BANNER_VOTE;
-        case 'boost': return TOP_BANNER_BOOST;
-        case 'full': return TOP_BANNER_FULL;
-        default: return TOP_BANNER_START;
+        case 'start': return SESSION_BANNER_NAME_START;
+        case 'end': return SESSION_BANNER_NAME_END;
+        case 'vote': return SESSION_BANNER_NAME_VOTE;
+        case 'boost': return SESSION_BANNER_NAME_BOOST;
+        case 'full': return SESSION_BANNER_NAME_FULL;
+        default: return SESSION_BANNER_NAME_START;
     }
 }
 
-export type SessionEmblemType = 'start' | 'end' | 'full' | 'boost' | 'vote';
+/**
+ * Map a session type to its TOP image URL constant (attachment://).
+ */
+export function resolveTopBannerUrl(emblemType: SessionEmblemType): string {
+    return `attachment://${resolveTopBannerName(emblemType)}`;
+}
 
-const SESSION_EMBLEM_CANDIDATES: Record<SessionEmblemType, string[]> = {
-    start: ['session-start-banner.png', 'session-start.png', 'session start'],
-    end: ['session-end-banner.png', 'session-end.png', 'session end'],
-    full: ['session-full-banner.png', 'session-full.png', 'session full'],
-    boost: ['session-boost-banner.png', 'session-boost.png', 'session boost'],
-    vote: ['session-vote-banner.png', 'session-vote.png', 'Session vote', 'Copy of Dashboard (9).png'],
-};
+export type SessionEmblemType = 'start' | 'end' | 'full' | 'boost' | 'vote';
 
 function assetExists(filePath: string): boolean {
     try {
@@ -62,14 +67,20 @@ function assetExists(filePath: string): boolean {
     }
 }
 
-function resolveSessionEmblem(emblemType: SessionEmblemType): { path: string; name: string } | undefined {
-    for (const filename of SESSION_EMBLEM_CANDIDATES[emblemType]) {
-        const resolvedPath = path.resolve(process.cwd(), 'assets', filename);
-        if (assetExists(resolvedPath)) {
-            return { path: resolvedPath, name: filename };
-        }
+/**
+ * Resolve the local banner file for a session type.
+ * Falls back to the generic background only if the exact banner is missing.
+ */
+function resolveSessionBanner(emblemType: SessionEmblemType): { path: string; name: string } {
+    const name = resolveTopBannerName(emblemType);
+    const resolvedPath = path.resolve(process.cwd(), 'assets', name);
+    if (assetExists(resolvedPath)) {
+        return { path: resolvedPath, name };
     }
-    return undefined;
+    if (assetExists(SESSION_BACKGROUND_PATH)) {
+        return { path: SESSION_BACKGROUND_PATH, name: SESSION_BACKGROUND_NAME };
+    }
+    return { path: resolvedPath, name };
 }
 
 export const SESSION_FOOTER = 'Los Angeles Roleplay | Realism at its Finest';
@@ -84,8 +95,8 @@ export const createEmbed = (title: string, description: string, color: ColorReso
 };
 
 /**
- * Top embed (main banner). Uses the provided top-banner URL via .setImage().
- * NO .setThumbnail() is used. Footer is text-only.
+ * Top embed (main banner). Uses the user's own top-banner image via
+ * .setImage() so it displays BIG and full-width. NO thumbnail, NO author icon.
  */
 export const createSessionEmbed = (
     title: string,
@@ -94,62 +105,36 @@ export const createSessionEmbed = (
     emblemType: SessionEmblemType = 'start',
 ) => {
     const bannerUrl = resolveTopBannerUrl(emblemType);
-    const embed = new EmbedBuilder()
+    return new EmbedBuilder()
         .setColor(color)
         .setTitle(title)
         .setDescription(description)
         .setImage(bannerUrl)
         .setFooter({ text: SESSION_FOOTER })
         .setTimestamp();
-
-    // Fallback: if a hosted URL hasn't been configured yet, use the local
-    // expanded banner asset as an attachment so the embed still displays.
-    if (bannerUrl === 'YOUR_URL') {
-        const emblem = resolveSessionEmblem(emblemType);
-        if (emblem) {
-            embed.setImage(`attachment://${emblem.name}`);
-        } else if (fs.existsSync(SESSION_BACKGROUND_PATH)) {
-            embed.setImage(SESSION_BACKGROUND_URL);
-        }
-    }
-
-    return embed;
 };
 
 /**
  * Bottom embed (underbanner). A bare image-only embed that sits strictly at
- * the very bottom of the message, below all fields/buttons. Uses
- * BOTTOM_UNDERBANNER via .setImage().
+ * the very bottom of the message. Uses the user's underbanner via .setImage().
  */
 export const createUnderbannerEmbed = (color: ColorResolvable = BRAND.color) => {
-    const embed = new EmbedBuilder()
+    return new EmbedBuilder()
         .setColor(color)
         .setImage(BOTTOM_UNDERBANNER);
-
-    // Fallback: if the hosted URL isn't configured, render the local
-    // underbanner.webp as an attachment bar.
-    if (BOTTOM_UNDERBANNER === 'YOUR_URL') {
-        embed.setImage(`attachment://${SESSION_UNDERBANNER_NAME}`);
-    }
-
-    return embed;
 };
 
 export const createSessionAttachments = (emblemType: SessionEmblemType = 'start'): AttachmentBuilder[] => {
     const attachments: AttachmentBuilder[] = [];
 
-    // Only attach local assets while the banner constants still use
-    // 'YOUR_URL'. Once real hosted URLs are configured, no files are needed.
-    if (resolveTopBannerUrl(emblemType) === 'YOUR_URL') {
-        const emblem = resolveSessionEmblem(emblemType);
-        if (emblem) {
-            attachments.push(new AttachmentBuilder(emblem.path, { name: emblem.name }));
-        } else if (fs.existsSync(SESSION_BACKGROUND_PATH)) {
-            attachments.push(new AttachmentBuilder(SESSION_BACKGROUND_PATH, { name: SESSION_BACKGROUND_NAME }));
-        }
+    // Top banner for the current session type.
+    const banner = resolveSessionBanner(emblemType);
+    if (assetExists(banner.path)) {
+        attachments.push(new AttachmentBuilder(banner.path, { name: banner.name }));
     }
 
-    if (BOTTOM_UNDERBANNER === 'YOUR_URL' && assetExists(SESSION_UNDERBANNER_PATH)) {
+    // Bottom underbanner bar.
+    if (assetExists(SESSION_UNDERBANNER_PATH)) {
         attachments.push(new AttachmentBuilder(SESSION_UNDERBANNER_PATH, { name: SESSION_UNDERBANNER_NAME }));
     }
 
@@ -169,12 +154,9 @@ export const createBrandedEmbed = (title?: string, description?: string, color =
 export const createLogoAttachment = () => new AttachmentBuilder(BRAND.logoPath, { name: BRAND.logoName });
 
 export const createSessionAttachment = (emblemType: SessionEmblemType = 'start'): AttachmentBuilder | undefined => {
-    const emblem = resolveSessionEmblem(emblemType);
-    if (emblem) {
-        return new AttachmentBuilder(emblem.path, { name: emblem.name });
-    }
-    if (assetExists(SESSION_BACKGROUND_PATH)) {
-        return new AttachmentBuilder(SESSION_BACKGROUND_PATH, { name: SESSION_BACKGROUND_NAME });
+    const banner = resolveSessionBanner(emblemType);
+    if (assetExists(banner.path)) {
+        return new AttachmentBuilder(banner.path, { name: banner.name });
     }
     return undefined;
 };
