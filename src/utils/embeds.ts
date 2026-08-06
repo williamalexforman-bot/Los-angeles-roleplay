@@ -95,37 +95,27 @@ export const createEmbed = (title: string, description: string, color: ColorReso
 };
 
 /**
- * Top embed (main banner). Uses the user's own top-banner image via
- * .setImage() so it displays BIG and full-width. NO thumbnail, NO author icon.
+ * Main session embed — TEXT ONLY (title, description, fields, footer).
+ * The big banner is attached as a full-width message attachment (Option A),
+ * which Discord renders at maximum chat width. NO .setImage() on this embed.
  */
 export const createSessionEmbed = (
     title: string,
     description: string,
     color: ColorResolvable = BRAND.color,
-    emblemType: SessionEmblemType = 'start',
+    _emblemType: SessionEmblemType = 'start',
 ) => {
-    // Main embed gets the TOP banner via .setImage() (BIG, full-width).
-    const bannerUrl = resolveTopBannerUrl(emblemType);
-
-    // Validation log so you can confirm the URL is never undefined/empty.
-    if (!bannerUrl || bannerUrl === 'attachment://undefined') {
-        console.warn(`[session] TOP_BANNER URL missing for emblemType="${emblemType}" -> "${bannerUrl}"`);
-    } else {
-        console.log(`[session] TOP_BANNER for "${title}" -> ${bannerUrl}`);
-    }
-
     return new EmbedBuilder()
         .setColor(color)
         .setTitle(title)
         .setDescription(description)
-        .setImage(bannerUrl)
         .setFooter({ text: SESSION_FOOTER })
         .setTimestamp();
 };
 
 /**
  * Bottom embed (underbanner). A bare image-only embed that sits strictly at
- * the very bottom of the message. Uses the user's underbanner via .setImage().
+ * the very bottom of the message (after the main text embed).
  */
 export const createUnderbannerEmbed = (color: ColorResolvable = BRAND.color) => {
     return new EmbedBuilder()
@@ -133,18 +123,18 @@ export const createUnderbannerEmbed = (color: ColorResolvable = BRAND.color) => 
         .setImage(BOTTOM_UNDERBANNER);
 };
 
+/**
+ * Attachments for a session announcement. Returns ONLY the top banner as a
+ * direct message file so Discord renders it BIG and full-width in the chat.
+ * The underbanner stays in the last embed (createUnderbannerEmbed).
+ */
 export const createSessionAttachments = (emblemType: SessionEmblemType = 'start'): AttachmentBuilder[] => {
     const attachments: AttachmentBuilder[] = [];
 
-    // Top banner for the current session type.
+    // Top banner for the current session type — sent as a full-width file.
     const banner = resolveSessionBanner(emblemType);
     if (assetExists(banner.path)) {
         attachments.push(new AttachmentBuilder(banner.path, { name: banner.name }));
-    }
-
-    // Bottom underbanner bar.
-    if (assetExists(SESSION_UNDERBANNER_PATH)) {
-        attachments.push(new AttachmentBuilder(SESSION_UNDERBANNER_PATH, { name: SESSION_UNDERBANNER_NAME }));
     }
 
     return attachments;
