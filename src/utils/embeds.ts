@@ -84,6 +84,7 @@ function resolveSessionBanner(emblemType: SessionEmblemType): { path: string; na
 }
 
 export const SESSION_FOOTER = 'Los Angeles Roleplay | Realism at its Finest';
+export const SESSION_ACCENT_COLOR = 0xff7a00; // Los Angeles Roleplay Orange (#FF7A00)
 
 export const createEmbed = (title: string, description: string, color: ColorResolvable = BRAND.color) => {
     return new EmbedBuilder()
@@ -95,21 +96,22 @@ export const createEmbed = (title: string, description: string, color: ColorReso
 };
 
 /**
- * Main session embed. Text-only (NO image) so the large emblem is NOT capped
- * by Discord's ~400px embed-image limit. The emblem is instead sent as a
- * full-width message attachment via createSessionAttachments(), which renders
- * it BIG and wide at the top of the message.
+ * Main session embed. The top banner is rendered INSIDE the embed via
+ * .setImage() (already referenced by the attachment:// URL), so it displays
+ * big and full-width across the top of the embed. The thin underbanner is
+ * placed in a SEPARATE embed directly below (see createUnderbannerEmbed()).
  */
 export const createSessionEmbed = (
     title: string,
     description: string,
-    color: ColorResolvable = BRAND.color,
-    _emblemType: SessionEmblemType = 'start',
+    color: ColorResolvable = SESSION_ACCENT_COLOR,
+    emblemType: SessionEmblemType = 'start',
 ) => {
     return new EmbedBuilder()
         .setColor(color)
         .setTitle(title)
         .setDescription(description)
+        .setImage(resolveTopBannerUrl(emblemType))
         .setFooter({ text: SESSION_FOOTER })
         .setTimestamp();
 };
@@ -118,7 +120,7 @@ export const createSessionEmbed = (
  * Bottom embed (underbanner). A bare image-only embed that sits strictly at
  * the very bottom of the message (after the main text embed).
  */
-export const createUnderbannerEmbed = (color: ColorResolvable = BRAND.color) => {
+export const createUnderbannerEmbed = (color: ColorResolvable = SESSION_ACCENT_COLOR) => {
     return new EmbedBuilder()
         .setColor(color)
         .setImage(BOTTOM_UNDERBANNER);
@@ -127,24 +129,18 @@ export const createUnderbannerEmbed = (color: ColorResolvable = BRAND.color) => 
 /**
  * Attachments for a session announcement.
  *
- * 1. TOP EMBLEM: the large banner file is attached as a STANDALONE message
- *    attachment (NOT referenced by an embed's .setImage()). Because it is not
- *    capped by an embed image, Discord renders it FULL-WIDTH and BIG at the
- *    top of the message.
- * 2. BOTTOM UNDERBANNER: the thin bar is attached here so the underbanner
- *    embed (which uses .setImage('attachment://underbanner.webp')) can render
- *    it at the very bottom.
+ * The TOP banner is bound INSIDE the main embed via .setImage() (see
+ * createSessionEmbed), so it is NOT attached here as a standalone file —
+ * otherwise Discord would drop it as a separate chat image outside the embed.
+ *
+ * Only the BOTTOM UNDERBANNER is attached here, so the underbanner embed
+ * (which uses .setImage('attachment://underbanner.webp')) can render it at
+ * the very bottom of the message.
  */
 export const createSessionAttachments = (emblemType: SessionEmblemType = 'start'): AttachmentBuilder[] => {
     const attachments: AttachmentBuilder[] = [];
 
-    // TOP EMBLEM: standalone full-width attachment (large, uncapped).
-    const banner = resolveSessionBanner(emblemType);
-    if (assetExists(banner.path)) {
-        attachments.push(new AttachmentBuilder(banner.path, { name: banner.name }));
-    }
-
-    // BOTTOM UNDERBANNER bar (rendered in the last embed).
+    // BOTTOM UNDERBANNER bar (rendered in the last embed via .setImage()).
     if (assetExists(SESSION_UNDERBANNER_PATH)) {
         attachments.push(new AttachmentBuilder(SESSION_UNDERBANNER_PATH, { name: SESSION_UNDERBANNER_NAME }));
     }

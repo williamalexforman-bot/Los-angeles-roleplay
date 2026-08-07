@@ -10,13 +10,13 @@ const SESSION_FOOTER = 'Los Angeles Roleplay | Realism at its Finest';
 const GAME = 'Los Angeles Roleplay';
 const DEFAULT_JOIN_LINK = 'https://erlc.gg/join/LARPSRF';
 
-// Embed colors for each session type.
+// Embed colors for each session type. All use the LA Roleplay Orange accent (#FF7A00).
 const SESSION_COLORS = {
-    start: 0x3b82f6,
-    end: 0xef4444,
-    full: 0xf59e0b,
-    boost: 0x8b5cf6,
-    vote: 0x3b82f6,
+    start: 0xff7a00,
+    end: 0xff7a00,
+    full: 0xff7a00,
+    boost: 0xff7a00,
+    vote: 0xff7a00,
 } as const;
 
 interface InMemorySessionVote {
@@ -191,7 +191,7 @@ const sessionCommands = [
         data: new SlashCommandBuilder()
             .setName('session-end')
             .setDescription('Announce that the current session has ended'),
-        async execute(interaction: ChatInputCommandInteraction) {
+async execute(interaction: ChatInputCommandInteraction) {
             const description = 'Do you want to be notified for our next session? If so click the button below!';
             const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
                 new ButtonBuilder()
@@ -199,7 +199,7 @@ const sessionCommands = [
                     .setLabel('🔔 Sessions')
                     .setStyle(ButtonStyle.Primary),
             );
-            await postSessionAnnouncement(interaction, 'SESSION END', description, 0xef4444, 'end', true, false, row);
+            await postSessionAnnouncement(interaction, 'SESSION END', description, SESSION_COLORS.end, 'end', true, false, row);
         },
     },
     {
@@ -357,9 +357,9 @@ createSessionEmbed('SESSION VOTE', `Current votes: ${voteRecord.voters.length}/$
             .setName('session-full')
             .setDescription('Announce that the session is full and cannot take new players')
             .addStringOption(opt => opt.setName('reason').setDescription('Additional note').setRequired(false)),
-        async execute(interaction: ChatInputCommandInteraction) {
+async execute(interaction: ChatInputCommandInteraction) {
             const reason = interaction.options.getString('reason')?.trim() ?? 'The session is full right now. Please wait for the next one.';
-            await postSessionAnnouncement(interaction, 'SESSION FULL', reason, 0xf59e0b, 'full');
+            await postSessionAnnouncement(interaction, 'SESSION FULL', reason, SESSION_COLORS.full, 'full');
         },
     },
     {
@@ -367,9 +367,9 @@ createSessionEmbed('SESSION VOTE', `Current votes: ${voteRecord.voters.length}/$
             .setName('session-boost')
             .setDescription('Announce a session boost or special event')
             .addStringOption(opt => opt.setName('details').setDescription('Boost details').setRequired(true)),
-        async execute(interaction: ChatInputCommandInteraction) {
+async execute(interaction: ChatInputCommandInteraction) {
             const details = interaction.options.getString('details')?.trim() ?? 'A session boost is active now!';
-            await postSessionAnnouncement(interaction, 'SESSION BOOST', details, 0x8b5cf6, 'boost');
+            await postSessionAnnouncement(interaction, 'SESSION BOOST', details, SESSION_COLORS.boost, 'boost');
         },
     },
     {
@@ -435,7 +435,7 @@ export async function handleSessionVoteButton(interaction: ButtonInteraction): P
     const voter = { userId: interaction.user.id, username: interaction.user.username, votedAt: new Date() };
     voteRecord.voters.push(voter);
 
-    if (dbVote) {
+if (dbVote) {
         dbVote.voters = voteRecord.voters;
         await dbVote.save();
     }
@@ -450,7 +450,8 @@ export async function handleSessionVoteButton(interaction: ButtonInteraction): P
     );
 
     const message = await interaction.message.fetch();
-    await message.edit({ embeds: [embed] }).catch(() => undefined);
+    // Keep the underbanner embed at the bottom when updating the vote count.
+    await message.edit({ embeds: [embed, createUnderbannerEmbed(SESSION_COLORS.vote)] }).catch(() => undefined);
 
     if (!memoryVote && !dbVote) {
         // no-op, just safety
