@@ -1,5 +1,5 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonInteraction, ButtonStyle, ChatInputCommandInteraction, GuildMember, MessageFlags, SlashCommandBuilder, TextChannel } from 'discord.js';
-import { createSessionAttachments, createSessionEmbed, createUnderbannerEmbed, resolveTopBannerUrl, SessionEmblemType } from '../utils/embeds';
+import { createSessionAttachments, createSessionEmbed, resolveTopBannerUrl, SessionEmblemType } from '../utils/embeds';
 import { getMelonyApiKey, getMelonyApiUrl, getInGameApiUrl } from '../config/env';
 import { CHANNEL_IDS } from '../config/constants';
 import { isDatabaseAvailable } from '../database/connection';
@@ -135,8 +135,8 @@ async function postSessionAnnouncement(
 
 const status = title.replace('SESSION ', '').trim();
 
-    // Main top embed: title/author, top banner image, description, fields,
-    // text-only footer. NO thumbnail.
+// Main top embed: title/author, combined banner image (top banner + underbanner
+    // composited into ONE image), description, fields, text-only footer.
     const embed = createSessionEmbed(title, description, color, emblemType)
         .setFooter({ text: SESSION_FOOTER })
         .setFields(
@@ -145,8 +145,9 @@ const status = title.replace('SESSION ', '').trim();
             { name: 'Notified Role', value: `<@&${SESSION_ROLE_ID}>`, inline: true },
         );
 
-    // Dual-embed layout: [mainEmbed, underbannerEmbed].
-    const embeds = [embed, createUnderbannerEmbed(color)];
+    // Single-embed layout: [mainEmbed] — the combined banner already contains the
+    // top banner at the top and the underbanner at the bottom.
+    const embeds = [embed];
     const attachments = createSessionAttachments(emblemType);
     const messageOptions: Record<string, unknown> = {
         embeds,
@@ -249,7 +250,7 @@ async execute(interaction: ChatInputCommandInteraction) {
 
 const message = await channel.send({
                 content: `<@&${SESSION_ROLE_ID}>`,
-                embeds: [createSessionVoteEmbed('SESSION VOTE', description, SESSION_COLORS.vote, 0, requiredVotes), createUnderbannerEmbed(SESSION_COLORS.vote)],
+                embeds: [createSessionVoteEmbed('SESSION VOTE', description, SESSION_COLORS.vote, 0, requiredVotes)],
                 components: [row],
                 files: createSessionAttachments('vote'),
                 allowedMentions: { roles: [SESSION_ROLE_ID] },
@@ -449,9 +450,9 @@ if (dbVote) {
         voteRecord.requiredVotes,
     );
 
-    const message = await interaction.message.fetch();
-    // Keep the underbanner embed at the bottom when updating the vote count.
-    await message.edit({ embeds: [embed, createUnderbannerEmbed(SESSION_COLORS.vote)] }).catch(() => undefined);
+const message = await interaction.message.fetch();
+    // Single combined banner embed — matches the initial vote message layout.
+    await message.edit({ embeds: [embed] }).catch(() => undefined);
 
     if (!memoryVote && !dbVote) {
         // no-op, just safety

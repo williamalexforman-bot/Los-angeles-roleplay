@@ -1,11 +1,13 @@
-# Session Embed Banner Binding Fix
+# Session Emblem Layout — Single Combined Banner Inside Embed
 
-## Root Cause
-- `createSessionAttachments()` pushed the top banner as a **standalone message attachment**, so Discord rendered it as a separate chat image OUTSIDE the embed box.
-- The banner must be bound ONLY inside the main embed via `.setImage()`.
+## Goal (final)
+The top banner + underbanner are composited into ONE image that sits INSIDE the embed (orange-bordered card), big and full-width. Nothing is pushed outside the emblem.
 
 ## Tasks
-- [x] 1. `embeds.ts`: Remove the standalone top-banner attachment from `createSessionAttachments()` — attach ONLY the underbanner there. This prevents the banner from being dropped outside the embed.
-- [x] 2. `embeds.ts`: Confirmed `createSessionEmbed()` calls `.setImage(resolveTopBannerUrl(emblemType))` and `createUnderbannerEmbed()` calls `.setImage(BOTTOM_UNDERBANNER)`.
-- [x] 3. `sessions.ts`: Verified all session payloads send `embeds: [mainEmbed, underbannerEmbed]` in the correct order (no standalone images).
-- [x] 4. Rebuilt (`npm run build`) and restarted the bot via PM2 — bot online.
+- [x] 1. `build_combined_banners.js`: New script that composites [TOP banner] + [warm gap] + [underbanner] into one `session-*-combo.png` (1600x550, 2.91:1) per session type.
+- [x] 2. Generated `assets/session-{start,end,vote,boost,full}-combo.png`.
+- [x] 3. `embeds.ts`: Point `SESSION_BANNER_NAME_*` at the `*-combo.png` files; `createSessionEmbed()` uses `.setImage(resolveTopBannerUrl(...))` so the combined emblem renders inside the embed.
+- [x] 4. `embeds.ts`: `createSessionAttachments()` attaches only the single combo banner (underbanner now baked in).
+- [x] 5. `sessions.ts`: Use single-embed layout in `postSessionAnnouncement()` and `session-vote`; `handleSessionVoteButton()` edits with the single combined-banner embed.
+- [x] 6. Accent color `#FF7A00` (`SESSION_ACCENT_COLOR = 0xff7a00`) for all session types.
+- [x] 7. Type-check (`npm run build`).

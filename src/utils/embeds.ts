@@ -16,11 +16,11 @@ import { BRAND } from '../config/constants';
 /*                   (own separate embed, .setImage()).                       */
 /* -------------------------------------------------------------------------- */
 
-const SESSION_BANNER_NAME_START = 'session-start-banner.png';
-const SESSION_BANNER_NAME_END = 'session-end-banner.png';
-const SESSION_BANNER_NAME_VOTE = 'session-vote-banner.png';
-const SESSION_BANNER_NAME_BOOST = 'session-boost-banner.png';
-const SESSION_BANNER_NAME_FULL = 'session-full-banner.png';
+const SESSION_BANNER_NAME_START = 'session-start-combo.png';
+const SESSION_BANNER_NAME_END = 'session-end-combo.png';
+const SESSION_BANNER_NAME_VOTE = 'session-vote-combo.png';
+const SESSION_BANNER_NAME_BOOST = 'session-boost-combo.png';
+const SESSION_BANNER_NAME_FULL = 'session-full-combo.png';
 const SESSION_UNDERBANNER_NAME = 'underbanner.webp';
 
 export const TOP_BANNER_START = `attachment://${SESSION_BANNER_NAME_START}`;
@@ -96,25 +96,22 @@ export const createEmbed = (title: string, description: string, color: ColorReso
 };
 
 /**
- * Main session embed — TEXT ONLY (no embed image).
- *
- * IMPORTANT: The top banner is deliberately NOT bound via .setImage(). Discord
- * caps embed images at ~400px height, so a wide 4:1 banner would render as a
- * tiny 400x100 strip. Instead the banner is attached as a STANDALONE message
- * attachment via createSessionAttachments(), which is NOT capped and renders
- * at FULL message width — BIG and WIDE. The underbanner stays in its own embed
- * at the very bottom (see createUnderbannerEmbed()).
+ * Main session embed. The top banner is rendered INSIDE the embed via
+ * .setImage() so it stays within the orange-bordered embed card. The thin
+ * underbanner is placed in a SEPARATE embed directly below (see
+ * createUnderbannerEmbed()).
  */
 export const createSessionEmbed = (
     title: string,
     description: string,
     color: ColorResolvable = SESSION_ACCENT_COLOR,
-    _emblemType: SessionEmblemType = 'start',
+    emblemType: SessionEmblemType = 'start',
 ) => {
     return new EmbedBuilder()
         .setColor(color)
         .setTitle(title)
         .setDescription(description)
+        .setImage(resolveTopBannerUrl(emblemType))
         .setFooter({ text: SESSION_FOOTER })
         .setTimestamp();
 };
@@ -132,25 +129,19 @@ export const createUnderbannerEmbed = (color: ColorResolvable = SESSION_ACCENT_C
 /**
  * Attachments for a session announcement.
  *
- * The TOP banner is sent as a STANDALONE message attachment (NOT referenced by
- * an embed's .setImage()). Because it is not consumed by an embed image (which
- * Discord caps at ~400px height), Discord renders it FULL-WIDTH and BIG at the
- * top of the message. The BOTTOM UNDERBANNER is attached here so the bottom
- * embed (which uses .setImage('attachment://underbanner.webp')) can render it
- * at the very bottom.
+ * Returns the SINGLE combined banner file (top banner + underbanner composited
+ * into one 1600x550 image). It is attached here and referenced by the main
+ * embed's .setImage('attachment://session-*-combo.png'), so Discord renders it
+ * INSIDE the embed — big and full-width within the orange-bordered card.
  */
 export const createSessionAttachments = (emblemType: SessionEmblemType = 'start'): AttachmentBuilder[] => {
     const attachments: AttachmentBuilder[] = [];
 
-    // TOP banner — standalone full-width attachment (large, uncapped).
+    // Combined banner — top banner + underbanner in ONE image, rendered inside
+    // the main embed via .setImage().
     const banner = resolveSessionBanner(emblemType);
     if (assetExists(banner.path)) {
         attachments.push(new AttachmentBuilder(banner.path, { name: banner.name }));
-    }
-
-    // BOTTOM UNDERBANNER bar — rendered in the last embed.
-    if (assetExists(SESSION_UNDERBANNER_PATH)) {
-        attachments.push(new AttachmentBuilder(SESSION_UNDERBANNER_PATH, { name: SESSION_UNDERBANNER_NAME }));
     }
 
     return attachments;
