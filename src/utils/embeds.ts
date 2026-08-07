@@ -129,18 +129,29 @@ export const createUnderbannerEmbed = (color: ColorResolvable = SESSION_ACCENT_C
 /**
  * Attachments for a session announcement.
  *
- * The TOP banner is bound INSIDE the main embed via .setImage() (see
- * createSessionEmbed), so it is NOT attached here as a standalone file —
- * otherwise Discord would drop it as a separate chat image outside the embed.
+ * In Discord.js v14, an embed's .setImage('attachment://FILENAME') ONLY works
+ * if the corresponding AttachmentBuilder is ALSO passed in the message's
+ * files: [] array. So we attach BOTH:
  *
- * Only the BOTTOM UNDERBANNER is attached here, so the underbanner embed
- * (which uses .setImage('attachment://underbanner.webp')) can render it at
- * the very bottom of the message.
+ *   1. TOP banner  -> bound INSIDE the main embed via
+ *                     .setImage('attachment://session-*-banner.png').
+ *   2. UNDERBANNER -> bound INSIDE the bottom embed via
+ *                     .setImage('attachment://underbanner.webp').
+ *
+ * Because the same file is both referenced by .setImage() and sent in
+ * files:, Discord renders it INSIDE the embed card (not as a detached
+ * chat attachment).
  */
 export const createSessionAttachments = (emblemType: SessionEmblemType = 'start'): AttachmentBuilder[] => {
     const attachments: AttachmentBuilder[] = [];
 
-    // BOTTOM UNDERBANNER bar (rendered in the last embed via .setImage()).
+    // TOP banner — referenced by the main embed's .setImage(...).
+    const banner = resolveSessionBanner(emblemType);
+    if (assetExists(banner.path)) {
+        attachments.push(new AttachmentBuilder(banner.path, { name: banner.name }));
+    }
+
+    // BOTTOM UNDERBANNER bar — referenced by the bottom embed's .setImage(...).
     if (assetExists(SESSION_UNDERBANNER_PATH)) {
         attachments.push(new AttachmentBuilder(SESSION_UNDERBANNER_PATH, { name: SESSION_UNDERBANNER_NAME }));
     }
