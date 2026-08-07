@@ -96,22 +96,25 @@ export const createEmbed = (title: string, description: string, color: ColorReso
 };
 
 /**
- * Main session embed. The top banner is rendered INSIDE the embed via
- * .setImage() (already referenced by the attachment:// URL), so it displays
- * big and full-width across the top of the embed. The thin underbanner is
- * placed in a SEPARATE embed directly below (see createUnderbannerEmbed()).
+ * Main session embed — TEXT ONLY (no embed image).
+ *
+ * IMPORTANT: The top banner is deliberately NOT bound via .setImage(). Discord
+ * caps embed images at ~400px height, so a wide 4:1 banner would render as a
+ * tiny 400x100 strip. Instead the banner is attached as a STANDALONE message
+ * attachment via createSessionAttachments(), which is NOT capped and renders
+ * at FULL message width — BIG and WIDE. The underbanner stays in its own embed
+ * at the very bottom (see createUnderbannerEmbed()).
  */
 export const createSessionEmbed = (
     title: string,
     description: string,
     color: ColorResolvable = SESSION_ACCENT_COLOR,
-    emblemType: SessionEmblemType = 'start',
+    _emblemType: SessionEmblemType = 'start',
 ) => {
     return new EmbedBuilder()
         .setColor(color)
         .setTitle(title)
         .setDescription(description)
-        .setImage(resolveTopBannerUrl(emblemType))
         .setFooter({ text: SESSION_FOOTER })
         .setTimestamp();
 };
@@ -129,29 +132,23 @@ export const createUnderbannerEmbed = (color: ColorResolvable = SESSION_ACCENT_C
 /**
  * Attachments for a session announcement.
  *
- * In Discord.js v14, an embed's .setImage('attachment://FILENAME') ONLY works
- * if the corresponding AttachmentBuilder is ALSO passed in the message's
- * files: [] array. So we attach BOTH:
- *
- *   1. TOP banner  -> bound INSIDE the main embed via
- *                     .setImage('attachment://session-*-banner.png').
- *   2. UNDERBANNER -> bound INSIDE the bottom embed via
- *                     .setImage('attachment://underbanner.webp').
- *
- * Because the same file is both referenced by .setImage() and sent in
- * files:, Discord renders it INSIDE the embed card (not as a detached
- * chat attachment).
+ * The TOP banner is sent as a STANDALONE message attachment (NOT referenced by
+ * an embed's .setImage()). Because it is not consumed by an embed image (which
+ * Discord caps at ~400px height), Discord renders it FULL-WIDTH and BIG at the
+ * top of the message. The BOTTOM UNDERBANNER is attached here so the bottom
+ * embed (which uses .setImage('attachment://underbanner.webp')) can render it
+ * at the very bottom.
  */
 export const createSessionAttachments = (emblemType: SessionEmblemType = 'start'): AttachmentBuilder[] => {
     const attachments: AttachmentBuilder[] = [];
 
-    // TOP banner — referenced by the main embed's .setImage(...).
+    // TOP banner — standalone full-width attachment (large, uncapped).
     const banner = resolveSessionBanner(emblemType);
     if (assetExists(banner.path)) {
         attachments.push(new AttachmentBuilder(banner.path, { name: banner.name }));
     }
 
-    // BOTTOM UNDERBANNER bar — referenced by the bottom embed's .setImage(...).
+    // BOTTOM UNDERBANNER bar — rendered in the last embed.
     if (assetExists(SESSION_UNDERBANNER_PATH)) {
         attachments.push(new AttachmentBuilder(SESSION_UNDERBANNER_PATH, { name: SESSION_UNDERBANNER_NAME }));
     }
