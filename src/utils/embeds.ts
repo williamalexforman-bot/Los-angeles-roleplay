@@ -95,23 +95,21 @@ export const createEmbed = (title: string, description: string, color: ColorReso
 };
 
 /**
- * Main session embed. The banner is rendered INSIDE the embed via
- * .setImage() (attachment:// URL), just like the original layout — but the
- * banner graphics are now generated wider/larger (16:9) so they fill more of
- * the embed. The banner file is attached via createSessionAttachments().
+ * Main session embed. Text-only (NO image) so the large emblem is NOT capped
+ * by Discord's ~400px embed-image limit. The emblem is instead sent as a
+ * full-width message attachment via createSessionAttachments(), which renders
+ * it BIG and wide at the top of the message.
  */
 export const createSessionEmbed = (
     title: string,
     description: string,
     color: ColorResolvable = BRAND.color,
-    emblemType: SessionEmblemType = 'start',
+    _emblemType: SessionEmblemType = 'start',
 ) => {
-    const bannerUrl = resolveTopBannerUrl(emblemType);
     return new EmbedBuilder()
         .setColor(color)
         .setTitle(title)
         .setDescription(description)
-        .setImage(bannerUrl)
         .setFooter({ text: SESSION_FOOTER })
         .setTimestamp();
 };
@@ -127,20 +125,26 @@ export const createUnderbannerEmbed = (color: ColorResolvable = BRAND.color) => 
 };
 
 /**
- * Attachments for a session announcement. Both the top banner and the
- * underbanner are attached because they are rendered inside embeds via
- * .setImage() with attachment:// URLs.
+ * Attachments for a session announcement.
+ *
+ * 1. TOP EMBLEM: the large banner file is attached as a STANDALONE message
+ *    attachment (NOT referenced by an embed's .setImage()). Because it is not
+ *    capped by an embed image, Discord renders it FULL-WIDTH and BIG at the
+ *    top of the message.
+ * 2. BOTTOM UNDERBANNER: the thin bar is attached here so the underbanner
+ *    embed (which uses .setImage('attachment://underbanner.webp')) can render
+ *    it at the very bottom.
  */
 export const createSessionAttachments = (emblemType: SessionEmblemType = 'start'): AttachmentBuilder[] => {
     const attachments: AttachmentBuilder[] = [];
 
-    // Top banner for the current session type (rendered in the main embed).
+    // TOP EMBLEM: standalone full-width attachment (large, uncapped).
     const banner = resolveSessionBanner(emblemType);
     if (assetExists(banner.path)) {
         attachments.push(new AttachmentBuilder(banner.path, { name: banner.name }));
     }
 
-    // Bottom underbanner bar (rendered in the last embed).
+    // BOTTOM UNDERBANNER bar (rendered in the last embed).
     if (assetExists(SESSION_UNDERBANNER_PATH)) {
         attachments.push(new AttachmentBuilder(SESSION_UNDERBANNER_PATH, { name: SESSION_UNDERBANNER_NAME }));
     }

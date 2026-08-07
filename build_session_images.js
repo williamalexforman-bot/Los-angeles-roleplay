@@ -11,7 +11,7 @@ const BASE_EMBLEMS = {
     end: 'assets/session-end.png',
     full: 'assets/session-full.png',
     boost: 'assets/session-boost.png',
-    vote: 'assets/session-start.png',
+    vote: 'assets/session-vote-source.png',
 };
 
 async function build() {
