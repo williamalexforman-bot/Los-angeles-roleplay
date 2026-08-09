@@ -208,7 +208,7 @@ function buildInfractionEmbed(record: InfractionRecord): EmbedBuilder {
             { name: 'Expiration', value: record.expiration || 'No expiration set.', inline: true },
             { name: 'Direct Message', value: record.notifyMember ? 'Requested' : 'Not requested', inline: true },
             { name: 'Issued By', value: `<@${record.issuedById}>`, inline: true },
-            { name: 'Created', value: discordTimestamp(new Date(record.createdAt)) },
+            { name: 'Issued At', value: discordTimestamp(new Date(record.createdAt)) },
         );
 }
 
@@ -541,17 +541,27 @@ function infractionCommand() {
                         reason: `${caseNumber} issued by ${interaction.user.id}`,
                     });
                     record.threadId = thread.id;
-                    await detailMessage.edit({
-                        embeds: [buildInfractionEmbed(record)],
-                        components: infractionControls(record.status, thread.id, thread.url),
-                    });
                 } catch (error) {
                     await detailMessage.delete().catch(() => null);
                     throw error;
                 }
 
+                const threadDetailMessage = await thread.send({
+                    embeds: [buildInfractionEmbed(record)],
+                    components: infractionControls(record.status, thread.id, thread.url),
+                    files: [logoAttachment()],
+                    allowedMentions: { parse: [] },
+                });
+                record.detailMessageId = threadDetailMessage.id;
+
+                await detailMessage.edit({
+                    content: `<@${member.id}>, a staff infraction has been issued. The evidence thread is available here: ${thread.url}`,
+                    embeds: [buildInfractionEmbed(record)],
+                    allowedMentions: { parse: [], users: [member.id] },
+                });
+
                 await thread.send({
-                    content: `**Evidence Workspace | ${caseNumber}**\nUpload screenshots, recordings, files, and links in this thread. The complete infraction record and management controls are in ${detailMessage.url}.`,
+                    content: `**Evidence Workspace | ${caseNumber}**\nUpload screenshots, recordings, files, and links in this thread. The complete infraction record and management controls are in ${thread.url}.`,
                     allowedMentions: { parse: [] },
                 }).catch(() => null);
 

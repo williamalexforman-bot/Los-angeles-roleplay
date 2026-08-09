@@ -21,6 +21,9 @@ import { logger } from '../utils/logger';
 
 const LOA_REQUEST_CHANNEL_ID = process.env.LOA_REQUEST_CHANNEL_ID || '1528206019237515344';
 const LOA_ROLE_ID = process.env.LOA_ROLE_ID || '1521593407795888329';
+// Only members holding this role may submit an LOA request when configured.
+const LOA_REQUESTER_ROLE_ID = process.env.LOA_REQUESTER_ROLE_ID || '';
+const LOA_REQUESTER_ROLE_REQUIRED = Boolean(process.env.LOA_REQUESTER_ROLE_ID);
 const LOA_MANAGEMENT_PERMISSION = PermissionFlagsBits.Administrator;
 
 interface PendingLoa {
@@ -388,10 +391,12 @@ export async function handleLoaModal(interaction: ModalSubmitInteraction): Promi
         inMemoryPending.set(pendingId, pending);
 
         const channel = await interaction.client.channels.fetch(LOA_REQUEST_CHANNEL_ID).catch(() => null);
-        if (!channel?.isSendable()) {
+        if (!channel || !channel.isSendable()) {
             inMemoryPending.delete(pendingId);
             clearTimeout(pending.timer);
-            await interaction.editReply('The LOA request channel is unavailable. Please contact an administrator.');
+            await interaction.editReply(
+                `The LOA request channel (<#${LOA_REQUEST_CHANNEL_ID}>) is unavailable. Please ensure the bot has **View Channel** and **Send Messages** permission there, then try again. If the problem continues, contact an administrator.`,
+            );
             return true;
         }
 
@@ -425,23 +430,43 @@ export const loaCommand = {
         ),
 
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
         try {
             const subcommand = interaction.options.getSubcommand();
 
             if (subcommand === 'request') {
                 if (!interaction.guild) {
-                    await interaction.editReply('This command can only be used in a server.');
+                    await interaction.reply({ content: 'This command can only be used in a server.', flags: MessageFlags.Ephemeral });
                     return;
                 }
+
+                // Only users holding the LOA requester role (or with Administrator)
+                // may submit a Leave of Absence request.
+                const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.Administrator);
+                const member = interaction.member;
+                const memberHasRole = (id: string): boolean => {
+                    if (!member) return false;
+                    const roles = (member as { roles?: { cache?: { has(id: string): boolean } } | string[] }).roles;
+                    if (!roles) return false;
+                    if (Array.isArray(roles)) return roles.includes(id);
+                    return roles.cache?.has(id) ?? false;
+                };
+                const hasRequesterRole = LOA_REQUESTER_ROLE_REQUIRED && memberHasRole(LOA_REQUESTER_ROLE_ID);
+
+                if (!isAdmin && LOA_REQUESTER_ROLE_REQUIRED && !hasRequesterRole) {
+                    await interaction.reply({
+                        content: `You need the <@&${LOA_REQUESTER_ROLE_ID}> role to request a Leave of Absence.`,
+                        flags: MessageFlags.Ephemeral,
+                    });
+                    return;
+                }
+
                 await interaction.showModal(loaRequestModal());
                 return;
             }
         } catch (error) {
             console.error('[LOA] Command failed.', error);
             markSlashCommandFailed(interaction, error);
-            await interaction.editReply('Unable to process the LOA command. Please try again later.');
+            await interaction.reply({ content: 'Unable to process the LOA command. Please try again later.', flags: MessageFlags.Ephemeral });
         }
     },
 };
