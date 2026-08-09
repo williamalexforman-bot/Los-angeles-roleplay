@@ -608,6 +608,41 @@ async function handlePrefixEconomyCommand(message: Message): Promise<void> {
             await message.reply({ embeds: [makeEconomyEmbed('💸 PAYMENT CONFIRMED', `Sent ${formatCurrency(amount)} to <@${recipient.id}>.`, [])], allowedMentions: { parse: [] } });
             return;
         }
+        case 'rob': {
+            const target = parseTargetUser(message, args[1]);
+            if (!target || target.id === message.author.id) {
+                await message.reply({ embeds: [buildEconomyError('❌ Invalid target to rob.')], allowedMentions: { parse: [] } });
+                return;
+            }
+            const victim = await getEconomyAccount(message.guild.id, target.id);
+            const robber = account;
+            if (victim.cash < 100) {
+                await message.reply({ embeds: [buildEconomyError('❌ Target has too little cash to rob.')], allowedMentions: { parse: [] } });
+                return;
+            }
+            const success = Math.random() < 0.4; // 40% success chance
+            if (success) {
+                const stolen = Math.max(50, Math.floor(victim.cash * (0.1 + Math.random() * 0.4)));
+                const actualStolen = Math.min(stolen, victim.cash);
+                victim.cash -= actualStolen;
+                robber.cash += actualStolen;
+                await victim.save();
+                await robber.save();
+                await commitTransaction(message.guild.id, robber.discordId, 'ROB_SUCCESS', actualStolen, robber.discordId, victim.discordId, { target: victim.discordId });
+                await commitTransaction(message.guild.id, victim.discordId, 'ROBBED', -actualStolen, robber.discordId, victim.discordId, {});
+                await message.reply({ embeds: [makeEconomyEmbed('🕵️‍♂️ ROBBERY SUCCESS', `You stole ${formatCurrency(actualStolen)} from <@${target.id}>.`, [])], allowedMentions: { parse: [] } });
+            } else {
+                const penalty = Math.min(robber.cash, Math.max(25, Math.floor(robber.cash * (0.05 + Math.random() * 0.15))));
+                robber.cash -= penalty;
+                victim.cash += penalty;
+                await robber.save();
+                await victim.save();
+                await commitTransaction(message.guild.id, robber.discordId, 'ROB_FAIL', -penalty, robber.discordId, victim.discordId, {});
+                await commitTransaction(message.guild.id, victim.discordId, 'ROB_DEFENDED', penalty, robber.discordId, victim.discordId, {});
+                await message.reply({ embeds: [makeEconomyEmbed('💥 ROBBERY FAILED', `You were caught and lost ${formatCurrency(penalty)} to <@${target.id}>.`, [])], allowedMentions: { parse: [] } });
+            }
+            return;
+        }
         case 'daily': {
             const now = Date.now();
             const last = account.lastDailyClaim?.getTime() ?? 0;
@@ -1113,6 +1148,47 @@ export const economyCommands = [
             await commitTransaction(interaction.guildId, interaction.user.id, 'PAYMENT_OUT', -amount, interaction.user.id, recipient.id, {});
             await commitTransaction(interaction.guildId, recipient.id, 'PAYMENT_IN', amount, interaction.user.id, recipient.id, {});
             await interaction.reply({ embeds: [makeEconomyEmbed('💸 PAYMENT CONFIRMED', `Sent ${formatCurrency(amount)} to <@${recipient.id}>.`, [])], ephemeral: true });
+        },
+    },
+    {
+        data: new SlashCommandBuilder().setName('rob').setDescription('Attempt to rob another user').addUserOption(option => option.setName('user').setDescription('Target to rob').setRequired(true)),
+        async execute(interaction: ChatInputCommandInteraction) {
+            if (!interaction.guildId) {
+                await interaction.reply({ embeds: [buildEconomyError('This command must be used in a server.')], ephemeral: true });
+                return;
+            }
+            const target = interaction.options.getUser('user');
+            if (!target || target.id === interaction.user.id) {
+                await interaction.reply({ embeds: [buildEconomyError('❌ Invalid target to rob.')], ephemeral: true });
+                return;
+            }
+            const victim = await getEconomyAccount(interaction.guildId, target.id);
+            const robber = await getEconomyAccount(interaction.guildId, interaction.user.id);
+            if (victim.cash < 100) {
+                await interaction.reply({ embeds: [buildEconomyError('❌ Target has too little cash to rob.')], ephemeral: true });
+                return;
+            }
+            const success = Math.random() < 0.4;
+            if (success) {
+                const stolen = Math.max(50, Math.floor(victim.cash * (0.1 + Math.random() * 0.4)));
+                const actualStolen = Math.min(stolen, victim.cash);
+                victim.cash -= actualStolen;
+                robber.cash += actualStolen;
+                await victim.save();
+                await robber.save();
+                await commitTransaction(interaction.guildId, robber.discordId, 'ROB_SUCCESS', actualStolen, robber.discordId, victim.discordId, { target: victim.discordId });
+                await commitTransaction(interaction.guildId, victim.discordId, 'ROBBED', -actualStolen, robber.discordId, victim.discordId, {});
+                await interaction.reply({ embeds: [makeEconomyEmbed('🕵️‍♂️ ROBBERY SUCCESS', `You stole ${formatCurrency(actualStolen)} from <@${target.id}>.`, [])], ephemeral: true });
+            } else {
+                const penalty = Math.min(robber.cash, Math.max(25, Math.floor(robber.cash * (0.05 + Math.random() * 0.15))));
+                robber.cash -= penalty;
+                victim.cash += penalty;
+                await robber.save();
+                await victim.save();
+                await commitTransaction(interaction.guildId, robber.discordId, 'ROB_FAIL', -penalty, robber.discordId, victim.discordId, {});
+                await commitTransaction(interaction.guildId, victim.discordId, 'ROB_DEFENDED', penalty, robber.discordId, victim.discordId, {});
+                await interaction.reply({ embeds: [makeEconomyEmbed('💥 ROBBERY FAILED', `You were caught and lost ${formatCurrency(penalty)} to <@${target.id}>.`, [])], ephemeral: true });
+            }
         },
     },
     {
@@ -1651,6 +1727,30 @@ export const economyCommands = [
 
 export async function handleEconomyMessage(message: Message): Promise<void> {
     if (message.author.bot || !message.guild) return;
+    // caret-admin commands (e.g. ^ @user 500) — admin grants money
+    if (message.content.trim().startsWith('^')) {
+        const parts = message.content.trim().slice(1).trim().split(/\s+/);
+        const targetArg = parts[0];
+        const amountArg = parts[1];
+        const member = message.member;
+        if (!hasEconomyAdminRole(member)) {
+            await message.reply({ embeds: [buildEconomyError('❌ Permission denied — admin role required.')], allowedMentions: { parse: [] } });
+            return;
+        }
+        const target = parseTargetUser(message, targetArg);
+        const amount = parseNumber(amountArg ?? '');
+        if (!target || !amount) {
+            await message.reply({ embeds: [buildEconomyError('❌ Invalid usage. Format: ^ @user amount')], allowedMentions: { parse: [] } });
+            return;
+        }
+        const targetAccount = await getEconomyAccount(message.guild.id, target.id);
+        targetAccount.cash += amount;
+        await targetAccount.save();
+        await commitTransaction(message.guild.id, target.id, 'ADMIN_GRANT', amount, member?.id ?? null, target.id, { grantedBy: member?.id ?? null });
+        await message.reply({ embeds: [makeEconomyEmbed('✅ ADMIN GRANT', `Gave ${formatCurrency(amount)} to <@${target.id}>.`, [])], allowedMentions: { parse: [] } });
+        return;
+    }
+
     await handlePrefixEconomyCommand(message);
 }
 
