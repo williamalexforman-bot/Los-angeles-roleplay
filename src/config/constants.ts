@@ -2,7 +2,7 @@ import path from 'path';
 
 export const BRAND = {
     name: 'Los Angeles Roleplay',
-    color: 0x3b82f6,
+    color: 0x247BF1,
     footer: 'Los Angeles Roleplay | Realism at its Finest',
     panelFooter: 'Realism at its Finest',
     logoName: 'larp-logo.png',
@@ -11,8 +11,6 @@ export const BRAND = {
 } as const;
 
 export const CHANNEL_IDS = {
-    ticketPanel: process.env.TICKET_PANEL_CHANNEL_ID || '1526034504953892925',
-    ticketTranscript: process.env.TICKET_TRANSCRIPT_CHANNEL_ID || '1526255184303493291',
     rules: process.env.CSRP_RULES_CHANNEL_ID || '1526046592187105421',
     paidPartner: process.env.PAID_PARTNER_CHANNEL_ID || '1526035127606706196',
     profanityLog: process.env.PROFANITY_LOG_CHANNEL_ID || '1529289318152274000',
@@ -24,15 +22,24 @@ export const CHANNEL_IDS = {
     sessionAnnouncements: process.env.SESSION_ANNOUNCEMENT_CHANNEL_ID || '1526036392147423404',
     trainingResults: process.env.TRAINING_RESULTS_CHANNEL_ID || '1526490481398124614',
     infractionParent: process.env.INFRACTION_PARENT_CHANNEL_ID || '1526044664975851642',
+    casino: process.env.CASINO_CHANNEL_ID || '1526041316151132292',
+    economyLog: process.env.ECONOMY_LOG_CHANNEL_ID || '1526041316151132292',
     staffFeedback: process.env.STAFF_FEEDBACK_CHANNEL_ID || '1526041844515868745',
     partnershipRequests: process.env.PARTNERSHIP_REQUEST_CHANNEL_ID || '1527122924975165530',
     staffComplaints: process.env.STAFF_COMPLAINT_CHANNEL_ID || '1527139806797369504',
     promotions: process.env.PROMOTION_CHANNEL_ID || '1526044978109743255',
     movieFeedback: process.env.MOVIE_FEEDBACK_CHANNEL_ID || '1528933044310904884',
     privateAudit: process.env.PRIVATE_AUDIT_LOG_CHANNEL_ID || process.env.DISCORD_COMMAND_LOG_CHANNEL_ID || '1528917592604020917',
+    economy: process.env.ECONOMY_CHANNEL_ID || '1526041316151132292',
 } as const;
 
 export const PARTNERSHIP_ROLE_ID = process.env.PARTNERSHIP_ROLE_ID || '1521593407783440394';
+export const ECONOMY_CHANNEL_ID = process.env.ECONOMY_CHANNEL_ID || '1526041316151132292';
+export const ECONOMY_LOG_CHANNEL_ID = process.env.ECONOMY_LOG_CHANNEL_ID || '1526041316151132292';
+export const CASINO_CHANNEL_ID = process.env.CASINO_CHANNEL_ID || '1526041316151132292';
+export const ECONOMY_ADMIN_ROLE_ID = process.env.ECONOMY_ADMIN_ROLE_ID || '1521593407850680401';
+export const ECONOMY_PREFIX = process.env.PREFIX?.trim() || '$';
+export const CASINO_ENABLED = process.env.CASINO_ENABLED !== 'false';
 
 const CSRP_GUILD_ID = process.env.GUILD_ID || '1521593407741362257';
 
@@ -41,19 +48,3 @@ export const SUPPORT_LINKS = {
     paidPartner: `https://discord.com/channels/${CSRP_GUILD_ID}/${CHANNEL_IDS.paidPartner}`,
     officialErlcCommunityGuidelines: 'https://support.policeroleplay.community/hc/en-us/articles/33683178225300-PRC-Community-Guidelines',
 } as const;
-
-export const TICKET_CATEGORY_IDS = {
-    general: process.env.GENERAL_SUPPORT_CATEGORY_ID || '1526254341646712883',
-    internal: process.env.INTERNAL_AFFAIRS_CATEGORY_ID || '1526254402426503320',
-    management: process.env.MANAGEMENT_CATEGORY_ID || '1526254462128099479',
-    highrank: process.env.HIGH_RANK_CATEGORY_ID || '1526254518570844231',
-} as const;
-
-export const SUPPORT_ROLE_IDS = {
-    general: process.env.GENERAL_SUPPORT_ROLE_ID || '1523122697746382868',
-    internal: process.env.INTERNAL_AFFAIRS_ROLE_ID || '1523122834161926238',
-    management: process.env.MANAGEMENT_ROLE_ID || '1523122912201277590',
-    highrank: process.env.HIGH_RANK_ROLE_ID || '1527845170748326021',
-} as const;
-
-export type TicketCategory = keyof typeof TICKET_CATEGORY_IDS;

@@ -15,15 +15,14 @@ import { startWebhookServer } from './webhook/server';
 import { connectDatabase, disconnectDatabase } from './database/connection';
 import { configureInfractionDatabaseAdapter } from './database/infractionAdapter';
 import { handleMessageModeration } from './events/messageModeration';
-import { handleTicketAssistantMessage } from './commands/tickets';
+import { handleEconomyMessage } from './commands/economy';
 import { startErlcMonitor, type ErlcMonitor } from './monitors/erlcMonitor';
 import { MongoErlcMonitorStateStore } from './database/erlcStateStore';
 import { BRAND, CHANNEL_IDS } from './config/constants';
 import { createLogoAttachment } from './utils/embeds';
 import { logger } from './utils/logger';
 import { configureInfractionAuthorization } from './commands/staffManagement';
-import { cleanupStaleTicketReservations } from './services/ticketRepository';
-import { getBloxlinkApiKey, getDiscordBotToken, getOpenAiApiKey, getOpenAiModel } from './config/env';
+import { getDiscordBotToken } from './config/env';
 import { setDiscordClientForDm } from './commands/punishment';
 
 // Crash-proof error handling — keeps the process alive on errors and prevents premature exit
@@ -75,7 +74,7 @@ function createConfiguredClient(privilegedIntents: boolean): Client {
     if (privilegedIntents) {
         intents.push(GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent);
     } else {
-        logger.warn('Running without privileged intents; message moderation, AI ticket replies, and member events are disabled until enabled in the Discord Developer Portal.');
+        logger.warn('Running without privileged intents; message moderation and member events are disabled until enabled in the Discord Developer Portal.');
     }
     const bot = new Client({ intents });
     bot.on('interactionCreate', interactionCreate);
@@ -128,16 +127,8 @@ function createConfiguredClient(privilegedIntents: boolean): Client {
 
     bot.once(Events.ClientReady, async () => {
         await onReady(bot);
-        if (!getBloxlinkApiKey()) {
-            logger.warn('BLOXLINK_API_KEY is missing or still a placeholder. Set it in the runtime environment (the project .env file for local hosting), then restart the bot.');
-        }
-        if (!getOpenAiApiKey()) {
-            logger.warn('OPENAI_API_KEY is missing or still a placeholder. Set it in the runtime environment (the project .env file for local hosting), then restart the bot.');
-        } else {
-            logger.info(`Automated ticket assistant configured with model ${getOpenAiModel()}.`);
-        }
         if (!process.env.BOT_PERMISSIONS_ROLE_ID) {
-            logger.warn('BOT_PERMISSIONS_ROLE_ID is not configured; /ticket-panel remains administrator-only.');
+            logger.warn('BOT_PERMISSIONS_ROLE_ID is not configured; error and moderation commands remain restricted.');
         }
         if (!process.env.EMERGENCY_STAFF_ROLE_ID) {
             logger.warn('EMERGENCY_STAFF_ROLE_ID is not configured; High-confidence raid alerts will log without a role ping.');
@@ -310,16 +301,14 @@ function createConfiguredClient(privilegedIntents: boolean): Client {
                     { name: 'Ban Reason', value: reason, inline: false },
                 )
                 .setFooter({ text: BRAND.footer })
-                .setTimestamp();
+.setTimestamp();
 
             await channel.send({ embeds: [banEmbed], files: [createLogoAttachment()] }).catch(() => undefined);
         });
 
         bot.on('messageCreate', async message => {
-            await Promise.allSettled([
-                handleMessageModeration(message),
-                handleTicketAssistantMessage(message),
-            ]);
+            await handleMessageModeration(message);
+            await handleEconomyMessage(message);
         });
     }
     return bot;
@@ -338,12 +327,9 @@ async function bootstrap(): Promise<void> {
         logger.warn(`Webhook server failed to start: ${error instanceof Error ? error.message : 'Unknown'}`);
     }
 
-    // Wrap every startup step so nothing crashes the process
+// Wrap every startup step so nothing crashes the process
     await connectDatabase().catch(error => {
         logger.warn(`Database connection failed: ${error instanceof Error ? error.message : 'Unknown'}`);
-    });
-    await cleanupStaleTicketReservations().catch(error => {
-        logger.warn(`Startup ticket-reservation cleanup was unavailable: ${error instanceof Error ? error.name : 'UnknownError'}`);
     });
 
     try {

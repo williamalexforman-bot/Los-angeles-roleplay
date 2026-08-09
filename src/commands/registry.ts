@@ -4,9 +4,6 @@ import { adminCommands } from './admin';
 import { staffCommands } from './staff';
 import { miscCommands } from './misc';
 import { gameCommands } from './game';
-import sessionCommands from './sessions';
-import { ticketCommandDefinitions } from './tickets';
-import { data as verificationCommandData, execute as executeVerification } from './verification';
 import { communityCommands } from './community';
 import { staffManagementCommands } from './staffManagement';
 import { prohibitedWordCommand } from './prohibitedWords';
@@ -18,6 +15,8 @@ import { activityCheckCommand } from './activityCheck';
 import { requestTrainingCommand } from './requestTraining';
 import { viewInfractionsCommand } from './viewInfractions';
 import { loaCommand } from './loa';
+import { renameCommand } from './rename';
+import { economyCommands } from './economy';
 
 export interface CommandDefinition {
     data: {
@@ -39,12 +38,9 @@ const retainedMiscCommands = miscCommands.filter(command =>
 export const commandDefinitions: CommandDefinition[] = [
     ...moderationCommands,
     adminCommands,
-    { data: verificationCommandData, execute: executeVerification as (interaction: ChatInputCommandInteraction) => Promise<unknown> },
     ...retainedStaffCommands,
     ...retainedMiscCommands,
     ...gameCommands,
-    ...sessionCommands,
-    ...ticketCommandDefinitions,
     ...communityCommands,
     ...staffManagementCommands,
     sayCommand,
@@ -55,6 +51,8 @@ export const commandDefinitions: CommandDefinition[] = [
     requestTrainingCommand,
     viewInfractionsCommand,
     loaCommand,
+    renameCommand,
+    ...economyCommands,
     { data: cmdsCommandData, execute: executeCmds as (interaction: ChatInputCommandInteraction) => Promise<unknown> },
 ] as CommandDefinition[];
 

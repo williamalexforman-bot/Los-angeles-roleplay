@@ -3,7 +3,6 @@ import { commandDefinitions } from '../commands/registry';
 import { loadProhibitedWordOverrides } from '../commands/prohibitedWords';
 import { logger } from '../utils/logger';
 import { getDiscordBotToken } from '../config/env';
-import { refreshExistingTicketPanels } from '../commands/tickets';
 
 // Custom status refresh — updates "Watching [member count] members" every 5 minutes.
 const MEMBER_COUNT_REFRESH_MS = 5 * 60 * 1000;
@@ -72,16 +71,7 @@ export const onReady = async (client: Client): Promise<void> => {
         logger.error(`Failed to register slash commands: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
 
-    try {
-        const refreshedPanels = await refreshExistingTicketPanels(client);
-        if (refreshedPanels > 0) {
-            logger.info(`Updated ${refreshedPanels} existing ticket panel${refreshedPanels === 1 ? '' : 's'} to the dropdown layout.`);
-        }
-    } catch (error) {
-        logger.warn(`Existing ticket panels could not be refreshed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-
-    try {
+try {
         await loadProhibitedWordOverrides([...client.guilds.cache.keys()]);
     } catch (error) {
         logger.warn(`Prohibited-word overrides could not be loaded: ${error instanceof Error ? error.message : 'Unknown error'}`);

@@ -1,6 +1,6 @@
 # California State Roleplay Management Bot
 
-A Discord.js v14 management bot for California State Roleplay, with professional ticketing, staff workflows, message safety alerts, command auditing, Bloxlink verification, ER:LC v2 monitoring, and optional automated ticket assistance.
+A Discord.js v14 management bot for California State Roleplay, with staff workflows, message safety alerts, command auditing, ER:LC v2 monitoring, and utility commands.
 
 ## Setup
 
@@ -39,11 +39,9 @@ The bot needs View Channels, Manage Channels, Manage Roles/Permissions where app
 
 ## Main commands
 
-- `/ticket-panel` — posts or refreshes the four-category Help & Support dropdown.
-- `/ticket refresh-user` — refreshes Bloxlink and Roblox data in a ticket.
+- `/rename` — rename a channel (emoji allowed) with Manage Channels permission.
 - `/movie-feedback` — publishes the branded Movie / When / Where layout with a 1–10 star display, submitter footer, timestamp, and CSRP logo.
 - `/say` — lets a server administrator or the configured bot-permissions role send an exact plain-text message as the bot in the current or selected text channel; mentions are displayed without notifying users or roles.
-- Ticket channels place persistent controls first, then the creator/support-team welcome message. Close-with-reason notices ping the ticket creator, show the full reason, and archive a transcript before locking the ticket.
 - `/staff-feedback` — structured public staff feedback with private identity auditing for anonymous submissions.
 - `/partnership request` — posts the branded partnership rules panel; the button opens a server-name, representative, invite-link, and server-ad modal. Completed requests go to the configured partnership review channel with staff-only Approve/Deny controls.
 - `/staff-complaint` — submits a structured 1–5 star complaint about a staff member to the configured private complaint channel.
@@ -52,21 +50,16 @@ The bot needs View Channels, Manage Channels, Manage Roles/Permissions where app
 - `/infraction issue` — pings the infracted member, posts the complete case embed and controls in the infraction channel, and attaches a public evidence thread directly beneath that message without automatically adding the command user.
 - `/prohibited-word add|remove|list` — administrator management of the whole-word filter.
 
-Legacy ticket commands remain registered as compatibility aliases. Existing application, training-request, moderation, admin, partnership, complaint, and game commands are retained.
-
 ## Optional integrations
 
-- **Bloxlink:** set `BLOXLINK_API_KEY`. A missing or unverified account never blocks ticket creation.
-- **OpenAI:** set `OPENAI_API_KEY`; `OPENAI_MODEL` defaults to `gpt-5.6-sol`. The assistant uses the Responses API with `store: false`, strict non-staff guardrails, and official-domain web search for ER:LC questions. Paid-partner and rules-channel routing remains available without an OpenAI key.
 - **Partnership role:** set `PARTNERSHIP_ROLE_ID` so approving a partnership automatically assigns the role. The request and complaint destinations default to `1527122924975165530` and `1527139806797369504` and can be overridden with `PARTNERSHIP_REQUEST_CHANNEL_ID` and `STAFF_COMPLAINT_CHANNEL_ID`.
 - **ER:LC:** set `ERLC_SERVER_KEY`. The monitor uses `GET https://api.erlc.gg/v2/server` with Players, CommandLogs, and JoinLogs enabled, honors rate-limit reset/retry data, and persists processed state in MongoDB.
-- **Official ER:LC webhooks:** point the configured event webhook to the public HTTPS route `/erlc-event`. Signed Ed25519 payloads are verified before processing. `/roblox-event` remains available only when `WEBHOOK_SECRET` is configured for backward compatibility.
-- **Ticket recovery:** abandoned pending reservations are cleaned after 15 minutes by default; override this with `TICKET_PENDING_TTL_MS`.
+- **Official ER:LC webhooks:** point the configured event webhook to the public HTTPS route `/erlc-event`. Signed Ed25519 payloads are verified before processing.
 
 ## Validation
 
 - `npm run build` — strict TypeScript check.
-- `npm test` — offline integration coverage for the panel, all four ticket channel/permission workflows, controls-first ordering, close-notice/transcript archival, complete modal answers, duplicate and stale-reservation handling, atomic claim/AI state, profanity/raid payloads and dedupe, slash-command auditing/redaction, movie feedback, Pass/Fail training output, public infraction evidence threads/controls, Bloxlink fallback, deterministic support routing, OpenAI serialization, and ER:LC command/team/punishment comparisons.
+- `npm test` — offline integration coverage for staff tools, moderation, profanity/raid payloads and dedupe, slash-command auditing/redaction, movie feedback, Pass/Fail training output, public infraction evidence threads/controls, and ER:LC command/team/punishment comparisons.
 - `npm run check` — runs both.
 
 Live Discord channel/thread creation and external API calls should be exercised in the configured test guild before production rollout.

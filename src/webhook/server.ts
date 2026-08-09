@@ -6,7 +6,6 @@ import { isDatabaseAvailable } from '../database/connection';
 import { BRAND, CHANNEL_IDS } from '../config/constants';
 import { createLogoAttachment } from '../utils/embeds';
 import { logger } from '../utils/logger';
-import { lookupBloxlinkUser } from '../services/bloxlinkService';
 
 const MAX_BODY_BYTES = 1_000_000;
 const SIGNATURE_REPLAY_WINDOW_MS = 10 * 60 * 1_000;
@@ -69,93 +68,6 @@ function baseEmbed(title: string): EmbedBuilder {
         .setTimestamp();
 }
 
-async function handleUserInfoEndpoint(client: Client, request: IncomingMessage, response: ServerResponse): Promise<void> {
-    const url = new URL(request.url || '', `http://${request.headers.host || 'localhost'}`);
-    const discordId = url.searchParams.get('discord');
-    const guildId = url.searchParams.get('guild') || process.env.GUILD_ID;
-
-    if (!discordId || !/^\d{16,22}$/.test(discordId)) {
-        respond(response, 400, { ok: false, error: 'Missing or invalid "discord" query parameter (must be a valid Discord user ID).' });
-        return;
-    }
-
-    if (!guildId) {
-        respond(response, 400, { ok: false, error: 'No guild ID configured. Set GUILD_ID or pass "guild" query parameter.' });
-        return;
-    }
-
-    const guild = await client.guilds.fetch(guildId).catch(() => null);
-    if (!guild) {
-        respond(response, 404, { ok: false, error: 'Guild not found.' });
-        return;
-    }
-
-    const member = await guild.members.fetch(discordId).catch(() => null);
-
-    // Discord info
-    const discordInfo: Record<string, unknown> = member
-        ? {
-            id: member.id,
-            username: member.user.username,
-            global_name: member.user.globalName || member.user.username,
-            display_name: member.displayName || member.user.globalName || member.user.username,
-            tag: member.user.tag,
-            avatar_url: member.displayAvatarURL({ size: 256 }),
-            created_at: member.user.createdAt.toISOString(),
-            joined_at: member.joinedAt?.toISOString() || null,
-            roles: [...member.roles.cache.keys()],
-            is_bot: member.user.bot,
-        }
-        : {
-            id: discordId,
-            username: 'Unknown',
-            global_name: 'Unknown',
-            tag: 'Unknown',
-            avatar_url: null,
-            created_at: null,
-            joined_at: null,
-            roles: [],
-            is_bot: false,
-        };
-
-    // Fetch Roblox info via Bloxlink
-    let robloxInfo: Record<string, unknown> = {
-        username: null,
-        display_name: null,
-        user_id: null,
-        avatar_url: null,
-        profile_url: null,
-        verified: false,
-        created_at: null,
-    };
-
-    try {
-        const bloxlinkResult = await lookupBloxlinkUser(guildId, discordId);
-        if (bloxlinkResult.status === 'verified') {
-            robloxInfo = {
-                username: bloxlinkResult.robloxUsername,
-                display_name: bloxlinkResult.robloxDisplayName,
-                user_id: bloxlinkResult.robloxId ? Number(bloxlinkResult.robloxId) : null,
-                avatar_url: bloxlinkResult.robloxAvatarUrl,
-                profile_url: bloxlinkResult.profileUrl,
-                verified: true,
-                created_at: bloxlinkResult.robloxCreatedAt,
-            };
-        }
-    } catch {
-        // Roblox info stays as default unverified
-    }
-
-    const userData: Record<string, unknown> = {
-        user: {
-            discord: discordInfo,
-            roblox: robloxInfo,
-        },
-    };
-
-    respond(response, 200, userData);
-}
-
 async function processLegacyEvent(client: Client, payload: Record<string, unknown>): Promise<void> {
     const eventType = String(payload.event || payload.type || '');
     if (eventType === 'teamSwitch') {
@@ -215,11 +127,6 @@ export function startWebhookServer(client: Client) {
         : 3000;
     if (port !== configuredPort) logger.warn('WEBHOOK_PORT or PORT is invalid; using port 3000.');
     const server = createServer(async (request, response) => {
-        // Tickets v2 user-info API endpoint - used as the API Endpoint URL in external ticket systems
-        if (request.method === 'GET' && request.url?.startsWith('/api/user-info')) {
-            await handleUserInfoEndpoint(client, request, response);
-            return;
-        }
         if (request.method === 'GET' && request.url === '/health') {
             respond(response, 200, {
                 ok: true,

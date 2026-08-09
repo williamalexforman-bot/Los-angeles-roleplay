@@ -1,8 +1,5 @@
 import {
-    ActionRowBuilder,
     ButtonInteraction,
-    ButtonStyle,
-    ButtonBuilder,
     ChatInputCommandInteraction,
     GuildMember,
     Interaction,
@@ -10,33 +7,17 @@ import {
     PermissionFlagsBits,
 } from 'discord.js';
 import { commandHandlers } from '../commands/registry';
-import {
-    handleTicketButton,
-    handleTicketModal,
-    ticketOpeningModalForValue,
-} from '../commands/tickets';
-import { safelyGetTicketByChannel } from '../services/ticketRepository';
 import { handleStaffManagementButton, handleStaffManagementModal } from '../commands/staffManagement';
 import { handleCommunityButton, handleCommunityModal } from '../commands/community';
 import { handleActivityCheckButton } from '../commands/activityCheck';
 import { handleTrainingModal } from '../commands/requestTraining';
 import { handleLoaButton, handleLoaModal } from '../commands/loa';
-import { handleSessionNotifyButton, handleSessionVoteButton } from '../commands/sessions';
-import { logSlashCommand, takeSlashCommandFailure } from '../utils/commandAudit';
+import { handleEconomyButton, handleEconomyModal, handleEconomySelect } from '../commands/economy';
 import { logger } from '../utils/logger';
-import { TICKET_CATEGORY_IDS } from '../config/constants';
-
-const TICKET_COMMAND_NAMES = new Set([
-    'ticket-panel', 'ticket-message', 'ticket', 'ticket-add', 'ticket-close',
-    'ticket-claim', 'ticket-remove', 'ticket-rename', 'ticket-transfer',
-    'ticket-reopen', 'ticket-switchpanel', 'ticket-notes', 'ticket-edit',
-    'ticket-closerequest',
-]);
 
 const MANAGEMENT_COMMANDS = new Set([
     'infraction', 'promotion', 'training-results', 'training-result',
     'request-training', 'teamswitch', 'punishment',
-    'session-start', 'session-end', 'session-full', 'session-boost', 'session-role',
 ]);
 const MODERATION_PERMISSIONS = new Map<string, bigint>([
     ['punish', PermissionFlagsBits.ModerateMembers],
@@ -104,9 +85,6 @@ async function reportInteractionError(interaction: Interaction, error: unknown):
 }
 
 async function handleChatCommand(interaction: ChatInputCommandInteraction): Promise<void> {
-    const startedAt = Date.now();
-    let success = false;
-    let failure: unknown;
     try {
         const handler = commandHandlers.get(interaction.commandName);
         if (!handler) {
@@ -130,31 +108,9 @@ async function handleChatCommand(interaction: ChatInputCommandInteraction): Prom
             return;
         }
 
-        // Block non-ticket commands in closed/inactive ticket channels
-        if (!TICKET_COMMAND_NAMES.has(interaction.commandName) && interaction.channel?.isTextBased() && interaction.inGuild()) {
-            const ticketCategoryIds = new Set(Object.values(TICKET_CATEGORY_IDS));
-            const channel = await interaction.guild?.channels.fetch(interaction.channelId).catch(() => null);
-            if (channel?.parentId && ticketCategoryIds.has(channel.parentId)) {
-                const ticket = await safelyGetTicketByChannel(interaction.channelId);
-                if (!ticket || ticket.status !== 'open') {
-                    await interaction.reply({ content: 'This is not an active ticket channel.', ephemeral: true });
-                    return;
-                }
-            }
-        }
-
         await handler(interaction);
-        success = true;
     } catch (error) {
-        failure = error;
         await reportInteractionError(interaction, error);
-    } finally {
-        const handledFailure = takeSlashCommandFailure(interaction);
-        if (handledFailure !== undefined) {
-            success = false;
-            failure = failure ?? handledFailure;
-        }
-        await logSlashCommand(interaction, startedAt, success, failure);
     }
 }
 
@@ -163,28 +119,22 @@ export const interactionCreate = async (interaction: Interaction): Promise<void>
         if (interaction.isButton()) {
             if (await handleActivityCheckButton(interaction)) return;
             if (await handleCommunityButton(interaction)) return;
-            if (await handleTicketButton(interaction)) return;
             if (await handleStaffManagementButton(interaction)) return;
-            if (await handleSessionNotifyButton(interaction)) return;
-            if (await handleSessionVoteButton(interaction)) return;
             if (await handleLoaButton(interaction)) return;
+            if (await handleEconomyButton(interaction)) return;
             return;
+        }
+
+        if (interaction.isStringSelectMenu()) {
+            if (await handleEconomySelect(interaction)) return;
         }
 
         if (interaction.isModalSubmit()) {
             if (await handleTrainingModal(interaction)) return;
             if (await handleCommunityModal(interaction)) return;
-            if (await handleTicketModal(interaction)) return;
             if (await handleStaffManagementModal(interaction)) return;
             if (await handleLoaModal(interaction)) return;
-            return;
-        }
-
-        // Compatibility for panels posted by older versions of this bot.
-        if (interaction.isStringSelectMenu() && interaction.customId === 'ticket_select') {
-            const modal = ticketOpeningModalForValue(interaction.values[0]);
-            if (modal) await interaction.showModal(modal);
-            else await interaction.reply({ content: 'That ticket category is unavailable.', ephemeral: true });
+            if (await handleEconomyModal(interaction)) return;
             return;
         }
 

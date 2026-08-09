@@ -27,7 +27,7 @@ const COMMANDS: CommandEntry[] = [
     { name: '/admin role-remove', description: 'Remove a role from a user', category: 'Admin' },
     { name: '/admin staff-list', description: 'Display a list of all staff members', category: 'Admin' },
     { name: '/say', description: 'Make the bot say a message in a specified channel', category: 'Admin' },
-    { name: '/prohibited-words', description: 'Manage prohibited words (add/remove/list) for auto-moderation', category: 'Admin' },
+    { name: '/prohibited-word', description: 'Manage prohibited words (add/remove/list) for auto-moderation', category: 'Admin' },
 
     // ── Staff Management ──
     { name: '/infraction issue', description: 'Issue a new staff infraction with evidence thread', category: 'Staff Management' },
@@ -37,38 +37,16 @@ const COMMANDS: CommandEntry[] = [
     { name: '/training', description: 'Manage a training request for a user', category: 'Staff Management' },
     { name: '/training-result', description: 'Post an authorized legacy/manual training result', category: 'Staff Management' },
 
-    // ── Tickets ──
-    { name: '/ticket-panel', description: 'Post the LARP Help & Support ticket panel with dropdown', category: 'Tickets' },
-    { name: '/ticket-message', description: 'Legacy alias to post the ticket panel', category: 'Tickets' },
-    { name: '/ticket', description: 'Ticket utilities (refresh-user for Bloxlink info)', category: 'Tickets' },
-    { name: '/ticket-add', description: 'Add a user to the current ticket', category: 'Tickets' },
-    { name: '/ticket-remove', description: 'Remove a user from the current ticket', category: 'Tickets' },
-    { name: '/ticket-close', description: 'Close the current ticket', category: 'Tickets' },
-    { name: '/ticket-closerequest', description: 'Close the current ticket with a reason', category: 'Tickets' },
-    { name: '/ticket-claim', description: 'Claim the current ticket for yourself', category: 'Tickets' },
-    { name: '/ticket-rename', description: 'Rename the current ticket channel', category: 'Tickets' },
-    { name: '/ticket-transfer', description: 'Transfer ticket ownership to another user', category: 'Tickets' },
-    { name: '/ticket-reopen', description: 'Reopen a closed ticket', category: 'Tickets' },
-
     // ── Community ──
     { name: '/movie-feedback', description: 'Submit feedback about a movie with rating (1-10)', category: 'Community' },
     { name: '/staff-feedback', description: 'Submit feedback about a staff member with rating', category: 'Community' },
     { name: '/partnership request', description: 'Post the professional partnership request panel', category: 'Community' },
     { name: '/staff-complaint', description: 'Submit a private complaint about a staff member', category: 'Community' },
 
-// ── Game ──
+    // ── Game ──
     { name: '/teamswitch', description: 'Submit an authorized manual ER:LC team-switch report', category: 'Game' },
-    { name: '/session-start', description: 'Announce a new session start with a join link', category: 'Game' },
-    { name: '/session-end', description: 'Announce that the current session has ended', category: 'Game' },
-    { name: '/session-full', description: 'Announce that the session is full', category: 'Game' },
-    { name: '/session-boost', description: 'Announce a session boost or special event', category: 'Game' },
-    { name: '/session-role add', description: 'Add the session notification role to a user', category: 'Game' },
-    { name: '/session-role remove', description: 'Remove the session notification role from a user', category: 'Game' },
 
-    // ── Verification ──
-    { name: '/verify-message', description: 'Post the professional LARP ticket verification panel', category: 'Verification' },
-
-// ── Utility ──
+    // ── Utility ──
     { name: '/cmds', description: 'Show this list of all available commands and their descriptions', category: 'Utility' },
     { name: '/roleplay-log', description: 'Log a roleplay session with details', category: 'Utility' },
     { name: '/activitycheck start', description: 'Start a staff activity check', category: 'Utility' },
@@ -76,17 +54,16 @@ const COMMANDS: CommandEntry[] = [
     { name: '/activitycheck end', description: 'End the current activity check', category: 'Utility' },
     { name: '/request-training', description: 'Request a training session (Training Dept only)', category: 'Utility' },
     { name: '/view-infractions', description: 'View your own infraction count and history', category: 'Utility' },
+    { name: '/rename', description: 'Rename a channel (emoji allowed)', category: 'Utility' },
 ];
 
-const CATEGORY_ORDER = ['Moderation', 'Admin', 'Staff Management', 'Tickets', 'Community', 'Game', 'Verification', 'Utility'];
+const CATEGORY_ORDER = ['Moderation', 'Admin', 'Staff Management', 'Community', 'Game', 'Utility'];
 const CATEGORY_EMOJIS: Record<string, string> = {
     'Moderation': '🛡️',
     'Admin': '⚙️',
     'Staff Management': '📋',
-    'Tickets': '🎫',
     'Community': '💬',
     'Game': '🎮',
-    'Verification': '✅',
     'Utility': '🔧',
 };
 
