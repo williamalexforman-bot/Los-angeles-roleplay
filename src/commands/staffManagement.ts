@@ -68,6 +68,7 @@ export interface InfractionRecord {
     evidence: string;
     internalNotes: string;
     notifyMember: boolean;
+    appealable: boolean;
     expiration: string;
     status: InfractionStatus;
     parentChannelId: string;
@@ -104,6 +105,25 @@ export function configureInfractionPersistence(adapter: InfractionPersistenceAda
 
 export function configureInfractionAuthorization(handler: InfractionAuthorizationHandler | null): void {
     authorizationHandler = handler;
+}
+
+/**
+ * Returns all infractions currently held in the process memory. Used as a
+ * fallback when MongoDB is unavailable so /view-infractions still works.
+ */
+export function getAllInfractions(): InfractionRecord[] {
+    return Array.from(inMemoryInfractions.values());
+}
+
+/**
+ * Returns a single infraction record by thread ID (public wrapper used by the
+ * infraction appeal flow to verify the "appealable" flag). Defaults to
+ * appealable=true for records created before the flag existed.
+ */
+export async function getInfractionByThreadIdPublic(threadId: string): Promise<InfractionRecord | null> {
+    const record = await getInfractionRecord(threadId).catch(() => null);
+    if (record && record.appealable === undefined) record.appealable = true;
+    return record;
 }
 
 function logoAttachment() {
@@ -236,6 +256,7 @@ function buildInfractionEmbed(record: InfractionRecord): EmbedBuilder {
             { name: 'Member', value: `<@${record.memberId}>`, inline: true },
             { name: 'Action', value: record.action, inline: true },
             { name: 'Status', value: record.status, inline: true },
+            { name: 'Appealable', value: record.appealable ? '✅ Yes' : '❌ No', inline: true },
             { name: 'Reason', value: record.reason },
             { name: 'Notes', value: record.ruleBroken },
             { name: 'Evidence', value: record.evidence || 'No evidence supplied.' },
@@ -251,6 +272,7 @@ function infractionControls(
     status: InfractionStatus,
     threadId: string,
     threadUrl: string,
+    appealable: boolean,
 ): ActionRowBuilder<ButtonBuilder>[] {
     const inactive = status !== 'Active';
     const closed = status === 'Closed';
@@ -272,8 +294,19 @@ function infractionControls(
         new ButtonBuilder().setCustomId(controlId('history')).setLabel('View History').setStyle(ButtonStyle.Secondary),
     );
 
+    // Appeal button is only actionable when the infraction is marked appealable.
     const appealRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        ...infractionAppealButton(threadId).components,
+        appealable
+            ? new ButtonBuilder()
+                .setCustomId(`infraction-appeal:start:${threadId}`)
+                .setLabel('Appeal Infraction')
+                .setStyle(ButtonStyle.Primary)
+                .setEmoji('⚖️')
+            : new ButtonBuilder()
+                .setCustomId('infraction-appeal:disabled')
+                .setLabel('Not Appealable')
+                .setStyle(ButtonStyle.Secondary)
+                .setDisabled(true),
     );
 
     const closeRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -302,7 +335,7 @@ async function updateInfractionDetailMessage(thread: ThreadChannel, record: Infr
     if (!message) return;
     await message.edit({
         embeds: [buildInfractionEmbed(record)],
-        components: infractionControls(record.status, record.threadId, thread.url),
+        components: infractionControls(record.status, record.threadId, thread.url, record.appealable !== false),
     });
 }
 
@@ -511,7 +544,17 @@ function infractionCommand() {
                     .addStringOption(option => option.setName('evidence').setDescription('Evidence link or supporting information').setMaxLength(1024))
                     .addStringOption(option => option.setName('internal-notes').setDescription('Private notes for authorized staff').setMaxLength(1024))
                     .addBooleanOption(option => option.setName('notify-member').setDescription('Also notify the member by direct message'))
-                    .addStringOption(option => option.setName('expiration').setDescription('When this infraction expires, if applicable').setMaxLength(100)),
+                    .addStringOption(option => option.setName('expiration').setDescription('When this infraction expires, if applicable').setMaxLength(100))
+                    .addStringOption(option =>
+                        option
+                            .setName('appealable')
+                            .setDescription('Can this infraction be appealed? (REQUIRED Yes or No)')
+                            .setRequired(true)
+                            .addChoices(
+                                { name: 'Yes', value: 'true' },
+                                { name: 'No', value: 'false' },
+                            ),
+                    ),
             ),
 
         async execute(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -536,6 +579,7 @@ function infractionCommand() {
                 const internalNotes = interaction.options.getString('internal-notes') || 'No internal notes supplied.';
                 const notifyMember = interaction.options.getBoolean('notify-member') ?? false;
                 const expiration = interaction.options.getString('expiration') || 'No expiration set.';
+                const appealable = interaction.options.getString('appealable', true) === 'true';
                 const caseNumber = await nextInfractionCaseNumber(interaction.guildId);
 
                 const fetchedParent = await interaction.client.channels.fetch(INFRACTION_PARENT_CHANNEL_ID).catch(() => null);
@@ -557,6 +601,7 @@ function infractionCommand() {
                     evidence,
                     internalNotes,
                     notifyMember,
+                    appealable,
                     expiration,
                     status: 'Active',
                     parentChannelId: fetchedParent.id,
@@ -601,7 +646,7 @@ function infractionCommand() {
                 await detailMessage.edit({
                     content: `<@${member.id}>, a staff infraction has been issued. The evidence thread is available here: ${thread.url}`,
                     embeds: [buildInfractionEmbed(record)],
-                    components: infractionControls(record.status, thread.id, thread.url),
+                    components: infractionControls(record.status, thread.id, thread.url, record.appealable),
                     allowedMentions: { parse: [], users: [member.id] },
                 });
 
@@ -616,9 +661,12 @@ function infractionCommand() {
                         { name: 'Evidence Thread', value: thread ? thread.url : 'Not available' },
                     );
                 try {
+                    const appealComponents = thread && record.appealable
+                        ? [infractionAppealButton(thread.id)]
+                        : undefined;
                     await member.send({
                         embeds: [notificationEmbed],
-                        components: thread ? [infractionAppealButton(thread.id)] : undefined,
+                        components: appealComponents,
                         files: [logoAttachment()],
                     });
                     memberNotified = true;

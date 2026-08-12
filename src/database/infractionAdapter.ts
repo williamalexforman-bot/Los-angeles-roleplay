@@ -27,6 +27,7 @@ function fromDatabase(record: Record<string, unknown>): CommandInfractionRecord 
         evidence: String(record.evidence),
         internalNotes: String(record.internalNotes),
         notifyMember: Boolean(record.notifyMember),
+        appealable: record.appealable === undefined ? true : Boolean(record.appealable),
         expiration: String(record.expiration),
         status: String(record.status) as CommandInfractionRecord['status'],
         parentChannelId: String(record.parentChannelId),

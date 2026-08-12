@@ -15,6 +15,7 @@ import { BRAND } from '../config/constants';
 import { InfractionAppeal } from '../database/models';
 import { isDatabaseAvailable } from '../database/connection';
 import { createLogoAttachment } from '../utils/embeds';
+import { getInfractionByThreadIdPublic } from '../commands/staffManagement';
 import { logger } from '../utils/logger';
 
 const INFRACTION_APPEAL_CHANNEL_ID = process.env.INFRACTION_APPEAL_CHANNEL_ID || '1537227443423682612';
@@ -128,6 +129,16 @@ export async function handleInfractionAppealButton(interaction: ButtonInteractio
     const [, action, threadId] = interaction.customId.split(':');
 
     if (action === 'start' && threadId) {
+        // Look up the infraction record to check if it's appealable
+        const record = await getInfractionByThreadIdPublic(threadId).catch(() => null);
+        if (!record) {
+            await interaction.editReply('This infraction record could not be loaded.');
+            return true;
+        }
+        if (!record.appealable) {
+            await interaction.editReply('This infraction is not marked as appealable. Only appealable infractions can be appealed.');
+            return true;
+        }
         await interaction.showModal(appealFormModal(threadId));
         return true;
     }

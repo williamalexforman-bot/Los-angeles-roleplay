@@ -43,6 +43,7 @@ export interface InfractionRecord {
     evidence: string;
     internalNotes: string;
     notifyMember: boolean;
+    appealable: boolean;
     expiration: string;
     status: 'Active' | 'Voided' | 'Closed';
     history: Array<{ action: string; actorId: string; details: string; timestamp: Date }>;
@@ -67,6 +68,7 @@ const infractionSchema = new Schema<InfractionRecord>({
     evidence: { type: String, default: 'No evidence supplied.' },
     internalNotes: { type: String, default: 'No internal notes supplied.' },
     notifyMember: { type: Boolean, default: false },
+    appealable: { type: Boolean, default: true },
     expiration: { type: String, default: 'No expiration set.' },
     status: { type: String, enum: ['Active', 'Voided', 'Closed'], default: 'Active' },
     history: {

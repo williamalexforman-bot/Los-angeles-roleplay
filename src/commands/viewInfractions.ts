@@ -8,8 +8,9 @@ import { createLogoAttachment } from '../utils/embeds';
 import { markSlashCommandFailed } from '../utils/commandAudit';
 import { isDatabaseAvailable } from '../database/connection';
 import { Infraction } from '../database/models';
+import { getAllInfractions } from './staffManagement';
 
-interface ViewInfractionRecord {
+export interface ViewInfractionRecord {
     caseNumber: string;
     action: string;
     reason: string;
@@ -17,6 +18,28 @@ interface ViewInfractionRecord {
     createdAt: Date;
     issuedById: string;
     threadId: string;
+    appealable?: boolean;
+    source: 'database' | 'memory';
+}
+
+function normalize(record: Record<string, unknown>, source: 'database' | 'memory'): ViewInfractionRecord {
+    const rawCreatedAt = record.createdAt as unknown;
+    const createdAt = rawCreatedAt instanceof Date
+        ? rawCreatedAt
+        : typeof rawCreatedAt === 'string' || typeof rawCreatedAt === 'number'
+            ? new Date(rawCreatedAt)
+            : new Date();
+    return {
+        caseNumber: String(record.caseNumber || 'UNKNOWN'),
+        action: String(record.action || 'Infraction'),
+        reason: String(record.reason || record.ruleBroken || 'No reason provided.'),
+        status: String(record.status || 'Active'),
+        createdAt,
+        issuedById: String(record.issuedById || ''),
+        threadId: String(record.threadId || ''),
+        appealable: record.appealable === undefined ? true : Boolean(record.appealable),
+        source,
+    };
 }
 
 export const viewInfractionsCommand = {
@@ -40,19 +63,44 @@ export const viewInfractionsCommand = {
             }
 
             const requestedUser = interaction.options.getUser('user') ?? interaction.user;
+            const combined = new Map<string, ViewInfractionRecord>();
 
-            if (!isDatabaseAvailable()) {
-                await interaction.editReply('The database is currently unavailable. Please try again later.');
-                return;
+            // 1) Database records (if available)
+            if (isDatabaseAvailable()) {
+                try {
+                    const dbRecords = await Infraction.find({
+                        guildId: interaction.guildId,
+                        memberId: requestedUser.id,
+                    })
+                        .sort({ createdAt: -1 })
+                        .lean()
+                        .exec() as unknown as Record<string, unknown>[];
+                    for (const r of dbRecords) {
+                        const n = normalize(r, 'database');
+                        if (n.threadId) combined.set(n.threadId, n);
+                        else if (n.caseNumber) combined.set(`db-${n.caseNumber}`, n);
+                    }
+                } catch {
+                    // fall through to in-memory
+                }
             }
 
-            const records = await Infraction.find({
-                guildId: interaction.guildId,
-                memberId: requestedUser.id,
-            })
-                .sort({ createdAt: -1 })
-                .lean()
-                .exec() as unknown as ViewInfractionRecord[];
+            // 2) In-memory records (always work, including when DB is down or
+            //    for records created before DB persistence existed)
+            try {
+                const memoryRecords = getAllInfractions().filter(r => r.memberId === requestedUser.id);
+                for (const r of memoryRecords) {
+                    const n = normalize(r as unknown as Record<string, unknown>, 'memory');
+                    if (n.threadId) combined.set(n.threadId, n);
+                    else if (n.caseNumber) combined.set(`mem-${n.caseNumber}`, n);
+                }
+            } catch {
+                // ignore
+            }
+
+            const records = Array.from(combined.values()).sort(
+                (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
+            );
 
             const activeCount = records.filter(r => r.status === 'Active').length;
             const totalCount = records.length;
@@ -70,23 +118,26 @@ export const viewInfractionsCommand = {
                 .setFooter({ text: BRAND.footer })
                 .setTimestamp();
 
-            if (records.length === 0) {
+            if (totalCount === 0) {
                 embed.setDescription(`${requestedUser.username} has no infractions on their record. Keep up the great work! 🎉`);
             } else {
-                // Compact list — limit to 8 most recent so it stays short.
-                const recent = records.slice(0, 8);
+                // Compact list — show up to 10 most recent so it stays readable.
+                const recent = records.slice(0, 10);
                 const lines = recent.map(r => {
-                    const date = Math.floor(new Date(r.createdAt).getTime() / 1000);
+                    const date = Math.floor(r.createdAt.getTime() / 1000);
                     const statusEmoji = r.status === 'Active' ? '🟡' : '✅';
-                    const link = r.threadId
-                        ? `[Open Thread](https://discord.com/channels/${interaction.guildId}/${r.threadId})`
-                        : 'No link';
-                    return `${statusEmoji} **${r.caseNumber}** — ${r.action} — ${r.status}\n${link} • <t:${date}:d>`;
+                    const appeal = r.appealable === false ? '❌ Not appealable' : '⚖️ Appealable';
+                    const link = r.threadId && r.threadId.startsWith('punishment-')
+                        ? 'No thread saved'
+                        : r.threadId
+                            ? `[Open Thread](https://discord.com/channels/${interaction.guildId}/${r.threadId})`
+                            : 'No link';
+                    return `${statusEmoji} **${r.caseNumber}** — ${r.action}\n${appeal} • ${link} • <t:${date}:d>`;
                 }).join('\n');
 
                 embed.addFields({
-                    name: records.length > 8
-                        ? `Recent (${Math.min(records.length, 8)} of ${totalCount})`
+                    name: totalCount > 10
+                        ? `Recent (${Math.min(totalCount, 10)} of ${totalCount})`
                         : 'Infractions',
                     value: lines.slice(0, 1024),
                     inline: false,
