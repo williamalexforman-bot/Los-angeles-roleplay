@@ -15,15 +15,16 @@ import { startWebhookServer } from './webhook/server';
 import { connectDatabase, disconnectDatabase } from './database/connection';
 import { configureInfractionDatabaseAdapter } from './database/infractionAdapter';
 import { handleMessageModeration } from './events/messageModeration';
-import { handleEconomyMessage } from './commands/economy';
+// economy message handler removed
 import { startErlcMonitor, type ErlcMonitor } from './monitors/erlcMonitor';
 import { MongoErlcMonitorStateStore } from './database/erlcStateStore';
-import { BRAND, CHANNEL_IDS } from './config/constants';
+import { BRAND, CHANNEL_IDS, INFRACTION_AUTHORIZED_ROLE_ID } from './config/constants';
 import { createLogoAttachment } from './utils/embeds';
 import { logger } from './utils/logger';
 import { configureInfractionAuthorization } from './commands/staffManagement';
 import { getDiscordBotToken } from './config/env';
 import { setDiscordClientForDm } from './commands/punishment';
+import { sendPunishmentDm, handleAppealDmMessage, setBanAppealClient } from './commands/banAppeal';
 
 // Crash-proof error handling — keeps the process alive on errors and prevents premature exit
 process.on('unhandledRejection', (reason: unknown) => {
@@ -266,6 +267,9 @@ function createConfiguredClient(privilegedIntents: boolean): Client {
                     .setFooter({ text: BRAND.footer })
                     .setTimestamp();
                 await kickChannel.send({ embeds: [kickEmbed], files: [createLogoAttachment()] }).catch(() => undefined);
+
+                // DM the kicked user
+                await sendPunishmentDm(bot, member.id, 'kick', entry.reason || 'No reason provided.', member.guild.name).catch(() => undefined);
             } catch {
                 // Ignore audit-log failures.
             }
@@ -304,11 +308,15 @@ function createConfiguredClient(privilegedIntents: boolean): Client {
 .setTimestamp();
 
             await channel.send({ embeds: [banEmbed], files: [createLogoAttachment()] }).catch(() => undefined);
+
+            // DM the banned user with an appeal button
+            await sendPunishmentDm(bot, ban.user.id, 'ban', reason, ban.guild.name).catch(() => undefined);
         });
 
         bot.on('messageCreate', async message => {
+            // Handle ban appeal DM conversations first (DMs have no guild).
+            if (await handleAppealDmMessage(message)) return;
             await handleMessageModeration(message);
-            await handleEconomyMessage(message);
         });
     }
     return bot;
@@ -341,20 +349,14 @@ async function bootstrap(): Promise<void> {
     try {
         configureInfractionAuthorization(async (interaction, record) => {
             if (interaction.user.id === record.issuedById) return true;
-            if (interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)
-                || interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)
-                || interaction.memberPermissions?.has(PermissionFlagsBits.ManageThreads)) return true;
             const authorizedUsers = (process.env.INFRACTION_AUTHORIZED_USER_IDS || '')
                 .split(',').map(value => value.trim()).filter(Boolean);
             if (authorizedUsers.includes(interaction.user.id)) return true;
             const member = interaction.member;
             const memberRoleIds = member instanceof GuildMember ? [...member.roles.cache.keys()] : member?.roles || [];
             const roleIds = [
+                INFRACTION_AUTHORIZED_ROLE_ID,
                 process.env.BOT_PERMISSIONS_ROLE_ID,
-                process.env.ADMIN_ROLE_ID,
-                process.env.HIGH_RANK_ROLE_ID,
-                process.env.MANAGEMENT_ROLE_ID,
-                ...(process.env.INFRACTION_AUTHORIZED_ROLE_IDS || '').split(',').map(value => value.trim()),
             ].filter((roleId): roleId is string => Boolean(roleId));
             return roleIds.some(roleId => memberRoleIds.includes(roleId));
         });
@@ -388,6 +390,9 @@ async function bootstrap(): Promise<void> {
 
     // Enable /punish and /punishment commands to send DMs
     setDiscordClientForDm(client);
+
+    // Enable ban appeal DM flow and review-channel submissions
+    setBanAppealClient(client);
 
     // Log raid-threat monitoring configuration status so you can confirm it at a glance
     logger.info(

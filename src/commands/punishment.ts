@@ -98,7 +98,20 @@ async function saveInfractionToDb(record: {
 }): Promise<boolean> {
     if (!isDatabaseAvailable()) return false;
     try {
-        await Infraction.create(record);
+        await Infraction.create({
+            ...record,
+            number: Number(record.caseNumber.replace(/\D/g, '')) || 0,
+            threadId: `punishment-${record.caseNumber}`,
+            parentChannelId: '',
+            headerMessageId: '',
+            detailMessageId: '',
+            ruleBroken: record.reason,
+            evidence: 'No evidence supplied.',
+            internalNotes: 'No internal notes supplied.',
+            notifyMember: true,
+            expiration: 'No expiration set.',
+            history: [],
+        });
         return true;
     } catch {
         return false;

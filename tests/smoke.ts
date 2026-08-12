@@ -5,8 +5,10 @@ import { detectProhibitedWords, detectRaidThreat, handleMessageModeration } from
 import {
     configureInfractionPersistence,
     handleStaffManagementButton,
+    hasRequiredRole,
     type InfractionRecord,
 } from '../src/commands/staffManagement';
+import { INFRACTION_AUTHORIZED_ROLE_ID, PROMOTION_AUTHORIZED_ROLE_ID } from '../src/config/constants';
 import { handleCommunityButton, handleCommunityModal } from '../src/commands/community';
 import { interactionCreate } from '../src/handlers/interactionCreate';
 import { sanitizedCommandOptions } from '../src/utils/commandAudit';
@@ -20,6 +22,9 @@ import {
 } from '../src/monitors/erlcMonitor';
 
 async function run(): Promise<void> {
+    assert.equal(hasRequiredRole({ roles: { cache: new Map([['1523121675007426692', { id: '1523121675007426692' }]]) } } as any, '1523121675007426692'), true, 'the infraction role should grant infraction access');
+    assert.equal(hasRequiredRole({ roles: { cache: new Map([['other-role', { id: 'other-role' }]]) } } as any, '1523121675007426692'), false, 'other roles should not grant infraction access');
+
     const names = commandDefinitions.map(command => command.data.name);
     assert.equal(new Set(names).size, names.length, 'slash command names must be unique');
 for (const required of ['movie-feedback', 'staff-feedback', 'partnership', 'staff-complaint', 'training-results', 'promotion', 'infraction', 'prohibited-word', 'say', 'loa', 'activitycheck', 'request-training', 'roleplay-log', 'rename']) {
@@ -319,6 +324,9 @@ for (const required of ['movie-feedback', 'staff-feedback', 'partnership', 'staf
         deferReply: async () => undefined,
         editReply: async () => undefined,
         user: { id: '1523122912201277590' },
+        member: {
+            roles: { cache: new Map([[PROMOTION_AUTHORIZED_ROLE_ID, { id: PROMOTION_AUTHORIZED_ROLE_ID }]]) },
+        },
         options: {
             getSubcommand: () => 'issue',
             getUser: (name: string) => name === 'member' ? promotedMember : approvedBy,
@@ -390,6 +398,9 @@ for (const required of ['movie-feedback', 'staff-feedback', 'partnership', 'staf
         deferReply: async () => undefined,
         editReply: async (payload: unknown) => { infractionReplies.push(payload); },
         user: { id: '1523122912201277590' },
+        member: {
+            roles: { cache: new Map([[INFRACTION_AUTHORIZED_ROLE_ID, { id: INFRACTION_AUTHORIZED_ROLE_ID }]]) },
+        },
         options: {
             getSubcommand: () => 'issue',
             getUser: () => ({ id: '1489388257925005508', username: 'ExampleUser' }),

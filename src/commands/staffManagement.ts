@@ -19,6 +19,7 @@ import {
     type SendableChannels,
     type ThreadChannel,
 } from 'discord.js';
+import { INFRACTION_AUTHORIZED_ROLE_ID, PROMOTION_AUTHORIZED_ROLE_ID } from '../config/constants';
 import { markSlashCommandFailed } from '../utils/commandAudit';
 import { logger } from '../utils/logger';
 
@@ -106,6 +107,39 @@ export function configureInfractionAuthorization(handler: InfractionAuthorizatio
 
 function logoAttachment() {
     return { attachment: LOGO_PATH, name: LOGO_NAME };
+}
+
+type RoleBearingMember = {
+    roles?: { cache?: Map<string, unknown> } | readonly string[] | string[] | null;
+} | null | undefined;
+
+export function hasRequiredRole(member: RoleBearingMember, roleId: string): boolean {
+    if (!member?.roles) return false;
+    if ('cache' in member.roles && member.roles.cache) {
+        return Array.from(member.roles.cache.keys()).includes(roleId);
+    }
+    if (Array.isArray(member.roles)) return member.roles.includes(roleId);
+    return false;
+}
+
+/**
+ * Role check that falls back to a fresh member fetch when the interaction's
+ * cached roles are empty (e.g. partial member data). This ensures role-gated
+ * commands (infractions / promotions) authorize correctly even when the
+ * Gateway did not send the member's roles in the original payload.
+ */
+export async function memberHasRole(
+    interaction: ChatInputCommandInteraction,
+    roleId: string,
+): Promise<boolean> {
+    if (hasRequiredRole(interaction.member as RoleBearingMember, roleId)) return true;
+    if (!interaction.guild) return false;
+    try {
+        const fetched = await interaction.guild.members.fetch(interaction.user.id);
+        return hasRequiredRole(fetched as RoleBearingMember, roleId);
+    } catch {
+        return false;
+    }
 }
 
 function brandedEmbed(title: string, color = BRAND_COLOR): EmbedBuilder {
@@ -394,6 +428,11 @@ function promotionCommand() {
                 const reason = interaction.options.getString('reason', true);
                 const approvedBy = interaction.options.getUser('approved-by', true);
                 const effectiveDate = interaction.options.getString('effective-date', true);
+                if (!(await memberHasRole(interaction, PROMOTION_AUTHORIZED_ROLE_ID))) {
+                    await interaction.editReply('You do not have the required role to issue promotions.');
+                    return;
+                }
+
                 const destination = await getSendableChannel(interaction, PROMOTIONS_CHANNEL_ID);
 
                 if (!destination) {
@@ -482,6 +521,10 @@ function infractionCommand() {
 
                 const member = interaction.options.getUser('member', true);
                 const action = interaction.options.getString('action', true) as InfractionAction;
+                if (!(await memberHasRole(interaction, INFRACTION_AUTHORIZED_ROLE_ID))) {
+                    await interaction.editReply('You do not have the required role to issue infractions.');
+                    return;
+                }
                 const reason = interaction.options.getString('reason', true);
                 const ruleBroken = interaction.options.getString('notes', true);
                 const evidence = interaction.options.getString('evidence') || 'No evidence supplied.';
@@ -546,47 +589,37 @@ function infractionCommand() {
                     throw error;
                 }
 
-                const threadDetailMessage = await thread.send({
-                    embeds: [buildInfractionEmbed(record)],
-                    components: infractionControls(record.status, thread.id, thread.url),
-                    files: [logoAttachment()],
-                    allowedMentions: { parse: [] },
-                });
-                record.detailMessageId = threadDetailMessage.id;
-
+                // The thread is started on detailMessage, so that message is the thread's
+                // single starting message. Attach the infraction controls directly to it so
+                // the embed + buttons appear exactly once inside the thread (the message
+                // is still visible in the parent channel, but it is not duplicated).
                 await detailMessage.edit({
                     content: `<@${member.id}>, a staff infraction has been issued. The evidence thread is available here: ${thread.url}`,
                     embeds: [buildInfractionEmbed(record)],
+                    components: infractionControls(record.status, thread.id, thread.url),
                     allowedMentions: { parse: [], users: [member.id] },
                 });
 
-                await thread.send({
-                    content: `**Evidence Workspace | ${caseNumber}**\nUpload screenshots, recordings, files, and links in this thread. The complete infraction record and management controls are in ${thread.url}.`,
-                    allowedMentions: { parse: [] },
-                }).catch(() => null);
-
-                let memberNotified = !notifyMember;
-                if (notifyMember) {
-                    const notificationEmbed = brandedEmbed(`Staff Infraction | ${caseNumber}`)
-                        .setDescription('The high ranking team at Los Angeles Roleplay has issued you an infraction.')
-                        .addFields(
+                let memberNotified = false;
+                const notificationEmbed = brandedEmbed(`Staff Infraction | ${caseNumber}`)
+                    .setDescription('The high ranking team at Los Angeles Roleplay has issued you an infraction.')
+                    .addFields(
                         { name: 'Action', value: action, inline: true },
                         { name: 'Reason', value: reason },
                         { name: 'Rule Broken', value: ruleBroken },
                         { name: 'Expiration', value: expiration },
                         { name: 'Evidence Thread', value: thread ? thread.url : 'Not available' },
                     );
-                    memberNotified = await member
-                        .send({ embeds: [notificationEmbed], files: [logoAttachment()] })
-                        .then(() => true)
-                        .catch(() => false);
-                    addHistory(
-                        record,
-                        memberNotified ? 'Member Notified' : 'Notification Failed',
-                        interaction.user.id,
-                        memberNotified ? 'The member was notified by direct message.' : 'The member could not be reached by direct message.',
-                    );
-                }
+                memberNotified = await member
+                    .send({ embeds: [notificationEmbed], files: [logoAttachment()] })
+                    .then(() => true)
+                    .catch(() => false);
+                addHistory(
+                    record,
+                    memberNotified ? 'Member Notified' : 'Notification Failed',
+                    interaction.user.id,
+                    memberNotified ? 'The member was notified by direct message.' : 'The member could not be reached by direct message.',
+                );
 
                 const persisted = await persistRecord(record);
                 if (!memberNotified) {
@@ -615,11 +648,7 @@ async function isAuthorized(
 ): Promise<boolean> {
     if (authorizationHandler) return authorizationHandler(interaction, record);
     if (interaction.user.id === record.issuedById) return true;
-    return Boolean(
-        interaction.memberPermissions?.has(PermissionFlagsBits.Administrator) ||
-        interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild) ||
-        interaction.memberPermissions?.has(PermissionFlagsBits.ManageThreads),
-    );
+    return hasRequiredRole(interaction.member as RoleBearingMember, INFRACTION_AUTHORIZED_ROLE_ID);
 }
 
 async function rejectUnauthorized(interaction: ButtonInteraction | ModalSubmitInteraction): Promise<void> {

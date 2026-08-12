@@ -12,7 +12,9 @@ import { handleCommunityButton, handleCommunityModal } from '../commands/communi
 import { handleActivityCheckButton } from '../commands/activityCheck';
 import { handleTrainingModal } from '../commands/requestTraining';
 import { handleLoaButton, handleLoaModal } from '../commands/loa';
-import { handleEconomyButton, handleEconomyModal, handleEconomySelect } from '../commands/economy';
+import { handleBanAppealButton, handleBanAppealModal } from '../commands/banAppeal';
+// economy module removed
+import { INFRACTION_AUTHORIZED_ROLE_ID, PROMOTION_AUTHORIZED_ROLE_ID } from '../config/constants';
 import { logger } from '../utils/logger';
 
 const MANAGEMENT_COMMANDS = new Set([
@@ -38,18 +40,27 @@ function interactionRoleIds(interaction: ChatInputCommandInteraction): string[] 
     return member.roles;
 }
 
-function hasManagementCommandPermission(interaction: ChatInputCommandInteraction): boolean {
+async function hasManagementCommandPermission(interaction: ChatInputCommandInteraction): Promise<boolean> {
     if (!interaction.guildId) return false;
-    if (interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)
-        || interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) return true;
-    const configuredRoles = [
-        process.env.BOT_PERMISSIONS_ROLE_ID,
-        process.env.ADMIN_ROLE_ID,
-        process.env.HIGH_RANK_ROLE_ID,
-        process.env.MANAGEMENT_ROLE_ID,
-    ].filter((roleId): roleId is string => Boolean(roleId));
-    const roles = new Set(interactionRoleIds(interaction));
-    return configuredRoles.some(roleId => roles.has(roleId));
+    let roles = new Set(interactionRoleIds(interaction));
+    const requiredRole = interaction.commandName === 'promotion'
+        ? PROMOTION_AUTHORIZED_ROLE_ID
+        : interaction.commandName === 'infraction'
+            ? INFRACTION_AUTHORIZED_ROLE_ID
+            : null;
+    if (!requiredRole) return false;
+    if (roles.has(requiredRole)) return true;
+    // The interaction payload may contain partial member data without roles.
+    // Fall back to a fresh member fetch so role-gated commands authorize correctly.
+    try {
+        const guild = interaction.guild;
+        if (!guild) return false;
+        const fetched = await guild.members.fetch(interaction.user.id);
+        roles = new Set([...roles, ...fetched.roles.cache.keys()]);
+    } catch {
+        // Fall through with whatever roles were already available.
+    }
+    return roles.has(requiredRole);
 }
 
 function hasSayCommandPermission(interaction: ChatInputCommandInteraction): boolean {
@@ -98,7 +109,7 @@ async function handleChatCommand(interaction: ChatInputCommandInteraction): Prom
             });
             return;
         }
-        if (MANAGEMENT_COMMANDS.has(interaction.commandName) && !hasManagementCommandPermission(interaction)) {
+        if (MANAGEMENT_COMMANDS.has(interaction.commandName) && !(await hasManagementCommandPermission(interaction))) {
             await interaction.reply({ content: 'You must be authorized management or a server administrator to use this command.', ephemeral: true });
             return;
         }
@@ -121,12 +132,8 @@ export const interactionCreate = async (interaction: Interaction): Promise<void>
             if (await handleCommunityButton(interaction)) return;
             if (await handleStaffManagementButton(interaction)) return;
             if (await handleLoaButton(interaction)) return;
-            if (await handleEconomyButton(interaction)) return;
+            if (await handleBanAppealButton(interaction)) return;
             return;
-        }
-
-        if (interaction.isStringSelectMenu()) {
-            if (await handleEconomySelect(interaction)) return;
         }
 
         if (interaction.isModalSubmit()) {
@@ -134,7 +141,7 @@ export const interactionCreate = async (interaction: Interaction): Promise<void>
             if (await handleCommunityModal(interaction)) return;
             if (await handleStaffManagementModal(interaction)) return;
             if (await handleLoaModal(interaction)) return;
-            if (await handleEconomyModal(interaction)) return;
+            if (await handleBanAppealModal(interaction)) return;
             return;
         }
 

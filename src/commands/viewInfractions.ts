@@ -4,16 +4,22 @@ import {
     SlashCommandBuilder,
     MessageFlags,
 } from 'discord.js';
-import { BRAND } from '../config/constants';
+import { BRAND, INFRACTION_AUTHORIZED_ROLE_ID } from '../config/constants';
 import { createLogoAttachment } from '../utils/embeds';
 import { markSlashCommandFailed } from '../utils/commandAudit';
 import { isDatabaseAvailable } from '../database/connection';
 import { Infraction } from '../database/models';
+import { hasRequiredRole } from './staffManagement';
 
 export const viewInfractionsCommand = {
     data: new SlashCommandBuilder()
         .setName('view-infractions')
-        .setDescription('View how many infractions you have on your record'),
+        .setDescription('View your own or another member\'s infraction history')
+        .addUserOption(option =>
+            option.setName('user')
+                .setDescription('Optional member whose infraction record you want to view')
+                .setRequired(false),
+        ),
 
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -24,6 +30,14 @@ export const viewInfractionsCommand = {
                 return;
             }
 
+            const requestedUser = interaction.options.getUser('user') ?? interaction.user;
+            const canViewOthers = requestedUser.id !== interaction.user.id
+                && hasRequiredRole(interaction.member as { roles?: { cache?: Map<string, unknown> } } | null | undefined, INFRACTION_AUTHORIZED_ROLE_ID);
+            if (requestedUser.id !== interaction.user.id && !canViewOthers) {
+                await interaction.editReply('You do not have permission to view another member\'s infractions.');
+                return;
+            }
+
             if (!isDatabaseAvailable()) {
                 await interaction.editReply('The database is currently unavailable. Please try again later.');
                 return;
@@ -31,7 +45,7 @@ export const viewInfractionsCommand = {
 
             const records = await Infraction.find({
                 guildId: interaction.guildId,
-                memberId: interaction.user.id,
+                memberId: requestedUser.id,
             })
                 .sort({ createdAt: -1 })
                 .lean()
@@ -43,6 +57,7 @@ export const viewInfractionsCommand = {
                     createdAt: Date;
                     issuedById: string;
                     threadId: string;
+                    memberUsername: string;
                 }>;
 
             const activeRecords = records.filter(r => r.status === 'Active');
@@ -51,10 +66,11 @@ export const viewInfractionsCommand = {
 
             const embed = new EmbedBuilder()
                 .setColor(BRAND.color)
-                .setTitle('📋 Your Infraction Record')
+                .setTitle(requestedUser.id === interaction.user.id ? '📋 Your Infraction Record' : `📋 ${requestedUser.username}'s Infraction Record`)
                 .setThumbnail(BRAND.logoUrl)
-                .setDescription(`Here is your infraction history for **Los Angeles Roleplay**.`)
+                .setDescription(`Infraction history for **${requestedUser.username}** in **Los Angeles Roleplay**.`)
                 .addFields(
+                    { name: 'Member', value: `<@${requestedUser.id}>`, inline: true },
                     { name: 'Total Infractions', value: `${totalCount}`, inline: true },
                     { name: 'Active Infractions', value: `${activeCount}`, inline: true },
                     { name: 'Closed/Voided', value: `${totalCount - activeCount}`, inline: true },
@@ -66,7 +82,8 @@ export const viewInfractionsCommand = {
                 const recentList = records.slice(0, 10).map(r => {
                     const date = Math.floor(new Date(r.createdAt).getTime() / 1000);
                     const statusEmoji = r.status === 'Active' ? '🟡' : '✅';
-                    return `${statusEmoji} **${r.caseNumber}** — ${r.action} — ${r.status}\n  <t:${date}:f> — ${r.reason.slice(0, 80)}`;
+                    const threadLink = r.threadId ? `\n  Thread: https://discord.com/channels/${interaction.guildId}/${r.threadId}` : '';
+                    return `${statusEmoji} **${r.caseNumber}** — ${r.action} — ${r.status}\n  Punishment: ${r.action}\n  Reason: ${r.reason.slice(0, 120)}\n  Issued by <@${r.issuedById}>\n  <t:${date}:f>${threadLink}`;
                 }).join('\n\n');
 
                 embed.addFields({
@@ -75,7 +92,7 @@ export const viewInfractionsCommand = {
                     inline: false,
                 });
             } else {
-                embed.setDescription('You have no infractions on your record. Keep up the great work! 🎉');
+                embed.setDescription(`${requestedUser.username} has no infractions on their record. Keep up the great work! 🎉`);
             }
 
             await interaction.editReply({ embeds: [embed], files: [createLogoAttachment()] });
