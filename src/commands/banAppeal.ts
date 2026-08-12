@@ -149,7 +149,15 @@ export async function sendPunishmentDm(
         };
         if (kind === 'ban') options.components = [appealButton()];
 
-        await user.send(options);
+        try {
+            await user.send(options);
+        } catch {
+            // If the attachment fails (e.g., logo missing on host), retry without it
+            // so the ban/kick DM is still delivered.
+            const fallbackOptions: MessageCreateOptions = { embeds: [embed] };
+            if (kind === 'ban') fallbackOptions.components = [appealButton()];
+            await user.send(fallbackOptions);
+        }
         return true;
     } catch {
         return false;

@@ -73,7 +73,15 @@ async function recoverDiscordClient(bot: Client, token: string, privileged: bool
 function createConfiguredClient(privilegedIntents: boolean): Client {
     const intents = [GatewayIntentBits.Guilds];
     if (privilegedIntents) {
-        intents.push(GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent);
+        intents.push(
+            GatewayIntentBits.GuildMembers,
+            GatewayIntentBits.GuildMessages,
+            GatewayIntentBits.MessageContent,
+            GatewayIntentBits.GuildBans,
+            // Required to receive DMs for the ban appeal conversation flow.
+            GatewayIntentBits.DirectMessages,
+            GatewayIntentBits.DirectMessageReactions,
+        );
     } else {
         logger.warn('Running without privileged intents; message moderation and member events are disabled until enabled in the Discord Developer Portal.');
     }
@@ -277,8 +285,6 @@ function createConfiguredClient(privilegedIntents: boolean): Client {
 
         bot.on('guildBanAdd', async ban => {
             const banChannelId = process.env.DISCORD_BAN_LOG_CHANNEL_ID || '1529286560271306995';
-            const channel = await ban.client.channels.fetch(banChannelId).catch(() => null);
-            if (!channel?.isSendable()) return;
             let bannedBy = 'Unknown';
             let reason = 'Unspecified';
 
@@ -293,6 +299,18 @@ function createConfiguredClient(privilegedIntents: boolean): Client {
                 // ignore
             }
 
+            // ALWAYS send the DM to the banned user (with the appeal button),
+            // regardless of whether the log channel is available.
+            try {
+                await sendPunishmentDm(bot, ban.user.id, 'ban', reason, ban.guild.name);
+            } catch (error) {
+                logger.warn(`[BanDM] Could not send ban DM to ${ban.user.id}: ${error instanceof Error ? error.message : 'Unknown'}`);
+            }
+
+            // Best-effort log-channel post (must not block the DM).
+            const channel = await ban.client.channels.fetch(banChannelId).catch(() => null);
+            if (!channel?.isSendable()) return;
+
             const banEmbed = new EmbedBuilder()
                 .setColor(0xdc2626)
                 .setTitle('Member Banned')
@@ -305,12 +323,9 @@ function createConfiguredClient(privilegedIntents: boolean): Client {
                     { name: 'Ban Reason', value: reason, inline: false },
                 )
                 .setFooter({ text: BRAND.footer })
-.setTimestamp();
+                .setTimestamp();
 
             await channel.send({ embeds: [banEmbed], files: [createLogoAttachment()] }).catch(() => undefined);
-
-            // DM the banned user with an appeal button
-            await sendPunishmentDm(bot, ban.user.id, 'ban', reason, ban.guild.name).catch(() => undefined);
         });
 
         bot.on('messageCreate', async message => {
