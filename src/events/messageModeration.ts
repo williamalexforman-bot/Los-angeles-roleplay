@@ -14,6 +14,26 @@ const EMBED_FOOTER = 'Los Angeles Roleplay | Realism at its Finest';
 const DEDUPE_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_DEDUPE_ENTRIES = 10_000;
 
+// Staff application help channel (auto-response)
+const STAFF_APPLY_CHANNEL_ID = '1526035041593856182';
+// Matches any message asking about applying for staff or how to apply
+const STAFF_APPLY_PATTERN = /\b(?:how\s+(?:do|can|to|should)\s+|where\s+(?:do|can)\s+|i\s+wanna|i\s+want\s+to|i\s+need\s+to)\s*(?:apply|become|join|start)\b.{0,60}\b(?:staff|team|mod|admin|application|helper|support)\b/iu;
+const staffApplyDedupe = new Set<string>();
+const STAFF_APPLY_DEDUPE_TTL_MS = 60 * 60 * 1000; // 1 hour per user
+function pruneStaffApplyDedupe(now: number): void {
+    if (staffApplyDedupe.size < 10_000) return;
+    staffApplyDedupe.clear();
+}
+function reserveStaffApply(userId: string): boolean {
+    const now = Date.now();
+    pruneStaffApplyDedupe(now);
+    if (staffApplyDedupe.has(userId)) return false;
+    staffApplyDedupe.add(userId);
+    // Auto-expire after 1 hour
+    setTimeout(() => staffApplyDedupe.delete(userId), STAFF_APPLY_DEDUPE_TTL_MS);
+    return true;
+}
+
 export type RaidThreatConfidence = 'Low' | 'Medium' | 'High';
 
 export interface RaidThreatDetection {
@@ -271,9 +291,36 @@ function buildRaidThreatEmbed(message: Message, detection: RaidThreatDetection):
         .setTimestamp(message.createdAt);
 }
 
+/**
+ * Detects if a message is asking for help with applying to staff and replies
+ * with the application channel location.
+ */
+export function detectStaffApplyHelp(content: string): boolean {
+    if (!content || content.length > 300) return false;
+    return STAFF_APPLY_PATTERN.test(content);
+}
+
 /** Handles profanity and raid-threat logging for one Discord message. */
 export async function handleMessageModeration(message: Message): Promise<void> {
     if (!message.guild || message.author.bot || message.webhookId) return;
+
+    // Auto-reply when someone asks how to apply for staff
+    if (detectStaffApplyHelp(message.content) && reserveStaffApply(message.author.id)) {
+        try {
+            const replyEmbed = new EmbedBuilder()
+                .setColor(0x3b82f6)
+                .setAuthor({ name: 'Los Angeles Roleplay', iconURL: message.author.displayAvatarURL() })
+                .setTitle('📋 Staff Applications')
+                .setDescription(
+                    `To apply for staff, head to **<#${STAFF_APPLY_CHANNEL_ID}>** and submit your application there!`,
+                )
+                .setFooter({ text: EMBED_FOOTER })
+                .setTimestamp();
+            await message.reply({ embeds: [replyEmbed], allowedMentions: { parse: [] } });
+        } catch {
+            // best-effort
+        }
+    }
 
     const detectedWords = detectProhibitedWords(message.content);
     if (detectedWords.length > 0 && reserveMessage(profanityLogDedupe, message.id)) {

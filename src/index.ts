@@ -25,6 +25,7 @@ import { configureInfractionAuthorization } from './commands/staffManagement';
 import { getDiscordBotToken } from './config/env';
 import { setDiscordClientForDm } from './commands/punishment';
 import { sendPunishmentDm, handleAppealDmMessage, setBanAppealClient } from './commands/banAppeal';
+import { setInfractionAppealClient } from './commands/infractionAppeal';
 
 // Crash-proof error handling — keeps the process alive on errors and prevents premature exit
 process.on('unhandledRejection', (reason: unknown) => {
@@ -408,6 +409,9 @@ async function bootstrap(): Promise<void> {
 
     // Enable ban appeal DM flow and review-channel submissions
     setBanAppealClient(client);
+
+    // Enable infraction appeal form + review flow
+    setInfractionAppealClient(client);
 
     // Log raid-threat monitoring configuration status so you can confirm it at a glance
     logger.info(

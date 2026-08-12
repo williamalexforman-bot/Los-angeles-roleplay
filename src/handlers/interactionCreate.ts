@@ -13,6 +13,7 @@ import { handleActivityCheckButton } from '../commands/activityCheck';
 import { handleTrainingModal } from '../commands/requestTraining';
 import { handleLoaButton, handleLoaModal } from '../commands/loa';
 import { handleBanAppealButton, handleBanAppealModal } from '../commands/banAppeal';
+import { handleInfractionAppealButton, handleInfractionAppealModal } from '../commands/infractionAppeal';
 // economy module removed
 import { INFRACTION_AUTHORIZED_ROLE_ID, PROMOTION_AUTHORIZED_ROLE_ID } from '../config/constants';
 import { logger } from '../utils/logger';
@@ -133,6 +134,7 @@ export const interactionCreate = async (interaction: Interaction): Promise<void>
             if (await handleStaffManagementButton(interaction)) return;
             if (await handleLoaButton(interaction)) return;
             if (await handleBanAppealButton(interaction)) return;
+            if (await handleInfractionAppealButton(interaction)) return;
             return;
         }
 
@@ -142,6 +144,7 @@ export const interactionCreate = async (interaction: Interaction): Promise<void>
             if (await handleStaffManagementModal(interaction)) return;
             if (await handleLoaModal(interaction)) return;
             if (await handleBanAppealModal(interaction)) return;
+            if (await handleInfractionAppealModal(interaction)) return;
             return;
         }
 

@@ -172,6 +172,48 @@ const banAppealSchema = new Schema<BanAppealRecord>({
     updatedAt: { type: Date, default: Date.now },
 });
 
+export interface InfractionAppealRecord {
+    appealId: string;
+    guildId: string;
+    infractionThreadId: string;
+    infractionCaseNumber: string;
+    infractionLink: string;
+    userId: string;
+    username: string;
+    discordUsername: string;
+    robloxUsername: string;
+    appealReason: string;
+    willRepeat: string;
+    status: 'Pending' | 'Approved' | 'Denied';
+    reviewMessageId: string;
+    reviewChannelId: string;
+    reviewedById?: string;
+    reviewReason?: string;
+    createdAt: Date;
+    updatedAt: Date;
+}
+
+const infractionAppealSchema = new Schema<InfractionAppealRecord>({
+    appealId: { type: String, required: true, unique: true },
+    guildId: { type: String, required: true, index: true },
+    infractionThreadId: { type: String, required: true, index: true },
+    infractionCaseNumber: { type: String, required: true },
+    infractionLink: { type: String, required: true },
+    userId: { type: String, required: true, index: true },
+    username: { type: String, required: true },
+    discordUsername: { type: String, required: true },
+    robloxUsername: { type: String, required: true },
+    appealReason: { type: String, required: true },
+    willRepeat: { type: String, required: true },
+    status: { type: String, enum: ['Pending', 'Approved', 'Denied'], default: 'Pending' },
+    reviewMessageId: { type: String, default: '' },
+    reviewChannelId: { type: String, default: '' },
+    reviewedById: String,
+    reviewReason: String,
+    createdAt: { type: Date, default: Date.now },
+    updatedAt: { type: Date, default: Date.now },
+});
+
 const User = model('User', userSchema);
 const Log = model('Log', logSchema);
 const Counter = model('Counter', counterSchema);
@@ -181,5 +223,6 @@ const ProhibitedWord = model('ProhibitedWord', prohibitedWordSchema);
 const AuditEvent = model('AuditEvent', auditEventSchema);
 const ActivityCheck = model<ActivityCheckRecord>('ActivityCheck', activityCheckSchema);
 const BanAppeal = model<BanAppealRecord>('BanAppeal', banAppealSchema);
+const InfractionAppeal = model<InfractionAppealRecord>('InfractionAppeal', infractionAppealSchema);
 
-export { User, Log, Counter, Infraction, ErlcState, ProhibitedWord, AuditEvent, ActivityCheck, BanAppeal };
+export { User, Log, Counter, Infraction, ErlcState, ProhibitedWord, AuditEvent, ActivityCheck, BanAppeal, InfractionAppeal };

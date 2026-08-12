@@ -22,6 +22,7 @@ import {
 import { INFRACTION_AUTHORIZED_ROLE_ID, PROMOTION_AUTHORIZED_ROLE_ID } from '../config/constants';
 import { markSlashCommandFailed } from '../utils/commandAudit';
 import { logger } from '../utils/logger';
+import { infractionAppealButton } from './infractionAppeal';
 
 const BRAND_COLOR = 0x3b82f6;
 const PASS_COLOR = 0x22c55e;
@@ -271,6 +272,10 @@ function infractionControls(
         new ButtonBuilder().setCustomId(controlId('history')).setLabel('View History').setStyle(ButtonStyle.Secondary),
     );
 
+    const appealRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        ...infractionAppealButton(threadId).components,
+    );
+
     const closeRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder()
             .setLabel('Open Evidence Thread')
@@ -283,7 +288,7 @@ function infractionControls(
             .setDisabled(closed),
     );
 
-    return [primaryRow, closeRow];
+    return [primaryRow, appealRow, closeRow];
 }
 
 async function updateInfractionDetailMessage(thread: ThreadChannel, record: InfractionRecord): Promise<void> {
@@ -610,10 +615,16 @@ function infractionCommand() {
                         { name: 'Expiration', value: expiration },
                         { name: 'Evidence Thread', value: thread ? thread.url : 'Not available' },
                     );
-                memberNotified = await member
-                    .send({ embeds: [notificationEmbed], files: [logoAttachment()] })
-                    .then(() => true)
-                    .catch(() => false);
+                try {
+                    await member.send({
+                        embeds: [notificationEmbed],
+                        components: thread ? [infractionAppealButton(thread.id)] : undefined,
+                        files: [logoAttachment()],
+                    });
+                    memberNotified = true;
+                } catch {
+                    memberNotified = false;
+                }
                 addHistory(
                     record,
                     memberNotified ? 'Member Notified' : 'Notification Failed',
