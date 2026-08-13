@@ -363,6 +363,7 @@ for (const required of ['movie-feedback', 'staff-feedback', 'partnership', 'staf
     });
     const infractionParentSends: any[] = [];
     let attachedThreadOptions: any = null;
+    let infractionDetailEdit: any = null;
     const infractionThread = {
         id: '1526044664975851999',
         url: 'https://discord.com/channels/guild/1526044664975851999',
@@ -386,7 +387,10 @@ for (const required of ['movie-feedback', 'staff-feedback', 'partnership', 'staf
                         attachedThreadOptions = options;
                         return infractionThread;
                     },
-                    edit: async () => ({}),
+                    edit: async (payload: any) => {
+                        infractionDetailEdit = payload;
+                        return {};
+                    },
                     delete: async () => undefined,
                 };
             },
@@ -411,6 +415,7 @@ for (const required of ['movie-feedback', 'staff-feedback', 'partnership', 'staf
                 evidence: 'https://evidence.example/case',
                 'internal-notes': 'Management review complete.',
                 expiration: '30 days',
+                appealable: 'true',
             } as Record<string, string>)[name] ?? null,
             getBoolean: () => false,
         },
@@ -421,6 +426,29 @@ for (const required of ['movie-feedback', 'staff-feedback', 'partnership', 'staf
     assert.equal(attachedThreadOptions.name, 'INF-0001 | ExampleUser | Warning');
     assert.equal(infractionParentSends.length, 1, 'the complete infraction embed should be sent to the parent channel');
     assert((savedInfraction as InfractionRecord | null)?.threadId === infractionThread.id);
+    assert.equal(infractionParentSends[0].flags, 32_768, 'an infraction must use the Components V2 panel layout');
+    const initialInfractionPanel = infractionParentSends[0].components[0].toJSON();
+    assert.equal(initialInfractionPanel.type, 17, 'the infraction must be inside one blue-accented container');
+    assert.equal(initialInfractionPanel.accent_color, 0x3b82f6, 'the infraction panel must use a blue side rail');
+    const initialBanners = initialInfractionPanel.components.filter((component: { type: number }) => component.type === 12);
+    assert.equal(initialBanners[0]?.items?.[0]?.media?.url, 'attachment://infraction-banner.png');
+    assert.equal(initialBanners[1]?.items?.[0]?.media?.url, 'attachment://underbanner.webp');
+    assert.deepEqual(
+        infractionParentSends[0].files.map((file: { name: string }) => file.name),
+        ['infraction-banner.png', 'underbanner.webp'],
+        'the case message must attach both infraction artwork files',
+    );
+    assert.equal(infractionDetailEdit?.components?.length, 1, 'the updated case must remain one visual panel');
+    const infractionPanel = infractionDetailEdit?.components?.[0]?.toJSON();
+    const punishmentBadge = infractionPanel?.components?.find((component: { type: number }) => component.type === 9)?.accessory;
+    const appealButton = infractionPanel?.components
+        ?.find((component: { type: number; components?: Array<{ custom_id?: string }> }) => component.type === 1
+            && component.components?.[0]?.custom_id?.startsWith('infraction-appeal:start:'))
+        ?.components?.[0];
+    assert.equal(punishmentBadge?.label, 'Staff Warning #1');
+    assert.equal(punishmentBadge?.disabled, true, 'the punishment badge is visual-only');
+    assert.equal(appealButton?.custom_id, `infraction-appeal:start:${infractionThread.id}`);
+    assert.notEqual(appealButton?.disabled, true, 'appealable cases must expose a working appeal button');
     assert(infractionReplies.some(reply => String(reply).includes('INF-0001 was created successfully')));
     configureInfractionPersistence(null);
 

@@ -1,18 +1,26 @@
 import { resolve } from 'path';
 import {
     ActionRowBuilder,
+    Attachment,
     ButtonBuilder,
     ButtonInteraction,
     ButtonStyle,
     ChannelType,
     ChatInputCommandInteraction,
+    ContainerBuilder,
     EmbedBuilder,
+    MediaGalleryBuilder,
+    MediaGalleryItemBuilder,
     MessageFlags,
     ModalBuilder,
     ModalSubmitInteraction,
     PermissionFlagsBits,
+    SectionBuilder,
+    SeparatorBuilder,
+    SeparatorSpacingSize,
     SlashCommandBuilder,
     TextChannel,
+    TextDisplayBuilder,
     TextInputBuilder,
     TextInputStyle,
     ThreadAutoArchiveDuration,
@@ -30,6 +38,13 @@ const FAIL_COLOR = 0xef4444;
 const BRAND_FOOTER = 'Los Angeles Roleplay | Realism at its Finest';
 const LOGO_NAME = 'larp-logo.png';
 const LOGO_PATH = resolve(__dirname, '..', '..', 'assets', LOGO_NAME);
+// Infraction records use their own supplied artwork rather than one of the
+// session graphics. Both images are attached to the case message so Discord
+// can render them inside one blue-accented Components V2 panel.
+const INFRACTION_BANNER_NAME = 'infraction-banner.png';
+const INFRACTION_UNDERBANNER_NAME = 'underbanner.webp';
+const INFRACTION_BANNER_PATH = resolve(__dirname, '..', '..', 'assets', INFRACTION_BANNER_NAME);
+const INFRACTION_UNDERBANNER_PATH = resolve(__dirname, '..', '..', 'assets', INFRACTION_UNDERBANNER_NAME);
 
 const TRAINING_RESULTS_CHANNEL_ID = process.env.TRAINING_RESULTS_CHANNEL_ID || '1526490481398124614';
 const PROMOTIONS_CHANNEL_ID = process.env.PROMOTIONS_CHANNEL_ID || '1526044978109743255';
@@ -128,6 +143,17 @@ export async function getInfractionByThreadIdPublic(threadId: string): Promise<I
 
 function logoAttachment() {
     return { attachment: LOGO_PATH, name: LOGO_NAME };
+}
+
+function infractionArtworkAttachments() {
+    return [
+        { attachment: INFRACTION_BANNER_PATH, name: INFRACTION_BANNER_NAME },
+        { attachment: INFRACTION_UNDERBANNER_PATH, name: INFRACTION_UNDERBANNER_NAME },
+    ];
+}
+
+function retainedMessageAttachments(message: { attachments?: { values: () => IterableIterator<Attachment> } }): Attachment[] | undefined {
+    return message.attachments ? Array.from(message.attachments.values()) : undefined;
 }
 
 type RoleBearingMember = {
@@ -246,36 +272,62 @@ async function getInfractionRecord(threadId: string): Promise<InfractionRecord |
     }
 }
 
-function buildInfractionEmbed(record: InfractionRecord): EmbedBuilder {
-    return brandedEmbed(`Staff Infraction | ${record.caseNumber}`)
-        .setDescription(
-            'The high ranking team at Los Angeles Roleplay has issued you an infraction. '
-            + 'Open the linked evidence thread to upload screenshots, recordings, links, and other supporting material.',
-        )
-        .addFields(
-            { name: 'Member', value: `<@${record.memberId}>`, inline: true },
-            { name: 'Action', value: record.action, inline: true },
-            { name: 'Status', value: record.status, inline: true },
-            { name: 'Appealable', value: record.appealable ? '✅ Yes' : '❌ No', inline: true },
-            { name: 'Reason', value: record.reason },
-            { name: 'Notes', value: record.ruleBroken },
-            { name: 'Evidence', value: record.evidence || 'No evidence supplied.' },
-            { name: 'Internal Notes', value: record.internalNotes || 'No internal notes supplied.' },
-            { name: 'Expiration', value: record.expiration || 'No expiration set.', inline: true },
-            { name: 'Direct Message', value: record.notifyMember ? 'Requested' : 'Not requested', inline: true },
-            { name: 'Issued By', value: `<@${record.issuedById}>`, inline: true },
-            { name: 'Issued At', value: discordTimestamp(new Date(record.createdAt)) },
-        );
+function compactCaseValue(value: string, maxLength = 380): string {
+    const compact = value.replace(/[\r\n]+/g, ' ').replace(/`/g, 'ˋ').trim();
+    if (!compact) return 'Not provided.';
+    return compact.length > maxLength ? `${compact.slice(0, maxLength - 1)}…` : compact;
 }
 
-function infractionControls(
-    status: InfractionStatus,
+function displayCaseNumber(caseNumber: string): string {
+    const numericCase = caseNumber.match(/^INF-0*(\d+)$/i)?.[1];
+    return numericCase ? `#${numericCase}` : caseNumber;
+}
+
+function punishmentBadgeLabel(record: InfractionRecord): string {
+    return `Staff ${record.action} ${displayCaseNumber(record.caseNumber)}`.slice(0, 80);
+}
+
+/**
+ * Keeps the case details dense and readable like the infraction examples.
+ * The complete values stay in the durable record; the visible summary is
+ * deliberately capped so a long staff note cannot make the Discord panel
+ * invalid or push the case layout apart.
+ */
+function infractionSummary(record: InfractionRecord): string {
+    const issuedAt = discordTimestamp(new Date(record.createdAt));
+    return [
+        `## ⚖️ ${punishmentBadgeLabel(record)}`,
+        `> **User:** <@${record.memberId}> • \`${compactCaseValue(record.memberUsername, 80)}\``,
+        `> **Staff:** <@${record.issuedById}>`,
+        `> **Status:** \`${record.status}\` • **Appealable:** ${record.appealable ? '✅ Yes' : '❌ No'}`,
+        `> **Violation:** \`${compactCaseValue(record.ruleBroken)}\``,
+        `> **Reason:** \`${compactCaseValue(record.reason)}\``,
+        `> **Evidence:** ${compactCaseValue(record.evidence)}`,
+        `> **Notes:** \`${compactCaseValue(record.internalNotes)}\``,
+        `> **Expiration:** \`${compactCaseValue(record.expiration, 100)}\``,
+        `> **Issued:** ${issuedAt}`,
+    ].join('\n');
+}
+
+function infractionBanner(name: string): MediaGalleryBuilder {
+    return new MediaGalleryBuilder().addItems(
+        new MediaGalleryItemBuilder().setURL(`attachment://${name}`),
+    );
+}
+
+function panelSeparator(): SeparatorBuilder {
+    return new SeparatorBuilder()
+        .setDivider(true)
+        .setSpacing(SeparatorSpacingSize.Small);
+}
+
+function infractionControlRows(
+    record: InfractionRecord,
     threadId: string,
     threadUrl: string,
-    appealable: boolean,
 ): ActionRowBuilder<ButtonBuilder>[] {
-    const inactive = status !== 'Active';
-    const closed = status === 'Closed';
+    const inactive = record.status !== 'Active';
+    const closed = record.status === 'Closed';
     const controlId = (action: string) => `infraction:${action}:${threadId}`;
 
     const primaryRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -294,9 +346,11 @@ function infractionControls(
         new ButtonBuilder().setCustomId(controlId('history')).setLabel('View History').setStyle(ButtonStyle.Secondary),
     );
 
-    // Appeal button is only actionable when the infraction is marked appealable.
+    // The appeal row intentionally sits directly beneath the visual punishment
+    // badge, as in the staff infraction design. It remains wired to the
+    // existing appeal form and is disabled for a non-appealable case.
     const appealRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        appealable
+        record.appealable
             ? new ButtonBuilder()
                 .setCustomId(`infraction-appeal:start:${threadId}`)
                 .setLabel('Appeal Infraction')
@@ -321,7 +375,47 @@ function infractionControls(
             .setDisabled(closed),
     );
 
-    return [primaryRow, appealRow, closeRow];
+    return [appealRow, primaryRow, closeRow];
+}
+
+/**
+ * Builds the whole public case card as a Components V2 container. This is
+ * what lets the supplied header appear first and the supplied under-banner
+ * appear last in the same blue-sided panel, with the display-only punishment
+ * badge aligned beside the case details.
+ */
+function buildInfractionPanel(
+    record: InfractionRecord,
+    threadId?: string,
+    threadUrl?: string,
+): ContainerBuilder {
+    const punishmentBadge = new ButtonBuilder()
+        .setCustomId(`infraction:punishment-display:${threadId || 'pending'}`)
+        .setLabel(punishmentBadgeLabel(record))
+        .setStyle(ButtonStyle.Primary)
+        .setDisabled(true);
+
+    const panel = new ContainerBuilder()
+        .setAccentColor(BRAND_COLOR)
+        .addMediaGalleryComponents(infractionBanner(INFRACTION_BANNER_NAME))
+        .addSeparatorComponents(panelSeparator())
+        .addSectionComponents(
+            new SectionBuilder()
+                .addTextDisplayComponents(
+                    new TextDisplayBuilder().setContent(infractionSummary(record)),
+                )
+                .setButtonAccessory(punishmentBadge),
+        );
+
+    if (threadId && threadUrl) {
+        for (const row of infractionControlRows(record, threadId, threadUrl)) {
+            panel.addActionRowComponents(row);
+        }
+    }
+
+    return panel
+        .addSeparatorComponents(panelSeparator())
+        .addMediaGalleryComponents(infractionBanner(INFRACTION_UNDERBANNER_NAME));
 }
 
 async function updateInfractionDetailMessage(thread: ThreadChannel, record: InfractionRecord): Promise<void> {
@@ -334,8 +428,12 @@ async function updateInfractionDetailMessage(thread: ThreadChannel, record: Infr
     if (!message) message = await thread.messages.fetch(record.detailMessageId).catch(() => null);
     if (!message) return;
     await message.edit({
-        embeds: [buildInfractionEmbed(record)],
-        components: infractionControls(record.status, record.threadId, thread.url, record.appealable !== false),
+        components: [buildInfractionPanel(record, record.threadId, thread.url)],
+        flags: MessageFlags.IsComponentsV2,
+        // Discord requires existing attachment IDs when a Components V2 panel
+        // is edited. Retaining them keeps both supplied banners visible after
+        // staff edit, void, or close a case.
+        attachments: retainedMessageAttachments(message),
     });
 }
 
@@ -617,9 +715,9 @@ function infractionCommand() {
                 let detailMessage;
                 try {
                     detailMessage = await fetchedParent.send({
-                        content: `<@${member.id}>, a staff infraction has been issued. Please review the record below.`,
-                        embeds: [buildInfractionEmbed(record)],
-                        files: [logoAttachment()],
+                        components: [buildInfractionPanel(record)],
+                        files: infractionArtworkAttachments(),
+                        flags: MessageFlags.IsComponentsV2,
                         allowedMentions: { parse: [], users: [member.id] },
                     });
                 } catch (error) { throw error; }
@@ -640,13 +738,12 @@ function infractionCommand() {
                 }
 
                 // The thread is started on detailMessage, so that message is the thread's
-                // single starting message. Attach the infraction controls directly to it so
-                // the embed + buttons appear exactly once inside the thread (the message
-                // is still visible in the parent channel, but it is not duplicated).
+                // single starting message. Add the live controls to the same Components V2
+                // panel after the thread ID exists, rather than duplicating the case in it.
                 await detailMessage.edit({
-                    content: `<@${member.id}>, a staff infraction has been issued. The evidence thread is available here: ${thread.url}`,
-                    embeds: [buildInfractionEmbed(record)],
-                    components: infractionControls(record.status, thread.id, thread.url, record.appealable),
+                    components: [buildInfractionPanel(record, thread.id, thread.url)],
+                    flags: MessageFlags.IsComponentsV2,
+                    attachments: retainedMessageAttachments(detailMessage),
                     allowedMentions: { parse: [], users: [member.id] },
                 });
 
