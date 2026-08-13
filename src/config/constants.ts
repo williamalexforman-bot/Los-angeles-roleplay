@@ -34,6 +34,20 @@ export const PARTNERSHIP_ROLE_ID = process.env.PARTNERSHIP_ROLE_ID || '152159340
 export const INFRACTION_AUTHORIZED_ROLE_ID = process.env.INFRACTION_AUTHORIZED_ROLE_ID || '1523121675007426692';
 export const PROMOTION_AUTHORIZED_ROLE_ID = process.env.PROMOTION_AUTHORIZED_ROLE_ID || '1523121617079767151';
 
+// Warning level roles — auto-assigned when a Warning infraction is issued
+export const WARNING_ROLE_IDS: Record<string, string> = {
+    'Warning 1': process.env.WARNING_1_ROLE_ID || '1524206181923422238',
+    'Warning 2': process.env.WARNING_2_ROLE_ID || '1524206220666470662',
+    'Warning 3': process.env.WARNING_3_ROLE_ID || '1524206250185986090',
+};
+
+// Strike level roles — auto-assigned when a Strike infraction is issued
+export const STRIKE_ROLE_IDS: Record<string, string> = {
+    'Strike 1': process.env.STRIKE_1_ROLE_ID || '1521593407791825033',
+    'Strike 2': process.env.STRIKE_2_ROLE_ID || '1521593407791825034',
+    'Strike 3': process.env.STRIKE_3_ROLE_ID || '1521593407791825035',
+};
+
 const CSRP_GUILD_ID = process.env.GUILD_ID || '1521593407741362257';
 
 export const SUPPORT_LINKS = {

@@ -7,11 +7,12 @@ import {
     SlashCommandBuilder,
     MessageFlags,
 } from 'discord.js';
-import { BRAND } from '../config/constants';
+import { BRAND, WARNING_ROLE_IDS, STRIKE_ROLE_IDS } from '../config/constants';
 import { Infraction } from '../database/models';
 import { isDatabaseAvailable } from '../database/connection';
 import { markSlashCommandFailed } from '../utils/commandAudit';
 import { createLogoAttachment } from '../utils/embeds';
+import { infractionAppealButton } from './infractionAppeal';
 
 const BRAND_FOOTER = BRAND.footer;
 const LOGO_URL = BRAND.logoUrl;
@@ -143,6 +144,20 @@ export const punishmentCommands = [
                     ),
             )
             .addStringOption(option =>
+                option
+                    .setName('level')
+                    .setDescription('Warning or Strike level (required for Warn action)')
+                    .setRequired(false)
+                    .addChoices(
+                        { name: 'Warning 1', value: 'Warning 1' },
+                        { name: 'Warning 2', value: 'Warning 2' },
+                        { name: 'Warning 3', value: 'Warning 3' },
+                        { name: 'Strike 1', value: 'Strike 1' },
+                        { name: 'Strike 2', value: 'Strike 2' },
+                        { name: 'Strike 3', value: 'Strike 3' },
+                    ),
+            )
+            .addStringOption(option =>
                 option.setName('reason')
                     .setDescription('Reason for the punishment')
                     .setRequired(true)
@@ -155,7 +170,26 @@ export const punishmentCommands = [
             try {
                 const targetUser = interaction.options.getUser('user', true);
                 const action = interaction.options.getString('action', true) as 'warn' | 'kick' | 'ban';
+                const level = interaction.options.getString('level');
                 const reason = interaction.options.getString('reason', true);
+
+                // Validate level is required for warn action
+                if (action === 'warn' && !level) {
+                    await interaction.editReply('You must select a **Warning or Strike level** (e.g. Warning 1, Warning 2, Warning 3, Strike 1, etc.).');
+                    return;
+                }
+                if (level && action !== 'warn') {
+                    await interaction.editReply('The level option can only be used with the **Warn** action.');
+                    return;
+                }
+
+                // Determine the final action label (e.g. "Warning 2", "Strike 1")
+                const finalAction = level || (action === 'warn' ? 'Warning' : action.charAt(0).toUpperCase() + action.slice(1));
+
+                // Determine the role to auto-assign
+                const roleToAssign = level
+                    ? (level.startsWith('Warning') ? WARNING_ROLE_IDS[level] : STRIKE_ROLE_IDS[level])
+                    : undefined;
 
                 if (!interaction.guildId || !interaction.guild) {
                     await interaction.editReply('This command can only be used in a server.');
@@ -185,18 +219,49 @@ export const punishmentCommands = [
                 const dmEmbed = brandedEmbed(`Punishment Notice | ${caseNumber}`)
                     .setDescription('You have received a punishment from the Los Angeles Roleplay staff team.')
                     .addFields(
-                        { name: 'Action', value: action.charAt(0).toUpperCase() + action.slice(1), inline: true },
+                        { name: 'Action', value: finalAction, inline: true },
                         { name: 'Reason', value: reason },
                         { name: 'Case Number', value: caseNumber, inline: true },
                     );
 
-                // Send DM (best-effort)
-                const dmSent = await sendDm(targetUser.id, dmEmbed);
+                // Send DM (best-effort) with appeal button for warn actions
+                let dmSent = false;
+                if (action === 'warn') {
+                    try {
+                        const client = cachedClient;
+                        if (client) {
+                            const user = await client.users.fetch(targetUser.id);
+                            if (user) {
+                                await user.send({
+                                    embeds: [dmEmbed],
+                                    components: [infractionAppealButton(`punishment-${caseNumber}`)],
+                                    files: [createLogoAttachment()],
+                                });
+                                dmSent = true;
+                            }
+                        }
+                    } catch {
+                        dmSent = false;
+                    }
+                } else {
+                    dmSent = await sendDm(targetUser.id, dmEmbed);
+                }
 
                 // Execute the punishment action
                 let actionResult = '';
                 switch (action) {
                     case 'warn': {
+                        // Auto-assign the warning/strike role to the member
+                        let roleAssigned = false;
+                        if (roleToAssign) {
+                            try {
+                                await member.roles.add(roleToAssign, `${finalAction} issued by ${interaction.user.id}`);
+                                roleAssigned = true;
+                            } catch (error) {
+                                console.error(`[Punishment] Could not assign role ${roleToAssign}:`, error);
+                            }
+                        }
+
                         // Save to MongoDB for history
                         const saved = await saveInfractionToDb({
                             caseNumber,
@@ -204,15 +269,15 @@ export const punishmentCommands = [
                             memberId: targetUser.id,
                             memberUsername: targetUser.username,
                             issuedById: interaction.user.id,
-                            action: 'Warning',
+                            action: finalAction,
                             reason,
                             status: 'Active',
                             createdAt: new Date(),
                             updatedAt: new Date(),
                         });
                         actionResult = saved
-                            ? `has been warned (Case: ${caseNumber})`
-                            : `has been warned but the warning could not be saved to the database (Case: ${caseNumber})`;
+                            ? `has been warned (${finalAction}) (Case: ${caseNumber})${roleAssigned ? ' — role assigned' : roleToAssign ? ' — ⚠️ role could NOT be assigned' : ''}`
+                            : `has been warned (${finalAction}) but the warning could not be saved to the database (Case: ${caseNumber})${roleAssigned ? ' — role assigned' : roleToAssign ? ' — ⚠️ role could NOT be assigned' : ''}`;
                         break;
                     }
                     case 'kick': {
@@ -238,10 +303,11 @@ export const punishmentCommands = [
                 const confirmEmbed = brandedEmbed('Punishment Issued')
                     .setDescription(`${targetUser} ${actionResult}.`)
                     .addFields(
-                        { name: 'Action', value: action.charAt(0).toUpperCase() + action.slice(1), inline: true },
+                        { name: 'Action', value: finalAction, inline: true },
                         { name: 'Reason', value: reason },
                         { name: 'Case Number', value: caseNumber, inline: true },
                         { name: 'DM Sent', value: dmSent ? '✅ Yes' : '❌ No (DMs may be closed)', inline: true },
+                        ...(roleToAssign ? [{ name: 'Role', value: `<@&${roleToAssign}>`, inline: true }] : []),
                     );
 
                 await interaction.editReply({ embeds: [confirmEmbed], files: [createLogoAttachment()] });

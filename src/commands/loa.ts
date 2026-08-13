@@ -25,6 +25,13 @@ const LOA_ROLE_ID = process.env.LOA_ROLE_ID || '1521593407795888329';
 const LOA_REQUESTER_ROLE_ID = process.env.LOA_REQUESTER_ROLE_ID || '';
 const LOA_REQUESTER_ROLE_REQUIRED = Boolean(process.env.LOA_REQUESTER_ROLE_ID);
 const LOA_MANAGEMENT_PERMISSION = PermissionFlagsBits.Administrator;
+// Roles that can approve/deny LOA requests (in addition to Administrator)
+const LOA_MANAGEMENT_ROLE_IDS = Array.from(new Set([
+    process.env.BOT_PERMISSIONS_ROLE_ID,
+    process.env.ADMIN_ROLE_ID,
+    process.env.INFRACTION_AUTHORIZED_ROLE_ID,
+    ...(process.env.LOA_MANAGEMENT_ROLE_IDS || '').split(','),
+].map(value => value?.trim()).filter((value): value is string => Boolean(value))));
 
 interface PendingLoa {
     guildId: string;
@@ -271,7 +278,19 @@ export async function handleLoaButton(interaction: ButtonInteraction): Promise<b
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         try {
-            if (!interaction.memberPermissions?.has(LOA_MANAGEMENT_PERMISSION)) {
+            // Allow users with Administrator permission OR any configured management role
+            const hasAdmin = interaction.memberPermissions?.has(LOA_MANAGEMENT_PERMISSION);
+            const interactionMember = interaction.member;
+            const hasRole = (id: string): boolean => {
+                if (!interactionMember) return false;
+                const roles = (interactionMember as { roles?: { cache?: { has(id: string): boolean } } | string[] }).roles;
+                if (!roles) return false;
+                if (Array.isArray(roles)) return roles.includes(id);
+                return roles.cache?.has(id) ?? false;
+            };
+            const hasManagementRole = LOA_MANAGEMENT_ROLE_IDS.some(hasRole);
+
+            if (!hasAdmin && !hasManagementRole) {
                 await interaction.editReply('Only management may approve or deny LOA requests.');
                 return true;
             }

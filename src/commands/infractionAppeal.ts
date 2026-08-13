@@ -12,10 +12,10 @@ import {
     TextInputStyle,
 } from 'discord.js';
 import { BRAND } from '../config/constants';
-import { InfractionAppeal } from '../database/models';
+import { Infraction, InfractionAppeal } from '../database/models';
 import { isDatabaseAvailable } from '../database/connection';
 import { createLogoAttachment } from '../utils/embeds';
-import { getInfractionByThreadIdPublic, recoverInfractionByThreadId } from '../commands/staffManagement';
+import { getInfractionByThreadIdPublic, recoverInfractionByThreadId, type InfractionRecord } from '../commands/staffManagement';
 import { logger } from '../utils/logger';
 
 const INFRACTION_APPEAL_CHANNEL_ID = process.env.INFRACTION_APPEAL_CHANNEL_ID || '1537227443423682612';
@@ -135,6 +135,50 @@ export async function handleInfractionAppealButton(interaction: ButtonInteractio
         // Fallback: recover from the Discord thread if the record isn't in memory or DB
         if (!record) {
             record = await recoverInfractionByThreadId(interaction.client, threadId, interaction.guildId || undefined).catch(() => null);
+        }
+
+        // Fallback: look up punishment records from the database (threadId is "punishment-PUN-XXXX")
+        if (!record && isDatabaseAvailable()) {
+            try {
+                const dbRecord = await Infraction.findOne({ threadId }).lean().exec() as unknown as {
+                    appealable?: boolean;
+                    action?: string;
+                    reason?: string;
+                    caseNumber?: string;
+                    memberId?: string;
+                    memberUsername?: string;
+                    issuedById?: string;
+                    status?: string;
+                    createdAt?: Date;
+                } | null;
+                if (dbRecord) {
+                    record = {
+                        caseNumber: dbRecord.caseNumber || threadId,
+                        guildId: interaction.guildId || '',
+                        memberId: dbRecord.memberId || '',
+                        memberUsername: dbRecord.memberUsername || '',
+                        issuedById: dbRecord.issuedById || '',
+                        action: (dbRecord.action || 'Infraction') as InfractionRecord['action'],
+                        reason: dbRecord.reason || 'No reason provided.',
+                        ruleBroken: dbRecord.reason || 'No rule supplied.',
+                        evidence: 'No evidence supplied.',
+                        internalNotes: 'No internal notes supplied.',
+                        notifyMember: true,
+                        appealable: dbRecord.appealable === undefined ? true : dbRecord.appealable,
+                        expiration: 'No expiration set.',
+                        status: (dbRecord.status || 'Active') as InfractionRecord['status'],
+                        parentChannelId: '',
+                        headerMessageId: '',
+                        threadId,
+                        detailMessageId: '',
+                        createdAt: dbRecord.createdAt?.toISOString() || new Date().toISOString(),
+                        updatedAt: dbRecord.createdAt?.toISOString() || new Date().toISOString(),
+                        history: [],
+                    };
+                }
+            } catch {
+                // ignore
+            }
         }
 
         if (!record) {
