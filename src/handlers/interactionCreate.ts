@@ -48,14 +48,14 @@ async function hasManagementCommandPermission(interaction: ChatInputCommandInter
     let roles = new Set(interactionRoleIds(interaction));
     const requiredRoles = interaction.commandName === 'promotion'
         ? [PROMOTION_AUTHORIZED_ROLE_ID]
-        : interaction.commandName === 'infraction'
-            ? Array.from(new Set([
-                INFRACTION_AUTHORIZED_ROLE_ID,
-                process.env.BOT_PERMISSIONS_ROLE_ID,
-                process.env.ADMIN_ROLE_ID,
-                ...(process.env.INFRACTION_AUTHORIZED_ROLE_IDS || '').split(','),
-            ].map(value => value?.trim()).filter((value): value is string => Boolean(value))))
-            : [];
+            : interaction.commandName === 'infraction' || interaction.commandName === 'punishment'
+                ? Array.from(new Set([
+                    INFRACTION_AUTHORIZED_ROLE_ID,
+                    process.env.BOT_PERMISSIONS_ROLE_ID,
+                    process.env.ADMIN_ROLE_ID,
+                    ...(process.env.INFRACTION_AUTHORIZED_ROLE_IDS || '').split(','),
+                ].map(value => value?.trim()).filter((value): value is string => Boolean(value))))
+                : [];
     if (requiredRoles.length === 0) return false;
     if (requiredRoles.some(roleId => roles.has(roleId))) return true;
     // The interaction payload may contain partial member data without roles.
