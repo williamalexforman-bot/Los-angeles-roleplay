@@ -1,18 +1,20 @@
 import {
+    ActionRowBuilder,
+    ButtonBuilder,
+    ButtonStyle,
     ChatInputCommandInteraction,
     Client,
     EmbedBuilder,
     GuildMember,
+    MessageFlags,
     PermissionFlagsBits,
     SlashCommandBuilder,
-    MessageFlags,
 } from 'discord.js';
 import { BRAND } from '../config/constants';
 import { Infraction } from '../database/models';
 import { isDatabaseAvailable } from '../database/connection';
 import { markSlashCommandFailed } from '../utils/commandAudit';
 import { createLogoAttachment } from '../utils/embeds';
-import { infractionAppealButton } from './infractionAppeal';
 
 const BRAND_FOOTER = BRAND.footer;
 const LOGO_URL = BRAND.logoUrl;
@@ -204,7 +206,15 @@ export const punishmentCommands = [
                             if (user) {
                                 await user.send({
                                     embeds: [dmEmbed],
-                                    components: [infractionAppealButton(`punishment-${caseNumber}`)],
+                                    components: [
+                                        new ActionRowBuilder<ButtonBuilder>().addComponents(
+                                            new ButtonBuilder()
+                                                .setCustomId(`infraction-appeal:start:punishment-${caseNumber}`)
+                                                .setLabel('Appeal Infraction')
+                                                .setStyle(ButtonStyle.Primary)
+                                                .setEmoji('⚖️'),
+                                        ),
+                                    ],
                                     files: [createLogoAttachment()],
                                 });
                                 dmSent = true;

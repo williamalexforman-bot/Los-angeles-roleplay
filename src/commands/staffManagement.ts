@@ -31,7 +31,6 @@ import {
 import { INFRACTION_AUTHORIZED_ROLE_ID, PROMOTION_AUTHORIZED_ROLE_ID } from '../config/constants';
 import { markSlashCommandFailed } from '../utils/commandAudit';
 import { logger } from '../utils/logger';
-import { infractionAppealButton } from './infractionAppeal';
 
 const BRAND_COLOR = 0x3b82f6;
 const PASS_COLOR = 0x22c55e;
@@ -896,8 +895,15 @@ function infractionCommand() {
                         { name: 'Evidence Thread', value: thread ? thread.url : 'Not available' },
                     );
                 try {
+                    // Build the DM appeal button inline (avoids circular import)
                     const appealComponents = thread && record.appealable
-                        ? [infractionAppealButton(thread.id)]
+                        ? [new ActionRowBuilder<ButtonBuilder>().addComponents(
+                            new ButtonBuilder()
+                                .setCustomId(`infraction-appeal:start:${thread.id}`)
+                                .setLabel('Appeal Infraction')
+                                .setStyle(ButtonStyle.Primary)
+                                .setEmoji('⚖️'),
+                        )]
                         : undefined;
                     await member.send({
                         embeds: [notificationEmbed],
