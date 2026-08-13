@@ -43,14 +43,21 @@ function interactionRoleIds(interaction: ChatInputCommandInteraction): string[] 
 
 async function hasManagementCommandPermission(interaction: ChatInputCommandInteraction): Promise<boolean> {
     if (!interaction.guildId) return false;
+    if (interaction.guild?.ownerId === interaction.user.id
+        || interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return true;
     let roles = new Set(interactionRoleIds(interaction));
-    const requiredRole = interaction.commandName === 'promotion'
-        ? PROMOTION_AUTHORIZED_ROLE_ID
+    const requiredRoles = interaction.commandName === 'promotion'
+        ? [PROMOTION_AUTHORIZED_ROLE_ID]
         : interaction.commandName === 'infraction'
-            ? INFRACTION_AUTHORIZED_ROLE_ID
-            : null;
-    if (!requiredRole) return false;
-    if (roles.has(requiredRole)) return true;
+            ? Array.from(new Set([
+                INFRACTION_AUTHORIZED_ROLE_ID,
+                process.env.BOT_PERMISSIONS_ROLE_ID,
+                process.env.ADMIN_ROLE_ID,
+                ...(process.env.INFRACTION_AUTHORIZED_ROLE_IDS || '').split(','),
+            ].map(value => value?.trim()).filter((value): value is string => Boolean(value))))
+            : [];
+    if (requiredRoles.length === 0) return false;
+    if (requiredRoles.some(roleId => roles.has(roleId))) return true;
     // The interaction payload may contain partial member data without roles.
     // Fall back to a fresh member fetch so role-gated commands authorize correctly.
     try {
@@ -61,7 +68,7 @@ async function hasManagementCommandPermission(interaction: ChatInputCommandInter
     } catch {
         // Fall through with whatever roles were already available.
     }
-    return roles.has(requiredRole);
+    return requiredRoles.some(roleId => roles.has(roleId));
 }
 
 function hasSayCommandPermission(interaction: ChatInputCommandInteraction): boolean {

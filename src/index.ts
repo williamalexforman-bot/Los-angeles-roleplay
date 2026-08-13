@@ -365,6 +365,8 @@ async function bootstrap(): Promise<void> {
     try {
         configureInfractionAuthorization(async (interaction, record) => {
             if (interaction.user.id === record.issuedById) return true;
+            if (interaction.guild?.ownerId === interaction.user.id
+                || interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return true;
             const authorizedUsers = (process.env.INFRACTION_AUTHORIZED_USER_IDS || '')
                 .split(',').map(value => value.trim()).filter(Boolean);
             if (authorizedUsers.includes(interaction.user.id)) return true;
@@ -373,7 +375,9 @@ async function bootstrap(): Promise<void> {
             const roleIds = [
                 INFRACTION_AUTHORIZED_ROLE_ID,
                 process.env.BOT_PERMISSIONS_ROLE_ID,
-            ].filter((roleId): roleId is string => Boolean(roleId));
+                process.env.ADMIN_ROLE_ID,
+                ...(process.env.INFRACTION_AUTHORIZED_ROLE_IDS || '').split(','),
+            ].map(roleId => roleId?.trim()).filter((roleId): roleId is string => Boolean(roleId));
             return roleIds.some(roleId => memberRoleIds.includes(roleId));
         });
     } catch (error) {
@@ -465,4 +469,3 @@ async function runBootstrapWithRetry(attempt = 1): Promise<void> {
 }
 
 runBootstrapWithRetry();
-

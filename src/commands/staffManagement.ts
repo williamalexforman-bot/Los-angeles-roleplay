@@ -7,6 +7,7 @@ import {
     ButtonStyle,
     ChannelType,
     ChatInputCommandInteraction,
+    Client,
     ContainerBuilder,
     EmbedBuilder,
     MediaGalleryBuilder,
@@ -141,6 +142,127 @@ export async function getInfractionByThreadIdPublic(threadId: string): Promise<I
     return record;
 }
 
+type ComponentNode = {
+    content?: unknown;
+    components?: readonly ComponentNode[];
+};
+
+function componentText(nodes: readonly ComponentNode[] | undefined): string {
+    if (!nodes) return '';
+    const text: string[] = [];
+    for (const node of nodes) {
+        if (typeof node.content === 'string') text.push(node.content);
+        text.push(componentText(node.components));
+    }
+    return text.filter(Boolean).join('\n');
+}
+
+function summaryLine(summary: string, name: string, fallback: string): string {
+    const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const match = summary.match(new RegExp(`\\*\\*${escapedName}:\\*\\*\\s*(.+?)(?:\\n|$)`, 'i'));
+    if (!match?.[1]) return fallback;
+    return match[1]
+        .replace(/^>\s*/, '')
+        .replace(/^`|`$/g, '')
+        .replace(/<@!?\d+>/g, '')
+        .replace(/•.*$/, '')
+        .trim() || fallback;
+}
+
+function recoverInfractionFromSummary(
+    threadId: string,
+    parentChannelId: string,
+    guildId: string,
+    message: { id?: string; createdAt?: Date; components?: readonly ComponentNode[] },
+): InfractionRecord | null {
+    const summary = componentText(message.components);
+    const memberId = summary.match(/\*\*User:\*\*\s*<@!?(\d{17,20})>/i)?.[1];
+    const issuedById = summary.match(/\*\*Staff:\*\*\s*<@!?(\d{17,20})>/i)?.[1];
+    const heading = summary.match(/^##\s*⚖️\s*Staff\s+(.+?)\s+(#\d+|INF-[^\s]+)$/im);
+    if (!memberId || !issuedById || !heading?.[1] || !heading[2]) return null;
+
+    const action = INFRACTION_ACTIONS.find(candidate => candidate.toLowerCase() === heading[1].trim().toLowerCase());
+    if (!action) return null;
+    const caseToken = heading[2];
+    const caseNumber = caseToken.startsWith('#')
+        ? `INF-${caseToken.slice(1).padStart(4, '0')}`
+        : caseToken.toUpperCase();
+    const createdAt = message.createdAt?.toISOString() || new Date().toISOString();
+    const status = summary.match(/\*\*Status:\*\*\s*`?(Active|Voided|Closed)`?/i)?.[1] as InfractionStatus | undefined;
+
+    return {
+        caseNumber,
+        guildId,
+        memberId,
+        memberUsername: summary.match(/\*\*User:\*\*[^\n]*`([^`]+)`/i)?.[1] || memberId,
+        issuedById,
+        action,
+        reason: summaryLine(summary, 'Reason', 'No reason provided.'),
+        ruleBroken: summaryLine(summary, 'Violation', 'No rule supplied.'),
+        evidence: summaryLine(summary, 'Evidence', 'No evidence supplied.'),
+        internalNotes: summaryLine(summary, 'Notes', 'No internal notes supplied.'),
+        notifyMember: false,
+        appealable: /\*\*Appealable:\*\*\s*✅\s*Yes/i.test(summary),
+        expiration: summaryLine(summary, 'Expiration', 'No expiration set.'),
+        status: status || 'Active',
+        parentChannelId,
+        headerMessageId: message.id || '',
+        threadId,
+        detailMessageId: message.id || '',
+        createdAt,
+        updatedAt: createdAt,
+        history: [],
+    };
+}
+
+/**
+ * Rebuilds a case from its public Components V2 starter message. This keeps
+ * appeal buttons and /view-infractions usable after a restart even while
+ * MongoDB is unavailable; the original Discord thread is the recovery source.
+ */
+export async function recoverInfractionByThreadId(
+    client: Client,
+    threadId: string,
+    guildId?: string,
+): Promise<InfractionRecord | null> {
+    const existing = await getInfractionByThreadIdPublic(threadId);
+    if (existing) return existing;
+
+    const thread = await client.channels.fetch(threadId).catch(() => null);
+    if (!thread?.isThread()) return null;
+    const starter = await thread.fetchStarterMessage().catch(() => null);
+    if (!starter) return null;
+    const record = recoverInfractionFromSummary(
+        thread.id,
+        thread.parentId || '',
+        guildId || thread.guildId,
+        starter as unknown as { id?: string; createdAt?: Date; components?: readonly ComponentNode[] },
+    );
+    if (record) inMemoryInfractions.set(record.threadId, record);
+    return record;
+}
+
+/** Hydrates the in-memory view cache from active and recently archived case threads. */
+export async function recoverInfractionsFromParentChannel(
+    client: Client,
+    parentChannelId: string,
+    guildId: string,
+): Promise<InfractionRecord[]> {
+    const parent = await client.channels.fetch(parentChannelId).catch(() => null);
+    if (!(parent instanceof TextChannel)) return [];
+
+    const threads = new Map<string, ThreadChannel>();
+    const active = await parent.threads.fetchActive().catch(() => null);
+    for (const thread of active?.threads.values() || []) threads.set(thread.id, thread);
+    const archived = await parent.threads.fetchArchived({ limit: 100 }).catch(() => null);
+    for (const thread of archived?.threads.values() || []) threads.set(thread.id, thread);
+
+    const recovered = await Promise.all(
+        Array.from(threads.values()).map(thread => recoverInfractionByThreadId(client, thread.id, guildId)),
+    );
+    return recovered.filter((record): record is InfractionRecord => Boolean(record));
+}
+
 function logoAttachment() {
     return { attachment: LOGO_PATH, name: LOGO_NAME };
 }
@@ -179,14 +301,41 @@ export async function memberHasRole(
     interaction: ChatInputCommandInteraction,
     roleId: string,
 ): Promise<boolean> {
-    if (hasRequiredRole(interaction.member as RoleBearingMember, roleId)) return true;
+    return memberHasAnyRole(interaction, [roleId]);
+}
+
+async function memberHasAnyRole(
+    interaction: ChatInputCommandInteraction,
+    roleIds: readonly string[],
+): Promise<boolean> {
+    if (roleIds.some(roleId => hasRequiredRole(interaction.member as RoleBearingMember, roleId))) return true;
     if (!interaction.guild) return false;
     try {
         const fetched = await interaction.guild.members.fetch(interaction.user.id);
-        return hasRequiredRole(fetched as RoleBearingMember, roleId);
+        return roleIds.some(roleId => hasRequiredRole(fetched as RoleBearingMember, roleId));
     } catch {
         return false;
     }
+}
+
+function infractionAuthorizedRoleIds(): string[] {
+    return Array.from(new Set([
+        INFRACTION_AUTHORIZED_ROLE_ID,
+        process.env.BOT_PERMISSIONS_ROLE_ID,
+        process.env.ADMIN_ROLE_ID,
+        ...(process.env.INFRACTION_AUTHORIZED_ROLE_IDS || '').split(','),
+    ].map(value => value?.trim()).filter((value): value is string => Boolean(value))));
+}
+
+function isGuildOwnerOrAdministrator(interaction: ChatInputCommandInteraction): boolean {
+    return interaction.guild?.ownerId === interaction.user.id
+        || Boolean(interaction.memberPermissions?.has(PermissionFlagsBits.Administrator));
+}
+
+/** Server owners and administrators can always issue an infraction. */
+async function canIssueInfraction(interaction: ChatInputCommandInteraction): Promise<boolean> {
+    return isGuildOwnerOrAdministrator(interaction)
+        || memberHasAnyRole(interaction, infractionAuthorizedRoleIds());
 }
 
 function brandedEmbed(title: string, color = BRAND_COLOR): EmbedBuilder {
@@ -667,8 +816,8 @@ function infractionCommand() {
 
                 const member = interaction.options.getUser('member', true);
                 const action = interaction.options.getString('action', true) as InfractionAction;
-                if (!(await memberHasRole(interaction, INFRACTION_AUTHORIZED_ROLE_ID))) {
-                    await interaction.editReply('You do not have the required role to issue infractions.');
+                if (!(await canIssueInfraction(interaction))) {
+                    await interaction.editReply('You need the configured infraction role or the Discord Administrator permission to issue infractions.');
                     return;
                 }
                 const reason = interaction.options.getString('reason', true);
@@ -804,7 +953,9 @@ async function isAuthorized(
 ): Promise<boolean> {
     if (authorizationHandler) return authorizationHandler(interaction, record);
     if (interaction.user.id === record.issuedById) return true;
-    return hasRequiredRole(interaction.member as RoleBearingMember, INFRACTION_AUTHORIZED_ROLE_ID);
+    if (interaction.guild?.ownerId === interaction.user.id
+        || interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return true;
+    return infractionAuthorizedRoleIds().some(roleId => hasRequiredRole(interaction.member as RoleBearingMember, roleId));
 }
 
 async function rejectUnauthorized(interaction: ButtonInteraction | ModalSubmitInteraction): Promise<void> {
