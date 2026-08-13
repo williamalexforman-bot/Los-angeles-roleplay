@@ -15,7 +15,7 @@ import { BRAND } from '../config/constants';
 import { InfractionAppeal } from '../database/models';
 import { isDatabaseAvailable } from '../database/connection';
 import { createLogoAttachment } from '../utils/embeds';
-import { getInfractionByThreadIdPublic } from '../commands/staffManagement';
+import { getInfractionByThreadIdPublic, recoverInfractionByThreadId } from '../commands/staffManagement';
 import { logger } from '../utils/logger';
 
 const INFRACTION_APPEAL_CHANNEL_ID = process.env.INFRACTION_APPEAL_CHANNEL_ID || '1537227443423682612';
@@ -130,13 +130,19 @@ export async function handleInfractionAppealButton(interaction: ButtonInteractio
 
     if (action === 'start' && threadId) {
         // Look up the infraction record to check if it's appealable
-        const record = await getInfractionByThreadIdPublic(threadId).catch(() => null);
+        let record = await getInfractionByThreadIdPublic(threadId).catch(() => null);
+
+        // Fallback: recover from the Discord thread if the record isn't in memory or DB
         if (!record) {
-            await interaction.editReply('This infraction record could not be loaded.');
+            record = await recoverInfractionByThreadId(interaction.client, threadId, interaction.guildId || undefined).catch(() => null);
+        }
+
+        if (!record) {
+            await interaction.reply({ content: 'This infraction record could not be loaded.', flags: MessageFlags.Ephemeral });
             return true;
         }
         if (!record.appealable) {
-            await interaction.editReply('This infraction is not marked as appealable. Only appealable infractions can be appealed.');
+            await interaction.reply({ content: 'This infraction is not marked as appealable. Only appealable infractions can be appealed.', flags: MessageFlags.Ephemeral });
             return true;
         }
         await interaction.showModal(appealFormModal(threadId));
