@@ -96,6 +96,7 @@ async function saveInfractionToDb(record: {
     action: string;
     reason: string;
     status: string;
+    appealable: boolean;
     createdAt: Date;
     updatedAt: Date;
 }): Promise<boolean> {
@@ -150,6 +151,16 @@ export const punishmentCommands = [
                     .setDescription('Reason for the punishment')
                     .setRequired(true)
                     .setMaxLength(1024),
+            )
+            .addStringOption(option =>
+                option
+                    .setName('appealable')
+                    .setDescription('Can this punishment be appealed? (REQUIRED Yes or No)')
+                    .setRequired(true)
+                    .addChoices(
+                        { name: 'Yes', value: 'true' },
+                        { name: 'No', value: 'false' },
+                    ),
             ),
 
         async execute(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -159,6 +170,7 @@ export const punishmentCommands = [
                 const targetUser = interaction.options.getUser('user', true);
                 const action = interaction.options.getString('action', true) as 'warn' | 'kick' | 'ban';
                 const reason = interaction.options.getString('reason', true);
+                const appealable = interaction.options.getString('appealable', true) === 'true';
 
                 // Determine the final action label
                 const finalAction = action === 'warn' ? 'Warning' : action.charAt(0).toUpperCase() + action.slice(1);
@@ -208,11 +220,17 @@ export const punishmentCommands = [
                                     embeds: [dmEmbed],
                                     components: [
                                         new ActionRowBuilder<ButtonBuilder>().addComponents(
-                                            new ButtonBuilder()
-                                                .setCustomId(`infraction-appeal:start:punishment-${caseNumber}`)
-                                                .setLabel('Appeal Infraction')
-                                                .setStyle(ButtonStyle.Primary)
-                                                .setEmoji('⚖️'),
+                                            appealable
+                                                ? new ButtonBuilder()
+                                                    .setCustomId(`infraction-appeal:start:punishment-${caseNumber}`)
+                                                    .setLabel('Appeal Infraction')
+                                                    .setStyle(ButtonStyle.Primary)
+                                                    .setEmoji('⚖️')
+                                                : new ButtonBuilder()
+                                                    .setCustomId('infraction-appeal:disabled')
+                                                    .setLabel('Not Appealable')
+                                                    .setStyle(ButtonStyle.Secondary)
+                                                    .setDisabled(true),
                                         ),
                                     ],
                                     files: [createLogoAttachment()],
@@ -241,6 +259,7 @@ export const punishmentCommands = [
                             action: finalAction,
                             reason,
                             status: 'Active',
+                            appealable,
                             createdAt: new Date(),
                             updatedAt: new Date(),
                         });
@@ -275,6 +294,7 @@ export const punishmentCommands = [
                         { name: 'Action', value: finalAction, inline: true },
                         { name: 'Reason', value: reason },
                         { name: 'Case Number', value: caseNumber, inline: true },
+                        { name: 'Appealable', value: appealable ? '✅ Yes' : '❌ No', inline: true },
                         { name: 'DM Sent', value: dmSent ? '✅ Yes' : '❌ No (DMs may be closed)', inline: true },
                     );
 
