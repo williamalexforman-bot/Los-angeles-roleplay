@@ -28,7 +28,7 @@ import {
     type SendableChannels,
     type ThreadChannel,
 } from 'discord.js';
-import { INFRACTION_AUTHORIZED_ROLE_ID, PROMOTION_AUTHORIZED_ROLE_ID, WARNING_ROLE_IDS, STRIKE_ROLE_IDS } from '../config/constants';
+import { INFRACTION_AUTHORIZED_ROLE_ID, PROMOTION_AUTHORIZED_ROLE_ID } from '../config/constants';
 import { markSlashCommandFailed } from '../utils/commandAudit';
 import { logger } from '../utils/logger';
 import { infractionAppealButton } from './infractionAppeal';
@@ -495,23 +495,6 @@ function infractionControlRows(
         new ButtonBuilder().setCustomId(controlId('history')).setLabel('View History').setStyle(ButtonStyle.Secondary),
     );
 
-    // The appeal row intentionally sits directly beneath the visual punishment
-    // badge, as in the staff infraction design. It remains wired to the
-    // existing appeal form and is disabled for a non-appealable case.
-    const appealRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        record.appealable
-            ? new ButtonBuilder()
-                .setCustomId(`infraction-appeal:start:${threadId}`)
-                .setLabel('Appeal Infraction')
-                .setStyle(ButtonStyle.Primary)
-                .setEmoji('⚖️')
-            : new ButtonBuilder()
-                .setCustomId('infraction-appeal:disabled')
-                .setLabel('Not Appealable')
-                .setStyle(ButtonStyle.Secondary)
-                .setDisabled(true),
-    );
-
     const closeRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder()
             .setLabel('Open Evidence Thread')
@@ -524,7 +507,7 @@ function infractionControlRows(
             .setDisabled(closed),
     );
 
-    return [appealRow, primaryRow, closeRow];
+    return [primaryRow, closeRow];
 }
 
 /**
@@ -538,11 +521,17 @@ function buildInfractionPanel(
     threadId?: string,
     threadUrl?: string,
 ): ContainerBuilder {
-    const punishmentBadge = new ButtonBuilder()
-        .setCustomId(`infraction:punishment-display:${threadId || 'pending'}`)
-        .setLabel(punishmentBadgeLabel(record))
-        .setStyle(ButtonStyle.Primary)
-        .setDisabled(true);
+    // Appeal button INSIDE the embed — clickable when appealable, disabled when not
+    const appealButton = record.appealable
+        ? new ButtonBuilder()
+            .setCustomId(`infraction-appeal:start:${threadId || 'pending'}`)
+            .setLabel('⚖️ Appeal Infraction')
+            .setStyle(ButtonStyle.Primary)
+        : new ButtonBuilder()
+            .setCustomId('infraction-appeal:disabled')
+            .setLabel('Not Appealable')
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(true);
 
     const panel = new ContainerBuilder()
         .setAccentColor(BRAND_COLOR)
@@ -553,7 +542,7 @@ function buildInfractionPanel(
                 .addTextDisplayComponents(
                     new TextDisplayBuilder().setContent(infractionSummary(record)),
                 )
-                .setButtonAccessory(punishmentBadge),
+                .setButtonAccessory(appealButton),
         );
 
     if (threadId && threadUrl) {
@@ -786,20 +775,6 @@ function infractionCommand() {
                             .setRequired(true)
                             .addChoices(...INFRACTION_ACTIONS.map(action => ({ name: action, value: action }))),
                     )
-                    .addStringOption(option =>
-                        option
-                            .setName('level')
-                            .setDescription('Warning or Strike level (required for Warning/Strike actions)')
-                            .setRequired(false)
-                            .addChoices(
-                                { name: 'Warning 1', value: 'Warning 1' },
-                                { name: 'Warning 2', value: 'Warning 2' },
-                                { name: 'Warning 3', value: 'Warning 3' },
-                                { name: 'Strike 1', value: 'Strike 1' },
-                                { name: 'Strike 2', value: 'Strike 2' },
-                                { name: 'Strike 3', value: 'Strike 3' },
-                            ),
-                    )
                     .addStringOption(option => option.setName('reason').setDescription('The reason for this infraction').setRequired(true).setMaxLength(1024))
                     .addStringOption(option => option.setName('notes').setDescription('Notes for this infraction').setRequired(true).setMaxLength(1024))
                     .addStringOption(option => option.setName('evidence').setDescription('Evidence link or supporting information').setMaxLength(1024))
@@ -834,26 +809,6 @@ function infractionCommand() {
                     await interaction.editReply('You need the configured infraction role or the Discord Administrator permission to issue infractions.');
                     return;
                 }
-                const level = interaction.options.getString('level');
-
-                // Validate level is required for Warning/Strike actions
-                if ((action === 'Warning' || action === 'Strike') && !level) {
-                    await interaction.editReply(`You must select a **${action} level** (e.g. ${action} 1, ${action} 2, ${action} 3).`);
-                    return;
-                }
-                if (level && !(action === 'Warning' || action === 'Strike')) {
-                    await interaction.editReply('The level option can only be used with **Warning** or **Strike** actions.');
-                    return;
-                }
-
-                // Determine the final action label (e.g. "Warning 2", "Strike 1")
-                const finalAction = (level || action) as InfractionAction;
-
-                // Determine the role to auto-assign
-                const roleToAssign = level
-                    ? (action === 'Warning' ? WARNING_ROLE_IDS[level] : STRIKE_ROLE_IDS[level])
-                    : undefined;
-
                 const reason = interaction.options.getString('reason', true);
                 const ruleBroken = interaction.options.getString('notes', true);
                 const evidence = interaction.options.getString('evidence') || 'No evidence supplied.';
@@ -876,7 +831,7 @@ function infractionCommand() {
                     memberId: member.id,
                     memberUsername: member.username,
                     issuedById: interaction.user.id,
-                    action: finalAction,
+                    action,
                     reason,
                     ruleBroken,
                     evidence,
@@ -893,7 +848,7 @@ function infractionCommand() {
                     updatedAt: now,
                     history: [],
                 };
-                addHistory(record, 'Created', interaction.user.id, `${finalAction} issued to ${member.username}.`);
+                addHistory(record, 'Created', interaction.user.id, `${action} issued to ${member.username}.`);
 
                 let detailMessage;
                 try {
@@ -930,31 +885,15 @@ function infractionCommand() {
                     allowedMentions: { parse: [], users: [member.id] },
                 });
 
-                // Auto-assign the warning/strike role to the member
-                let roleAssigned = false;
-                if (roleToAssign && interaction.guild) {
-                    try {
-                        const guildMember = await interaction.guild.members.fetch(member.id).catch(() => null);
-                        if (guildMember) {
-                            await guildMember.roles.add(roleToAssign, `${finalAction} issued by ${interaction.user.id}`);
-                            roleAssigned = true;
-                            logger.info(`Assigned role ${roleToAssign} to ${member.username} (${member.id}) for ${finalAction}.`);
-                        }
-                    } catch (error) {
-                        logger.warn(`Could not assign role ${roleToAssign} to ${member.username} (${member.id}): ${error instanceof Error ? error.message : 'Unknown'}`);
-                    }
-                }
-
                 let memberNotified = false;
                 const notificationEmbed = brandedEmbed(`Staff Infraction | ${caseNumber}`)
                     .setDescription('The high ranking team at Los Angeles Roleplay has issued you an infraction.')
                     .addFields(
-                        { name: 'Action', value: finalAction, inline: true },
+                        { name: 'Action', value: action, inline: true },
                         { name: 'Reason', value: reason },
                         { name: 'Rule Broken', value: ruleBroken },
                         { name: 'Expiration', value: expiration },
                         { name: 'Evidence Thread', value: thread ? thread.url : 'Not available' },
-                        ...(roleAssigned ? [{ name: 'Role Assigned', value: `<@&${roleToAssign}>`, inline: true }] : []),
                     );
                 try {
                     const appealComponents = thread && record.appealable
@@ -986,7 +925,6 @@ function infractionCommand() {
 
                 await interaction.editReply(
                     `${caseNumber} was created successfully: ${detailMessage.url}`
-                    + `${roleAssigned ? `\n✅ Role <@&${roleToAssign}> was assigned to ${member.username}.` : roleToAssign ? '\n⚠️ Could not assign the role. Check bot permissions.' : ''}`
                     + `${persisted ? '' : '\nWarning: database persistence is unavailable.'}`,
                 );
             } catch (error) {
