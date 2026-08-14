@@ -16,6 +16,7 @@ import { requestTrainingCommand } from './requestTraining';
 import { viewInfractionsCommand } from './viewInfractions';
 import { loaCommand } from './loa';
 import { renameCommand } from './rename';
+import { sessionCommands } from './session';
 
 export interface CommandDefinition {
     data: {
@@ -51,6 +52,7 @@ export const commandDefinitions: CommandDefinition[] = [
     viewInfractionsCommand,
     loaCommand,
     renameCommand,
+    ...sessionCommands,
     { data: cmdsCommandData, execute: executeCmds as (interaction: ChatInputCommandInteraction) => Promise<unknown> },
 ] as CommandDefinition[];
 
