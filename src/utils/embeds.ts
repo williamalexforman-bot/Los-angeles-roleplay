@@ -1,26 +1,41 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { AttachmentBuilder, ChatInputCommandInteraction, ColorResolvable, EmbedBuilder } from 'discord.js';
+import {
+    ActionRowBuilder,
+    AttachmentBuilder,
+    ButtonBuilder,
+    ButtonStyle,
+    ChatInputCommandInteraction,
+    ColorResolvable,
+    ContainerBuilder,
+    EmbedBuilder,
+    MediaGalleryBuilder,
+    MediaGalleryItemBuilder,
+    SectionBuilder,
+    SeparatorBuilder,
+    SeparatorSpacingSize,
+    TextDisplayBuilder,
+} from 'discord.js';
 import { BRAND } from '../config/constants';
 
 /* -------------------------------------------------------------------------- */
 /*  Image URL constants.                                                      */
 /*                                                                            */
 /*  We use the user's OWN local session banner images, referenced as          */
-/*  attachment:// URLs and attached as files alongside each embed. Because    */
-/*  they are set via .setImage(), Discord renders them BIG and full-width.    */
+/*  attachment:// URLs and attached as files alongside each Components V2     */
+/*  panel. Discord renders each media gallery big and full-width.             */
 /*  No AI-generated graphics are used.                                        */
 /*                                                                            */
 /*  TOP_BANNER_*  -> Wide main header banner for each session type.           */
 /*  BOTTOM_UNDERBANNER -> Thin wide "LOS ANGELES ROLEPLAY" underbanner bar    */
-/*                   (own separate embed, .setImage()).                       */
+/*                   (the final media component in the panel).                */
 /* -------------------------------------------------------------------------- */
 
-const SESSION_BANNER_NAME_START = 'session-start-combo.png';
-const SESSION_BANNER_NAME_END = 'session-end-combo.png';
-const SESSION_BANNER_NAME_VOTE = 'session-vote-combo.png';
-const SESSION_BANNER_NAME_BOOST = 'session-boost-combo.png';
-const SESSION_BANNER_NAME_FULL = 'session-full-combo.png';
+const SESSION_BANNER_NAME_START = 'session-start-banner.png';
+const SESSION_BANNER_NAME_END = 'session-end-banner.png';
+const SESSION_BANNER_NAME_VOTE = 'session-vote-banner.png';
+const SESSION_BANNER_NAME_BOOST = 'session-boost-banner.png';
+const SESSION_BANNER_NAME_FULL = 'session-full-banner.png';
 const SESSION_UNDERBANNER_NAME = 'underbanner.webp';
 
 export const TOP_BANNER_START = `attachment://${SESSION_BANNER_NAME_START}`;
@@ -84,7 +99,8 @@ function resolveSessionBanner(emblemType: SessionEmblemType): { path: string; na
 }
 
 export const SESSION_FOOTER = 'Los Angeles Roleplay | Realism at its Finest';
-export const SESSION_ACCENT_COLOR = 0xff7a00; // Los Angeles Roleplay Orange (#FF7A00)
+// Matches the blue Components V2 side rail used by the infraction panels.
+export const SESSION_ACCENT_COLOR = 0x3b82f6;
 
 export const createEmbed = (title: string, description: string, color: ColorResolvable = BRAND.color) => {
     return new EmbedBuilder()
@@ -96,52 +112,80 @@ export const createEmbed = (title: string, description: string, color: ColorReso
 };
 
 /**
- * Main session embed. The top banner is rendered INSIDE the embed via
- * .setImage() so it stays within the orange-bordered embed card. The thin
- * underbanner is placed in a SEPARATE embed directly below (see
- * createUnderbannerEmbed()).
+ * A small separator used around the session copy, matching the visual rhythm
+ * of the infraction panels.
  */
-export const createSessionEmbed = (
-    title: string,
-    description: string,
-    color: ColorResolvable = SESSION_ACCENT_COLOR,
-    emblemType: SessionEmblemType = 'start',
-) => {
-    return new EmbedBuilder()
-        .setColor(color)
-        .setTitle(title)
-        .setDescription(description)
-        .setImage(resolveTopBannerUrl(emblemType))
-        .setFooter({ text: SESSION_FOOTER })
-        .setTimestamp();
-};
+function panelSeparator(): SeparatorBuilder {
+    return new SeparatorBuilder()
+        .setDivider(true)
+        .setSpacing(SeparatorSpacingSize.Small);
+}
 
 /**
- * Bottom embed (underbanner). A bare image-only embed that sits strictly at
- * the very bottom of the message (after the main text embed).
+ * A media gallery wrapper for either supplied session banner. Keeping both
+ * media components in one V2 container guarantees the visual order is:
+ * top banner, session text/buttons, then underbanner.
  */
-export const createUnderbannerEmbed = (color: ColorResolvable = SESSION_ACCENT_COLOR) => {
-    return new EmbedBuilder()
-        .setColor(color)
-        .setImage(BOTTOM_UNDERBANNER);
-};
+function sessionBanner(name: string): MediaGalleryBuilder {
+    return new MediaGalleryBuilder().addItems(
+        new MediaGalleryItemBuilder().setURL(`attachment://${name}`),
+    );
+}
+
+/**
+ * Builds a session announcement in the same Components V2 treatment as an
+ * infraction case. The supplied top banner is first and the underbanner is
+ * always the final component, including when the announcement has buttons.
+ */
+export function createSessionPanel(
+    title: string,
+    description: string,
+    emblemType: SessionEmblemType,
+    actionRows: readonly ActionRowBuilder<ButtonBuilder>[] = [],
+    color = SESSION_ACCENT_COLOR,
+): ContainerBuilder {
+    const displayBadge = new ButtonBuilder()
+        .setCustomId(`session:display:${emblemType}`)
+        .setLabel(title.slice(0, 80))
+        .setStyle(ButtonStyle.Primary)
+        .setDisabled(true);
+
+    const panel = new ContainerBuilder()
+        .setAccentColor(color)
+        .addMediaGalleryComponents(sessionBanner(resolveSessionBanner(emblemType).name))
+        .addSeparatorComponents(panelSeparator())
+        .addSectionComponents(
+            new SectionBuilder()
+                .addTextDisplayComponents(
+                    new TextDisplayBuilder().setContent(`## ${title}\n${description}`),
+                )
+                .setButtonAccessory(displayBadge),
+        );
+
+    for (const row of actionRows) panel.addActionRowComponents(row);
+
+    return panel
+        .addSeparatorComponents(panelSeparator())
+        .addMediaGalleryComponents(sessionBanner(SESSION_UNDERBANNER_NAME));
+}
 
 /**
  * Attachments for a session announcement.
  *
- * Returns the SINGLE combined banner file (top banner + underbanner composited
- * into one 1600x550 image). It is attached here and referenced by the main
- * embed's .setImage('attachment://session-*-combo.png'), so Discord renders it
- * INSIDE the embed — big and full-width within the orange-bordered card.
+ * Attaches the original top banner and bottom underbanner separately. They are
+ * used by createSessionPanel() in that exact order.
  */
 export const createSessionAttachments = (emblemType: SessionEmblemType = 'start'): AttachmentBuilder[] => {
     const attachments: AttachmentBuilder[] = [];
 
-    // Combined banner — top banner + underbanner in ONE image, rendered inside
-    // the main embed via .setImage().
+    // Attach the type-specific top banner used by the first media gallery.
     const banner = resolveSessionBanner(emblemType);
     if (assetExists(banner.path)) {
         attachments.push(new AttachmentBuilder(banner.path, { name: banner.name }));
+    }
+
+    if (assetExists(SESSION_UNDERBANNER_PATH)) {
+        attachments.push(new AttachmentBuilder(SESSION_UNDERBANNER_PATH, { name: SESSION_UNDERBANNER_NAME }));
     }
 
     return attachments;

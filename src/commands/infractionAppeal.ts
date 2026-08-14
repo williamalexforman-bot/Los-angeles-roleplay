@@ -5,14 +5,16 @@ import {
     ButtonStyle,
     Client,
     EmbedBuilder,
+    type MessageCreateOptions,
     MessageFlags,
     ModalBuilder,
     ModalSubmitInteraction,
+    PermissionFlagsBits,
     TextInputBuilder,
     TextInputStyle,
 } from 'discord.js';
-import { BRAND } from '../config/constants';
-import { Infraction, InfractionAppeal } from '../database/models';
+import { BRAND, INFRACTION_AUTHORIZED_ROLE_ID } from '../config/constants';
+import { Infraction, InfractionAppeal, type InfractionAppealRecord } from '../database/models';
 import { isDatabaseAvailable } from '../database/connection';
 import { createLogoAttachment } from '../utils/embeds';
 import { getInfractionByThreadIdPublic, recoverInfractionByThreadId, type InfractionRecord } from '../commands/staffManagement';
@@ -21,6 +23,7 @@ import { logger } from '../utils/logger';
 const INFRACTION_APPEAL_CHANNEL_ID = process.env.INFRACTION_APPEAL_CHANNEL_ID || '1537227443423682612';
 
 let cachedClient: Client | null = null;
+const inMemoryAppeals = new Map<string, InfractionAppealRecord>();
 
 export function setInfractionAppealClient(client: Client): void {
     cachedClient = client;
@@ -37,6 +40,160 @@ function brandedEmbed(title: string, color: number = BRAND.color): EmbedBuilder 
         .setThumbnail(BRAND.logoUrl)
         .setFooter({ text: BRAND.footer })
         .setTimestamp();
+}
+
+function configuredReviewerRoleIds(): string[] {
+    return Array.from(new Set([
+        INFRACTION_AUTHORIZED_ROLE_ID,
+        process.env.BOT_PERMISSIONS_ROLE_ID,
+        process.env.ADMIN_ROLE_ID,
+        ...(process.env.INFRACTION_AUTHORIZED_ROLE_IDS || '').split(','),
+    ].map(value => value?.trim()).filter((value): value is string => Boolean(value))));
+}
+
+function roleIdsFromMember(member: unknown): string[] {
+    if (!member || typeof member !== 'object' || !('roles' in member)) return [];
+    const roles = (member as { roles?: unknown }).roles;
+    if (Array.isArray(roles)) return roles.filter((role): role is string => typeof role === 'string');
+    if (roles && typeof roles === 'object' && 'cache' in roles) {
+        const cache = (roles as { cache?: { keys?: () => IterableIterator<string> } }).cache;
+        if (cache?.keys) return Array.from(cache.keys());
+    }
+    return [];
+}
+
+async function canReviewAppeal(interaction: ButtonInteraction | ModalSubmitInteraction): Promise<boolean> {
+    if (!interaction.guildId) return false;
+    if (interaction.guild?.ownerId === interaction.user.id
+        || interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return true;
+
+    const requiredRoles = configuredReviewerRoleIds();
+    if (roleIdsFromMember(interaction.member).some(roleId => requiredRoles.includes(roleId))) return true;
+    try {
+        const member = await interaction.guild?.members.fetch(interaction.user.id);
+        return roleIdsFromMember(member).some(roleId => requiredRoles.includes(roleId));
+    } catch {
+        return false;
+    }
+}
+
+async function loadAppeal(appealId: string): Promise<InfractionAppealRecord | null> {
+    const memoryRecord = inMemoryAppeals.get(appealId);
+    if (memoryRecord) return memoryRecord;
+    if (!isDatabaseAvailable()) return null;
+    const databaseRecord = await InfractionAppeal.findOne({ appealId }).lean().exec().catch(() => null);
+    if (!databaseRecord) return null;
+    const normalized = databaseRecord as unknown as InfractionAppealRecord;
+    inMemoryAppeals.set(appealId, normalized);
+    return normalized;
+}
+
+async function loadInfractionForAppeal(
+    client: Client,
+    threadId: string,
+    guildId?: string,
+): Promise<InfractionRecord | null> {
+    let record = await getInfractionByThreadIdPublic(threadId).catch(() => null);
+    if (!record) {
+        record = await recoverInfractionByThreadId(client, threadId, guildId).catch(() => null);
+    }
+    if (record || !isDatabaseAvailable()) return record;
+
+    const databaseRecord = await Infraction.findOne({ threadId }).lean().exec().catch(() => null) as unknown as {
+        appealable?: boolean;
+        action?: string;
+        reason?: string;
+        caseNumber?: string;
+        guildId?: string;
+        memberId?: string;
+        memberUsername?: string;
+        issuedById?: string;
+        status?: string;
+        parentChannelId?: string;
+        headerMessageId?: string;
+        detailMessageId?: string;
+        createdAt?: Date;
+        updatedAt?: Date;
+    } | null;
+    if (!databaseRecord) return null;
+
+    const createdAt = databaseRecord.createdAt?.toISOString() || new Date().toISOString();
+    return {
+        caseNumber: databaseRecord.caseNumber || threadId,
+        guildId: databaseRecord.guildId || guildId || '',
+        memberId: databaseRecord.memberId || '',
+        memberUsername: databaseRecord.memberUsername || '',
+        issuedById: databaseRecord.issuedById || '',
+        action: (databaseRecord.action || 'Warning') as InfractionRecord['action'],
+        reason: databaseRecord.reason || 'No reason provided.',
+        ruleBroken: databaseRecord.reason || 'No rule supplied.',
+        evidence: 'No evidence supplied.',
+        internalNotes: 'No internal notes supplied.',
+        notifyMember: true,
+        appealable: databaseRecord.appealable === undefined ? true : databaseRecord.appealable,
+        expiration: 'No expiration set.',
+        status: (databaseRecord.status || 'Active') as InfractionRecord['status'],
+        parentChannelId: databaseRecord.parentChannelId || '',
+        headerMessageId: databaseRecord.headerMessageId || '',
+        threadId,
+        detailMessageId: databaseRecord.detailMessageId || '',
+        createdAt,
+        updatedAt: databaseRecord.updatedAt?.toISOString() || createdAt,
+        history: [],
+    };
+}
+
+async function postApprovedAppealNotice(
+    client: Client,
+    record: InfractionAppealRecord,
+    reviewedById: string,
+    reviewReason: string,
+): Promise<boolean> {
+    const notice: MessageCreateOptions = {
+        embeds: [brandedEmbed('✅ Infraction Appealed', 0x22c55e)
+            .setDescription(`Infraction **${record.infractionCaseNumber}** was appealed and the appeal was **approved**.`)
+            .addFields(
+                { name: 'Member', value: `<@${record.userId}>`, inline: true },
+                { name: 'Appeal ID', value: record.appealId, inline: true },
+                { name: 'Approved By', value: `<@${reviewedById}>`, inline: true },
+                { name: 'Reason', value: reviewReason },
+            )],
+        files: [createLogoAttachment()],
+        allowedMentions: { parse: [] },
+    };
+
+    const source = await client.channels.fetch(record.infractionThreadId).catch(() => null);
+    if (!source) return false;
+
+    if (source.isThread()) {
+        // Appeals often arrive after the one-day auto-archive period. Re-open
+        // an unlocked source thread so the approval is recorded where the
+        // appeal originated.
+        if (source.archived && !source.locked) {
+            await source.setArchived(false, `${record.appealId} approved`).catch(() => null);
+        }
+        if (source.isSendable()) {
+            const posted = await source.send(notice).then(() => true).catch(() => false);
+            if (posted) return true;
+        }
+
+        // A locked thread cannot receive messages. Preserve the audit notice
+        // in its parent infraction channel instead of silently dropping it.
+        const parent = source.parent || (source.parentId
+            ? await client.channels.fetch(source.parentId).catch(() => null)
+            : null);
+        if (parent?.isSendable()) {
+            const fallbackNotice = {
+                ...notice,
+                content: `Appeal approved for [${record.infractionCaseNumber}](${record.infractionLink}).`,
+            };
+            return parent.send(fallbackNotice).then(() => true).catch(() => false);
+        }
+        return false;
+    }
+
+    if (!source.isSendable()) return false;
+    return source.send(notice).then(() => true).catch(() => false);
 }
 
 export function infractionAppealButton(threadId: string): ActionRowBuilder<ButtonBuilder> {
@@ -88,7 +245,7 @@ function appealFormModal(threadId: string): ModalBuilder {
             new ActionRowBuilder<TextInputBuilder>().addComponents(
                 new TextInputBuilder()
                     .setCustomId('appeal-reason')
-                    .setLabel('3. Why should we appeal your infraction? (2+ sentences)')
+                    .setLabel('3. Appeal reason (2+ sentences)')
                     .setStyle(TextInputStyle.Paragraph)
                     .setRequired(true)
                     .setMaxLength(1024),
@@ -129,57 +286,11 @@ export async function handleInfractionAppealButton(interaction: ButtonInteractio
     const [, action, threadId] = interaction.customId.split(':');
 
     if (action === 'start' && threadId) {
-        // Look up the infraction record to check if it's appealable
-        let record = await getInfractionByThreadIdPublic(threadId).catch(() => null);
-
-        // Fallback: recover from the Discord thread if the record isn't in memory or DB
-        if (!record) {
-            record = await recoverInfractionByThreadId(interaction.client, threadId, interaction.guildId || undefined).catch(() => null);
-        }
-
-        // Fallback: look up punishment records from the database (threadId is "punishment-PUN-XXXX")
-        if (!record && isDatabaseAvailable()) {
-            try {
-                const dbRecord = await Infraction.findOne({ threadId }).lean().exec() as unknown as {
-                    appealable?: boolean;
-                    action?: string;
-                    reason?: string;
-                    caseNumber?: string;
-                    memberId?: string;
-                    memberUsername?: string;
-                    issuedById?: string;
-                    status?: string;
-                    createdAt?: Date;
-                } | null;
-                if (dbRecord) {
-                    record = {
-                        caseNumber: dbRecord.caseNumber || threadId,
-                        guildId: interaction.guildId || '',
-                        memberId: dbRecord.memberId || '',
-                        memberUsername: dbRecord.memberUsername || '',
-                        issuedById: dbRecord.issuedById || '',
-                        action: (dbRecord.action || 'Infraction') as InfractionRecord['action'],
-                        reason: dbRecord.reason || 'No reason provided.',
-                        ruleBroken: dbRecord.reason || 'No rule supplied.',
-                        evidence: 'No evidence supplied.',
-                        internalNotes: 'No internal notes supplied.',
-                        notifyMember: true,
-                        appealable: dbRecord.appealable === undefined ? true : dbRecord.appealable,
-                        expiration: 'No expiration set.',
-                        status: (dbRecord.status || 'Active') as InfractionRecord['status'],
-                        parentChannelId: '',
-                        headerMessageId: '',
-                        threadId,
-                        detailMessageId: '',
-                        createdAt: dbRecord.createdAt?.toISOString() || new Date().toISOString(),
-                        updatedAt: dbRecord.createdAt?.toISOString() || new Date().toISOString(),
-                        history: [],
-                    };
-                }
-            } catch {
-                // ignore
-            }
-        }
+        const record = await loadInfractionForAppeal(
+            interaction.client,
+            threadId,
+            interaction.guildId || undefined,
+        );
 
         if (!record) {
             await interaction.reply({ content: 'This infraction record could not be loaded.', flags: MessageFlags.Ephemeral });
@@ -189,11 +300,19 @@ export async function handleInfractionAppealButton(interaction: ButtonInteractio
             await interaction.reply({ content: 'This infraction is not marked as appealable. Only appealable infractions can be appealed.', flags: MessageFlags.Ephemeral });
             return true;
         }
+        if (record.memberId && record.memberId !== interaction.user.id) {
+            await interaction.reply({ content: 'Only the member who received this infraction can appeal it.', flags: MessageFlags.Ephemeral });
+            return true;
+        }
         await interaction.showModal(appealFormModal(threadId));
         return true;
     }
 
     if ((action === 'approve' || action === 'deny') && threadId) {
+        if (!(await canReviewAppeal(interaction))) {
+            await interaction.reply({ content: 'You do not have permission to review infraction appeals.', flags: MessageFlags.Ephemeral });
+            return true;
+        }
         await interaction.showModal(reviewReasonModal(threadId, action));
         return true;
     }
@@ -232,13 +351,26 @@ export async function handleInfractionAppealModal(interaction: ModalSubmitIntera
             return true;
         }
 
-        if (!cachedClient) {
-            await interaction.editReply('The appeal system is not ready yet. Please try again later.');
+        const client = cachedClient || interaction.client;
+        const sourceRecord = await loadInfractionForAppeal(
+            client,
+            threadId,
+            interaction.guildId || undefined,
+        );
+        if (!sourceRecord) {
+            await interaction.editReply('This infraction record could not be loaded. Please open the original infraction and try again.');
+            return true;
+        }
+        if (!sourceRecord.appealable) {
+            await interaction.editReply('This infraction is not marked as appealable.');
+            return true;
+        }
+        if (sourceRecord.memberId && sourceRecord.memberId !== interaction.user.id) {
+            await interaction.editReply('Only the member who received this infraction can appeal it.');
             return true;
         }
 
-        // Look up the infraction record to get the case number and link
-        const infraction = await cachedClient.channels.fetch(threadId).catch(() => null);
+        const infraction = await client.channels.fetch(threadId).catch(() => null);
         const threadUrl = infraction?.isThread() ? infraction.url : `https://discord.com/channels/${interaction.guildId}/${threadId}`;
 
         const appealId = generateAppealId();
@@ -255,7 +387,7 @@ export async function handleInfractionAppealModal(interaction: ModalSubmitIntera
                 { name: 'Submitted', value: `<t:${Math.floor(Date.now() / 1000)}:F>` },
             );
 
-        const channel = await cachedClient.channels.fetch(INFRACTION_APPEAL_CHANNEL_ID).catch(() => null);
+        const channel = await client.channels.fetch(INFRACTION_APPEAL_CHANNEL_ID).catch(() => null);
         if (!channel?.isSendable()) {
             await interaction.editReply('The appeal review channel is unavailable. Please contact staff.');
             return true;
@@ -268,24 +400,30 @@ export async function handleInfractionAppealModal(interaction: ModalSubmitIntera
             allowedMentions: { parse: [] },
         });
 
+        const now = new Date();
+        const appealRecord: InfractionAppealRecord = {
+            appealId,
+            guildId: sourceRecord.guildId || interaction.guildId || '',
+            infractionThreadId: threadId,
+            infractionCaseNumber: sourceRecord.caseNumber,
+            infractionLink: threadUrl,
+            userId: interaction.user.id,
+            username: interaction.user.username,
+            discordUsername,
+            robloxUsername,
+            appealReason,
+            willRepeat,
+            status: 'Pending',
+            reviewMessageId: reviewMessage.id,
+            reviewChannelId: INFRACTION_APPEAL_CHANNEL_ID,
+            createdAt: now,
+            updatedAt: now,
+        };
+        inMemoryAppeals.set(appealId, appealRecord);
+
         if (isDatabaseAvailable()) {
-            await InfractionAppeal.create({
-                appealId,
-                guildId: interaction.guildId || '',
-                infractionThreadId: threadId,
-                infractionCaseNumber: threadId,
-                infractionLink: threadUrl,
-                userId: interaction.user.id,
-                username: interaction.user.username,
-                discordUsername,
-                robloxUsername,
-                appealReason,
-                willRepeat,
-                status: 'Pending',
-                reviewMessageId: reviewMessage.id,
-                reviewChannelId: INFRACTION_APPEAL_CHANNEL_ID,
-                createdAt: new Date(),
-                updatedAt: new Date(),
+            await InfractionAppeal.create(appealRecord).catch(error => {
+                logger.warn(`[InfractionAppeal] ${appealId} is available in memory, but database persistence failed: ${error instanceof Error ? error.message : 'Unknown'}`);
             });
         }
 
@@ -301,7 +439,12 @@ export async function handleInfractionAppealModal(interaction: ModalSubmitIntera
         const isApproved = action === 'approve-modal';
         const appealId = threadId;
 
-        const record = await InfractionAppeal.findOne({ appealId }).lean().exec().catch(() => null);
+        if (!(await canReviewAppeal(interaction))) {
+            await interaction.editReply('You do not have permission to review infraction appeals.');
+            return true;
+        }
+
+        const record = await loadAppeal(appealId);
         if (!record) {
             await interaction.editReply('This appeal could not be found.');
             return true;
@@ -311,17 +454,38 @@ export async function handleInfractionAppealModal(interaction: ModalSubmitIntera
             return true;
         }
 
-        await InfractionAppeal.updateOne(
-            { appealId },
-            {
-                $set: {
-                    status: isApproved ? 'Approved' : 'Denied',
-                    reviewedById: interaction.user.id,
-                    reviewReason,
-                    updatedAt: new Date(),
+        const nextStatus = isApproved ? 'Approved' : 'Denied';
+        const reviewedAt = new Date();
+        if (isDatabaseAvailable()) {
+            const updateResult = await InfractionAppeal.updateOne(
+                { appealId, status: 'Pending' },
+                {
+                    $set: {
+                        status: nextStatus,
+                        reviewedById: interaction.user.id,
+                        reviewReason,
+                        updatedAt: reviewedAt,
+                    },
                 },
-            },
-        ).exec().catch(() => undefined);
+            ).exec().catch(error => {
+                logger.warn(`[InfractionAppeal] Could not persist the ${appealId} review result: ${error instanceof Error ? error.message : 'Unknown'}`);
+                return null;
+            });
+            if (updateResult && updateResult.matchedCount === 0) {
+                const latest = await InfractionAppeal.findOne({ appealId }).lean().exec().catch(() => null);
+                if (latest && latest.status !== 'Pending') {
+                    inMemoryAppeals.set(appealId, latest as unknown as InfractionAppealRecord);
+                    await interaction.editReply('This appeal was already reviewed by another staff member.');
+                    return true;
+                }
+                logger.warn(`[InfractionAppeal] ${appealId} was not found in the database; completing the review with the in-memory record.`);
+            }
+        }
+        record.status = nextStatus;
+        record.reviewedById = interaction.user.id;
+        record.reviewReason = reviewReason;
+        record.updatedAt = reviewedAt;
+        inMemoryAppeals.set(appealId, record);
 
         // ── DM the user with the result + reason ────────────────────────────
         const resultEmbed = brandedEmbed(
@@ -339,29 +503,22 @@ export async function handleInfractionAppealModal(interaction: ModalSubmitIntera
                 { name: 'Reviewed By', value: `<@${interaction.user.id}>`, inline: true },
             );
 
+        let memberNotified = false;
         try {
             const user = await interaction.client.users.fetch(record.userId);
             await user.send({ embeds: [resultEmbed], files: [createLogoAttachment()] });
+            memberNotified = true;
         } catch (error) {
             logger.warn(`[InfractionAppeal] Could not DM ${record.userId}: ${error instanceof Error ? error.message : 'Unknown'}`);
         }
 
-        // ── If approved: post "appealed" in the infraction thread ───────────
-        if (isApproved) {
-            try {
-                const thread = await interaction.client.channels.fetch(record.infractionThreadId).catch(() => null);
-                if (thread?.isThread() && thread.isSendable()) {
-                    const threadEmbed = brandedEmbed('✅ Appeal Approved', 0x22c55e)
-                        .setDescription(`This infraction has been **appealed and approved** by <@${interaction.user.id}>.`)
-                        .addFields(
-                            { name: 'Appeal ID', value: appealId, inline: true },
-                            { name: 'Reason', value: reviewReason },
-                        );
-                    await thread.send({ embeds: [threadEmbed], files: [createLogoAttachment()] });
-                }
-            } catch (error) {
-                logger.warn(`[InfractionAppeal] Could not post approval in thread: ${error instanceof Error ? error.message : 'Unknown'}`);
-            }
+        // Record approved appeals in the originating infraction thread. If it
+        // is locked, post the audit notice in its parent infraction channel.
+        const sourceNotified = isApproved
+            ? await postApprovedAppealNotice(interaction.client, record, interaction.user.id, reviewReason)
+            : false;
+        if (isApproved && !sourceNotified) {
+            logger.warn(`[InfractionAppeal] Could not post the ${appealId} approval in its source infraction channel.`);
         }
 
         // ── Update the review message ───────────────────────────────────────
@@ -391,7 +548,9 @@ export async function handleInfractionAppealModal(interaction: ModalSubmitIntera
         }
 
         await interaction.editReply(
-            `Appeal **${appealId}** has been ${isApproved ? 'approved' : 'denied'}. The user has been notified by DM.`,
+            `Appeal **${appealId}** has been ${isApproved ? 'approved' : 'denied'}.`
+            + `${memberNotified ? ' The user was notified by DM.' : ' Warning: the user DM could not be delivered.'}`
+            + `${isApproved ? sourceNotified ? ' The infraction channel was updated.' : ' Warning: the infraction channel could not be updated.' : ''}`,
         );
         return true;
     }

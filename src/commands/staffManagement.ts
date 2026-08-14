@@ -41,10 +41,12 @@ const LOGO_PATH = resolve(__dirname, '..', '..', 'assets', LOGO_NAME);
 // Infraction records use their own supplied artwork rather than one of the
 // session graphics. Both images are attached to the case message so Discord
 // can render them inside one blue-accented Components V2 panel.
-const INFRACTION_BANNER_NAME = 'infraction-banner.png';
-const INFRACTION_UNDERBANNER_NAME = 'underbanner.webp';
+export const INFRACTION_BANNER_NAME = 'infraction-banner.png';
+export const INFRACTION_UNDERBANNER_NAME = 'underbanner.webp';
 const INFRACTION_BANNER_PATH = resolve(__dirname, '..', '..', 'assets', INFRACTION_BANNER_NAME);
 const INFRACTION_UNDERBANNER_PATH = resolve(__dirname, '..', '..', 'assets', INFRACTION_UNDERBANNER_NAME);
+const PROMOTION_BANNER_NAME = 'promotion-banner.png';
+const PROMOTION_BANNER_PATH = resolve(__dirname, '..', '..', 'assets', PROMOTION_BANNER_NAME);
 
 const TRAINING_RESULTS_CHANNEL_ID = process.env.TRAINING_RESULTS_CHANNEL_ID || '1526490481398124614';
 const PROMOTIONS_CHANNEL_ID = process.env.PROMOTIONS_CHANNEL_ID || '1526044978109743255';
@@ -266,9 +268,16 @@ function logoAttachment() {
     return { attachment: LOGO_PATH, name: LOGO_NAME };
 }
 
-function infractionArtworkAttachments() {
+export function infractionArtworkAttachments() {
     return [
         { attachment: INFRACTION_BANNER_PATH, name: INFRACTION_BANNER_NAME },
+        { attachment: INFRACTION_UNDERBANNER_PATH, name: INFRACTION_UNDERBANNER_NAME },
+    ];
+}
+
+function promotionArtworkAttachments() {
+    return [
+        { attachment: PROMOTION_BANNER_PATH, name: PROMOTION_BANNER_NAME },
         { attachment: INFRACTION_UNDERBANNER_PATH, name: INFRACTION_UNDERBANNER_NAME },
     ];
 }
@@ -467,6 +476,68 @@ function panelSeparator(): SeparatorBuilder {
     return new SeparatorBuilder()
         .setDivider(true)
         .setSpacing(SeparatorSpacingSize.Small);
+}
+
+interface PromotionPanelDetails {
+    memberId: string;
+    oldRankId: string;
+    newRoleId: string;
+    newRoleName: string;
+    reason: string;
+    approvedById: string;
+    effectiveDate: string;
+    issuedById: string;
+    promotionUrl?: string;
+}
+
+function promotionSummary(details: PromotionPanelDetails): string {
+    return [
+        '## 🎖️ Staff Promotion',
+        '> The high ranking team at Los Angeles Roleplay has issued a promotion.',
+        '',
+        `> **Member:** <@${details.memberId}>`,
+        `> **Old Rank:** <@&${details.oldRankId}>`,
+        `> **New Role:** <@&${details.newRoleId}>`,
+        `> **Reason:** ${compactCaseValue(details.reason, 700)}`,
+        `> **Approved By:** <@${details.approvedById}>`,
+        `> **Effective Date:** \`${compactCaseValue(details.effectiveDate, 100)}\``,
+        `> **Issued By:** <@${details.issuedById}>`,
+        `> **Submitted:** ${discordTimestamp()}`,
+    ].join('\n');
+}
+
+/** Builds public and DM promotion cards with the promotion banner and underbanner. */
+function buildPromotionPanel(details: PromotionPanelDetails): ContainerBuilder {
+    const badge = new ButtonBuilder()
+        .setCustomId(`promotion:display:${details.memberId}`)
+        .setLabel(`Promoted to ${details.newRoleName}`.slice(0, 80))
+        .setStyle(ButtonStyle.Primary)
+        .setDisabled(true);
+
+    const panel = new ContainerBuilder()
+        .setAccentColor(BRAND_COLOR)
+        .addMediaGalleryComponents(infractionBanner(PROMOTION_BANNER_NAME))
+        .addSeparatorComponents(panelSeparator())
+        .addSectionComponents(
+            new SectionBuilder()
+                .addTextDisplayComponents(new TextDisplayBuilder().setContent(promotionSummary(details)))
+                .setButtonAccessory(badge),
+        );
+
+    if (details.promotionUrl) {
+        panel.addActionRowComponents(
+            new ActionRowBuilder<ButtonBuilder>().addComponents(
+                new ButtonBuilder()
+                    .setLabel('View Promotion')
+                    .setStyle(ButtonStyle.Link)
+                    .setURL(details.promotionUrl),
+            ),
+        );
+    }
+
+    return panel
+        .addSeparatorComponents(panelSeparator())
+        .addMediaGalleryComponents(infractionBanner(INFRACTION_UNDERBANNER_NAME));
 }
 
 function infractionControlRows(
@@ -721,41 +792,41 @@ function promotionCommand() {
                     return;
                 }
 
-                const embed = brandedEmbed('🎖️ Staff Promotion')
-                    .setDescription('The high ranking team at Los Angeles Roleplay has issued you a promotion.')
-                    .addFields(
-                    { name: 'Member', value: `<@${member.id}>`, inline: true },
-                    { name: 'Old Rank', value: `<@&${oldRankRole.id}>`, inline: true },
-                    { name: 'New Role', value: `<@&${newRole.id}>`, inline: true },
-                    { name: 'Reason', value: reason },
-                    { name: 'Approved By', value: `<@${approvedBy.id}>`, inline: true },
-                    { name: 'Effective Date', value: effectiveDate, inline: true },
-                    { name: 'Issued By', value: `<@${interaction.user.id}>`, inline: true },
-                    { name: 'Submitted', value: discordTimestamp() },
-                );
+                const promotionDetails: PromotionPanelDetails = {
+                    memberId: member.id,
+                    oldRankId: oldRankRole.id,
+                    newRoleId: newRole.id,
+                    newRoleName: newRole.name,
+                    reason,
+                    approvedById: approvedBy.id,
+                    effectiveDate,
+                    issuedById: interaction.user.id,
+                };
 
-                await destination.send({
-                    content: `🎉 Congratulations <@${member.id}>! You have been promoted to <@&${newRole.id}>.`,
-                    embeds: [embed],
-                    files: [logoAttachment()],
+                const promotionMessage = await destination.send({
+                    components: [buildPromotionPanel(promotionDetails)],
+                    files: promotionArtworkAttachments(),
+                    flags: MessageFlags.IsComponentsV2,
                     allowedMentions: { parse: [], users: [member.id] },
                 });
 
-                // Send DM to the promoted member
-                const dmEmbed = brandedEmbed('🎖️ You Have Been Promoted!')
-                    .setDescription('Congratulations! The high ranking team at Los Angeles Roleplay has issued you a promotion.')
-                    .addFields(
-                        { name: 'New Role', value: `<@&${newRole.id}>`, inline: true },
-                        { name: 'Reason', value: reason },
-                        { name: 'Approved By', value: `<@${approvedBy.id}>`, inline: true },
-                        { name: 'Effective Date', value: effectiveDate, inline: true },
-                        { name: 'Issued By', value: `<@${interaction.user.id}>`, inline: true },
-                    );
-                await member.send({ embeds: [dmEmbed], files: [logoAttachment()] }).catch(() => {
+                // Mirror the V2 announcement in the promoted member's DMs and
+                // include a direct link back to its promotions-channel post.
+                let memberNotified = true;
+                await member.send({
+                    components: [buildPromotionPanel({ ...promotionDetails, promotionUrl: promotionMessage.url })],
+                    files: promotionArtworkAttachments(),
+                    flags: MessageFlags.IsComponentsV2,
+                    allowedMentions: { parse: [] },
+                }).catch(() => {
+                    memberNotified = false;
                     logger.warn(`Could not send promotion DM to ${member.tag} (${member.id}).`);
                 });
 
-                await interaction.editReply(`The promotion for ${member.username} has been published successfully.`);
+                await interaction.editReply(
+                    `The promotion for ${member.username} has been published successfully.`
+                    + `${memberNotified ? ' They were also notified by DM.' : ' Warning: their DM could not be delivered.'}`,
+                );
             } catch (error) {
                 console.error('[Staff Management] Promotion submission failed.', error);
                 markSlashCommandFailed(interaction, error);
@@ -796,12 +867,17 @@ function infractionCommand() {
                     )
                     .addStringOption(option => option.setName('evidence').setDescription('Evidence link or supporting information').setMaxLength(1024))
                     .addStringOption(option => option.setName('internal-notes').setDescription('Private notes for authorized staff').setMaxLength(1024))
-                    .addBooleanOption(option => option.setName('notify-member').setDescription('Also notify the member by direct message'))
+                    .addBooleanOption(option => option.setName('notify-member').setDescription('Notify the member by DM (defaults to Yes)'))
                     .addStringOption(option => option.setName('expiration').setDescription('When this infraction expires, if applicable').setMaxLength(100)),
             ),
 
         async execute(interaction: ChatInputCommandInteraction): Promise<void> {
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+            // Once the public case message and its thread exist, the infraction
+            // has been issued. Later best-effort work (a DM, database write, or
+            // thread notice) must never tell the issuer that it failed.
+            let issuedCase: { caseNumber: string; url: string; appealable: boolean } | null = null;
 
             try {
                 interaction.options.getSubcommand(true);
@@ -820,7 +896,7 @@ function infractionCommand() {
                 const ruleBroken = interaction.options.getString('notes', true);
                 const evidence = interaction.options.getString('evidence') || 'No evidence supplied.';
                 const internalNotes = interaction.options.getString('internal-notes') || 'No internal notes supplied.';
-                const notifyMember = interaction.options.getBoolean('notify-member') ?? false;
+                const notifyMember = interaction.options.getBoolean('notify-member') ?? true;
                 const expiration = interaction.options.getString('expiration') || 'No expiration set.';
                 const appealable = interaction.options.getString('appealable', true) === 'true';
                 const caseNumber = await nextInfractionCaseNumber(interaction.guildId);
@@ -881,6 +957,7 @@ function infractionCommand() {
                     await detailMessage.delete().catch(() => null);
                     throw error;
                 }
+                issuedCase = { caseNumber, url: detailMessage.url, appealable: record.appealable };
 
                 // The thread is started on detailMessage, so that message is the thread's
                 // single starting message. Add the live controls to the same Components V2
@@ -902,47 +979,75 @@ function infractionCommand() {
                         { name: 'Expiration', value: expiration },
                         { name: 'Evidence Thread', value: thread ? thread.url : 'Not available' },
                     );
-                try {
-                    // Build the DM appeal button inline (avoids circular import)
-                    const appealComponents = thread && record.appealable
-                        ? [new ActionRowBuilder<ButtonBuilder>().addComponents(
+                if (notifyMember) {
+                    try {
+                        const notificationButtons = new ActionRowBuilder<ButtonBuilder>().addComponents(
                             new ButtonBuilder()
-                                .setCustomId(`infraction-appeal:start:${thread.id}`)
-                                .setLabel('Appeal Infraction')
-                                .setStyle(ButtonStyle.Primary)
-                                .setEmoji('⚖️'),
-                        )]
-                        : undefined;
-                    await member.send({
-                        embeds: [notificationEmbed],
-                        components: appealComponents,
-                        files: [logoAttachment()],
-                    });
-                    memberNotified = true;
-                } catch {
-                    memberNotified = false;
+                                .setLabel('Open Infraction Channel')
+                                .setStyle(ButtonStyle.Link)
+                                .setURL(thread.url),
+                        );
+                        if (record.appealable) {
+                            notificationButtons.addComponents(
+                                new ButtonBuilder()
+                                    .setCustomId(`infraction-appeal:start:${thread.id}`)
+                                    .setLabel('Appeal Infraction')
+                                    .setStyle(ButtonStyle.Primary)
+                                    .setEmoji('⚖️'),
+                            );
+                        }
+                        await member.send({
+                            embeds: [notificationEmbed],
+                            components: [notificationButtons],
+                            files: [logoAttachment()],
+                        });
+                        memberNotified = true;
+                    } catch {
+                        memberNotified = false;
+                    }
                 }
                 addHistory(
                     record,
-                    memberNotified ? 'Member Notified' : 'Notification Failed',
+                    memberNotified ? 'Member Notified' : notifyMember ? 'Notification Failed' : 'Notification Skipped',
                     interaction.user.id,
-                    memberNotified ? 'The member was notified by direct message.' : 'The member could not be reached by direct message.',
+                    memberNotified
+                        ? 'The member was notified by direct message.'
+                        : notifyMember
+                            ? 'The member could not be reached by direct message.'
+                            : 'The issuer chose not to notify the member by direct message.',
                 );
 
                 const persisted = await persistRecord(record);
-                if (!memberNotified) {
-                    await thread.send('The member could not be notified by direct message.');
+                if (notifyMember && !memberNotified) {
+                    await thread.send('The member could not be notified by direct message.').catch(error => {
+                        logger.warn(`Could not post the infraction DM-status notice for ${caseNumber}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                    });
                 }
                 if (!persisted) {
-                    await thread.send('Database persistence is currently unavailable. The case remains active in this process only.');
+                    await thread.send('Database persistence is currently unavailable. The case remains active in this process only.').catch(error => {
+                        logger.warn(`Could not post the infraction persistence notice for ${caseNumber}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                    });
                 }
 
                 await interaction.editReply(
-                    `${caseNumber} was created successfully: ${detailMessage.url}`
+                    `✅ ${caseNumber} has been issued successfully: ${detailMessage.url}`
+                    + `${record.appealable ? '\nThe Appeal Infraction button is active on the case and in the member notification.' : '\nThis case was marked as not appealable.'}`
+                    + `${notifyMember ? memberNotified ? '\nThe member was notified by DM.' : '\nWarning: the member DM could not be delivered.' : '\nThe member DM was skipped.'}`
                     + `${persisted ? '' : '\nWarning: database persistence is unavailable.'}`,
                 );
             } catch (error) {
                 console.error('[Staff Management] Infraction creation failed.', error);
+                if (issuedCase) {
+                    // The case itself already exists. This is most commonly a
+                    // post-issue Discord edit failure, not a failed issuance.
+                    logger.error(`[Staff Management] Post-issue work failed for ${issuedCase.caseNumber}; reporting the issued case as successful.`);
+                    await interaction.editReply(
+                        `✅ ${issuedCase.caseNumber} has been issued successfully: ${issuedCase.url}`
+                        + `${issuedCase.appealable ? '\nThe case is appealable. If its appeal button is not visible yet, please try the case link again in a moment.' : '\nThis case was marked as not appealable.'}`
+                        + '\nWarning: a follow-up step failed; staff should review the case panel.',
+                    ).catch(() => null);
+                    return;
+                }
                 markSlashCommandFailed(interaction, error);
                 await interaction.editReply('Unable to create the infraction case right now. Please verify the bot permissions and try again.');
             }

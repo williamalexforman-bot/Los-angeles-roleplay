@@ -10,6 +10,12 @@ import {
 } from '../src/commands/staffManagement';
 import { INFRACTION_AUTHORIZED_ROLE_ID, PROMOTION_AUTHORIZED_ROLE_ID } from '../src/config/constants';
 import { handleCommunityButton, handleCommunityModal } from '../src/commands/community';
+import {
+    handleInfractionAppealButton,
+    handleInfractionAppealModal,
+    setInfractionAppealClient,
+} from '../src/commands/infractionAppeal';
+import { handleSessionButton } from '../src/commands/session';
 import { interactionCreate } from '../src/handlers/interactionCreate';
 import { sanitizedCommandOptions } from '../src/utils/commandAudit';
 import { fetchErlcServer, type ErlcServerSnapshot } from '../src/services/erlcService';
@@ -27,7 +33,12 @@ async function run(): Promise<void> {
 
     const names = commandDefinitions.map(command => command.data.name);
     assert.equal(new Set(names).size, names.length, 'slash command names must be unique');
-for (const required of ['movie-feedback', 'staff-feedback', 'partnership', 'staff-complaint', 'training-results', 'promotion', 'infraction', 'prohibited-word', 'say', 'loa', 'activitycheck', 'request-training', 'roleplay-log', 'rename']) {
+for (const required of [
+        'movie-feedback', 'staff-feedback', 'partnership', 'staff-complaint', 'training-results',
+        'promotion', 'infraction', 'view-infractions', 'session-start', 'session-vote', 'session-end',
+        'session-boost', 'session-full', 'prohibited-word', 'say', 'loa', 'activitycheck',
+        'request-training', 'roleplay-log', 'rename',
+    ]) {
         assert(names.includes(required), `missing /${required}`);
     }
     for (const command of commandDefinitions) assert.doesNotThrow(() => command.data.toJSON());
@@ -317,8 +328,15 @@ for (const required of ['movie-feedback', 'staff-feedback', 'partnership', 'staf
     assert(trainingEmbed.fields.some((field: any) => field.name === 'Average' && field.value === '9.2/10'));
 
     const promotionSends: any[] = [];
-    const promotedMember = { id: '1489388257925005508', username: 'PromotedUser', send: async () => undefined };
+    const promotionDms: any[] = [];
+    const promotedMember = {
+        id: '1489388257925005508',
+        username: 'PromotedUser',
+        tag: 'PromotedUser#0001',
+        send: async (payload: any) => { promotionDms.push(payload); },
+    };
     const approvedBy = { id: '1523122912201277590', username: 'Approver' };
+    const oldRankRole = { id: '1523122834161926000', name: 'Staff', toString: () => '<@&1523122834161926000>' };
     const selectedRole = { id: '1523122834161926238', name: 'Senior Staff', toString: () => '<@&1523122834161926238>' };
     const promotionInteraction = {
         deferReply: async () => undefined,
@@ -330,7 +348,7 @@ for (const required of ['movie-feedback', 'staff-feedback', 'partnership', 'staf
         options: {
             getSubcommand: () => 'issue',
             getUser: (name: string) => name === 'member' ? promotedMember : approvedBy,
-            getRole: () => selectedRole,
+            getRole: (name: string) => name === 'old-rank' ? oldRankRole : selectedRole,
             getString: (name: string) => ({
                 'old-rank': 'Staff Member',
                 reason: 'Consistent professionalism and leadership.',
@@ -343,7 +361,7 @@ for (const required of ['movie-feedback', 'staff-feedback', 'partnership', 'staf
                     isSendable: () => true,
                     send: async (payload: any) => {
                         promotionSends.push(payload);
-                        return {};
+                        return { url: 'https://discord.com/channels/guild/promotions/promotion-message' };
                     },
                 }),
             },
@@ -351,9 +369,28 @@ for (const required of ['movie-feedback', 'staff-feedback', 'partnership', 'staf
     } as never;
     await commandNamed('promotion').execute(promotionInteraction);
     assert.equal(promotionSends.length, 1);
-    assert(promotionSends[0].content.includes(`<@${promotedMember.id}>`), 'promotion post must ping the promoted member');
-    const promotionFields = promotionSends[0].embeds[0].toJSON().fields;
-    assert(promotionFields.some((field: any) => field.name === 'New Role' && field.value === `<@&${selectedRole.id}>`));
+    assert.equal(promotionSends[0].flags, 32_768, 'promotions must use Components V2');
+    const promotionPanel = promotionSends[0].components[0].toJSON();
+    const promotionBanners = promotionPanel.components.filter((component: { type: number }) => component.type === 12);
+    assert.equal(promotionBanners[0]?.items?.[0]?.media?.url, 'attachment://promotion-banner.png');
+    assert.equal(promotionBanners[1]?.items?.[0]?.media?.url, 'attachment://underbanner.webp');
+    assert.deepEqual(
+        promotionSends[0].files.map((file: { name: string }) => file.name),
+        ['promotion-banner.png', 'underbanner.webp'],
+    );
+    const promotionText = promotionPanel.components
+        .flatMap((component: { components?: Array<{ content?: string }> }) => component.components || [])
+        .map((component: { content?: string }) => component.content || '')
+        .join('\n');
+    assert(promotionText.includes(`<@${promotedMember.id}>`), 'promotion post must mention the promoted member');
+    assert(promotionText.includes(`<@&${selectedRole.id}>`), 'promotion post must display the selected new role');
+    assert.equal(promotionDms.length, 1, 'the promoted member must receive a DM');
+    assert.equal(promotionDms[0].flags, 32_768, 'the promotion DM must retain the V2 artwork panel');
+    const promotionDmPanel = promotionDms[0].components[0].toJSON();
+    const viewPromotionButton = promotionDmPanel.components
+        .find((component: { type: number }) => component.type === 1)?.components?.[0];
+    assert.equal(viewPromotionButton?.label, 'View Promotion');
+    assert.equal(viewPromotionButton?.url, 'https://discord.com/channels/guild/promotions/promotion-message');
 
     let savedInfraction: InfractionRecord | null = null;
     configureInfractionPersistence({
@@ -362,6 +399,12 @@ for (const required of ['movie-feedback', 'staff-feedback', 'partnership', 'staf
         getInfractionByThreadId: async () => savedInfraction,
     });
     const infractionParentSends: any[] = [];
+    const infractionDms: any[] = [];
+    const infractionTarget = {
+        id: '1489388257925005508',
+        username: 'ExampleUser',
+        send: async (payload: any) => { infractionDms.push(payload); },
+    };
     let attachedThreadOptions: any = null;
     let infractionDetailEdit: any = null;
     const infractionThread = {
@@ -407,7 +450,7 @@ for (const required of ['movie-feedback', 'staff-feedback', 'partnership', 'staf
         },
         options: {
             getSubcommand: () => 'issue',
-            getUser: () => ({ id: '1489388257925005508', username: 'ExampleUser' }),
+            getUser: () => infractionTarget,
             getString: (name: string) => ({
                 action: 'Warning',
                 reason: 'Repeated policy violation.',
@@ -417,7 +460,7 @@ for (const required of ['movie-feedback', 'staff-feedback', 'partnership', 'staf
                 expiration: '30 days',
                 appealable: 'true',
             } as Record<string, string>)[name] ?? null,
-            getBoolean: () => false,
+            getBoolean: () => null,
         },
         client: { channels: { fetch: async () => infractionParent } },
     } as never;
@@ -449,7 +492,212 @@ for (const required of ['movie-feedback', 'staff-feedback', 'partnership', 'staf
     assert.equal(punishmentBadge?.disabled, true, 'the punishment badge is visual-only');
     assert.equal(appealButton?.custom_id, `infraction-appeal:start:${infractionThread.id}`);
     assert.notEqual(appealButton?.disabled, true, 'appealable cases must expose a working appeal button');
-    assert(infractionReplies.some(reply => String(reply).includes('INF-0001 was created successfully')));
+    assert.equal(infractionDms.length, 1, 'the infracted member must receive a DM by default');
+    const infractionDmButtons = infractionDms[0].components[0].toJSON().components;
+    assert.equal(infractionDmButtons[0]?.label, 'Open Infraction Channel');
+    assert.equal(infractionDmButtons[0]?.url, infractionThread.url);
+    assert.equal(infractionDmButtons[1]?.custom_id, `infraction-appeal:start:${infractionThread.id}`);
+    assert(infractionReplies.some(reply => String(reply).includes('INF-0001 has been issued successfully')));
+
+    let viewInfractionsPayload: any = null;
+    await commandNamed('view-infractions').execute({
+        guildId: '789699000047370261',
+        user: infractionTarget,
+        options: { getUser: () => infractionTarget },
+        deferReply: async () => undefined,
+        editReply: async (payload: any) => { viewInfractionsPayload = payload; },
+    } as never);
+    assert.equal(viewInfractionsPayload?.flags, 32_768, '/view-infractions must use Components V2');
+    const viewInfractionsPanel = viewInfractionsPayload.components[0].toJSON();
+    const viewInfractionBanners = viewInfractionsPanel.components.filter((component: { type: number }) => component.type === 12);
+    assert.equal(viewInfractionBanners[0]?.items?.[0]?.media?.url, 'attachment://infraction-banner.png');
+    assert.equal(viewInfractionBanners[1]?.items?.[0]?.media?.url, 'attachment://underbanner.webp');
+    const viewInfractionText = viewInfractionsPanel.components
+        .flatMap((component: { components?: Array<{ content?: string }> }) => component.components || [])
+        .map((component: { content?: string }) => component.content || '')
+        .join('\n');
+    assert(viewInfractionText.includes('INF-0001'));
+    assert(viewInfractionText.includes('Open Infraction Channel'));
+
+    const sessionBannerNames = new Map([
+        ['session-start', 'session-start-banner.png'],
+        ['session-vote', 'session-vote-banner.png'],
+        ['session-end', 'session-end-banner.png'],
+        ['session-boost', 'session-boost-banner.png'],
+        ['session-full', 'session-full-banner.png'],
+    ]);
+    for (const [commandName, bannerName] of sessionBannerNames) {
+        let sessionPayload: any = null;
+        let fetchedSessionChannelId = '';
+        const sessionDestination = {
+            id: '1526036392147423404',
+            isSendable: () => true,
+            send: async (payload: any) => {
+                sessionPayload = payload;
+                return { id: `${commandName}-message` };
+            },
+        };
+        await commandNamed(commandName).execute({
+            guildId: '789699000047370261',
+            channelId: 'wrong-command-channel',
+            user: { id: 'session-host' },
+            options: { getInteger: () => 5 },
+            channel: {
+                isSendable: () => true,
+                send: async () => { throw new Error('session command used the invocation channel'); },
+            },
+            client: {
+                channels: {
+                    fetch: async (channelId: string) => {
+                        fetchedSessionChannelId = channelId;
+                        return sessionDestination;
+                    },
+                },
+            },
+            deferReply: async () => undefined,
+            editReply: async () => undefined,
+        } as never);
+        assert.equal(fetchedSessionChannelId, '1526036392147423404');
+        assert.equal(sessionPayload?.flags, 32_768, `/${commandName} must use Components V2`);
+        const sessionPanel = sessionPayload.components[0].toJSON();
+        assert.equal(sessionPanel.type, 17, `/${commandName} must serialize as a V2 container`);
+        assert.equal(sessionPanel.accent_color, 0x3b82f6);
+        const expectedComponentOrder = commandName === 'session-full'
+            ? [12, 14, 9, 14, 12]
+            : [12, 14, 9, 1, 14, 12];
+        assert.deepEqual(
+            sessionPanel.components.map((component: { type: number }) => component.type),
+            expectedComponentOrder,
+            `/${commandName} must render top banner, details/buttons, then underbanner`,
+        );
+        assert.equal(sessionPanel.components[0]?.items?.[0]?.media?.url, `attachment://${bannerName}`);
+        assert.equal(sessionPanel.components.at(-1)?.items?.[0]?.media?.url, 'attachment://underbanner.webp');
+        assert.deepEqual(
+            sessionPayload.files.map((file: { name: string }) => file.name),
+            [bannerName, 'underbanner.webp'],
+        );
+    }
+
+    let sessionVoteEdit: any = null;
+    const sessionVoteReplies: string[] = [];
+    await handleSessionButton({
+        customId: 'session:vote:cast:5',
+        guildId: '789699000047370261',
+        channelId: 'session-channel',
+        user: { id: 'session-voter' },
+        message: {
+            id: 'session-vote-message',
+            editable: true,
+            attachments: new Map([
+                ['session-vote-banner', { id: 'session-vote-banner' }],
+                ['underbanner', { id: 'underbanner' }],
+            ]),
+            components: [],
+            edit: async (payload: any) => { sessionVoteEdit = payload; },
+        },
+        deferReply: async () => undefined,
+        editReply: async (content: string) => { sessionVoteReplies.push(content); },
+    } as never);
+    assert.equal(sessionVoteEdit?.attachments?.length, 2, 'vote updates must retain both V2 banner attachments');
+    assert(sessionVoteReplies.some(reply => reply.includes('1/5')));
+
+    let appealModal: any = null;
+    const appealStartHandled = await handleInfractionAppealButton({
+        customId: `infraction-appeal:start:${infractionThread.id}`,
+        client: { channels: { fetch: async () => null } },
+        guildId: '789699000047370261',
+        user: infractionTarget,
+        showModal: async (modal: any) => { appealModal = modal; },
+    } as never);
+    assert(appealStartHandled);
+    assert.equal(appealModal?.toJSON().custom_id, `infraction-appeal:form:${infractionThread.id}`);
+
+    const unauthorizedAppealReplies: any[] = [];
+    await handleInfractionAppealButton({
+        customId: `infraction-appeal:start:${infractionThread.id}`,
+        client: { channels: { fetch: async () => null } },
+        guildId: '789699000047370261',
+        user: { id: 'different-member' },
+        reply: async (payload: any) => { unauthorizedAppealReplies.push(payload); },
+    } as never);
+    assert(unauthorizedAppealReplies.some(reply => reply.content.includes('Only the member')));
+
+    let appealReviewPayload: any = null;
+    let appealReviewEdit: any = null;
+    const approvedAppealDms: any[] = [];
+    const sourceAppealNotices: any[] = [];
+    const appealSourceThread = {
+        id: infractionThread.id,
+        url: infractionThread.url,
+        archived: false,
+        locked: false,
+        parent: null,
+        parentId: '1526044664975851642',
+        isThread: () => true,
+        isSendable: () => true,
+        send: async (payload: any) => { sourceAppealNotices.push(payload); return {}; },
+        setArchived: async () => undefined,
+    };
+    const appealReviewChannel = {
+        isThread: () => false,
+        isSendable: () => true,
+        send: async (payload: any) => {
+            appealReviewPayload = payload;
+            return { id: 'appeal-review-message' };
+        },
+        messages: {
+            fetch: async () => ({ edit: async (payload: any) => { appealReviewEdit = payload; } }),
+        },
+    };
+    const appealClient = {
+        channels: {
+            fetch: async (channelId: string) => channelId === infractionThread.id
+                ? appealSourceThread
+                : appealReviewChannel,
+        },
+        users: {
+            fetch: async () => ({ send: async (payload: any) => { approvedAppealDms.push(payload); } }),
+        },
+    };
+    setInfractionAppealClient(appealClient as never);
+
+    const appealSubmissionReplies: string[] = [];
+    await handleInfractionAppealModal({
+        customId: `infraction-appeal:form:${infractionThread.id}`,
+        client: appealClient,
+        guildId: '789699000047370261',
+        user: infractionTarget,
+        fields: {
+            getTextInputValue: (name: string) => ({
+                'discord-username': 'ExampleUser',
+                'roblox-username': 'ExampleRoblox',
+                'appeal-reason': 'I understand why the warning was issued. I will follow the rules going forward.',
+                'will-repeat': 'NO',
+            } as Record<string, string>)[name],
+        },
+        deferReply: async () => undefined,
+        editReply: async (content: string) => { appealSubmissionReplies.push(content); },
+    } as never);
+    const approveButtonId = appealReviewPayload.components[0].toJSON().components[0].custom_id as string;
+    const appealId = approveButtonId.split(':')[2];
+    assert(appealSubmissionReplies.some(reply => reply.includes(appealId)));
+
+    const appealReviewReplies: string[] = [];
+    await handleInfractionAppealModal({
+        customId: `infraction-appeal:approve-modal:${appealId}`,
+        client: appealClient,
+        guildId: '789699000047370261',
+        guild: { ownerId: 'appeal-reviewer' },
+        user: { id: 'appeal-reviewer' },
+        fields: { getTextInputValue: () => 'The member demonstrated accountability.' },
+        deferReply: async () => undefined,
+        editReply: async (content: string) => { appealReviewReplies.push(content); },
+    } as never);
+    assert.equal(approvedAppealDms.length, 1, 'approved appeals must DM the affected member');
+    assert.equal(sourceAppealNotices.length, 1, 'approved appeals must update the source infraction channel');
+    assert.equal(sourceAppealNotices[0].embeds[0].toJSON().title, '✅ Infraction Appealed');
+    assert(appealReviewEdit, 'the staff review message must be updated after a decision');
+    assert(appealReviewReplies.some(reply => reply.includes('infraction channel was updated')));
     configureInfractionPersistence(null);
 
     assert.deepEqual(detectProhibitedWords('That class assignment is fine.', ['ass']), []);

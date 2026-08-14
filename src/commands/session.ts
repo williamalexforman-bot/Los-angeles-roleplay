@@ -4,17 +4,13 @@ import {
     ButtonInteraction,
     ButtonStyle,
     ChatInputCommandInteraction,
-    EmbedBuilder,
     MessageFlags,
     SlashCommandBuilder,
 } from 'discord.js';
-import { BRAND } from '../config/constants';
 import {
-    createSessionEmbed,
-    createUnderbannerEmbed,
+    createSessionPanel,
     createSessionAttachments,
     SESSION_ACCENT_COLOR,
-    type SessionEmblemType,
 } from '../utils/embeds';
 import { markSlashCommandFailed } from '../utils/commandAudit';
 import { logger } from '../utils/logger';
@@ -26,6 +22,13 @@ import { logger } from '../utils/logger';
 const ERLC_JOIN_URL = 'https://erlc.gg/join?code=LARNRPP&placeId=2534724415';
 const ERLC_GAME_CODE = 'LARNRPP';
 const MAX_VOTES = 50;
+const SESSION_PING_ROLE_ID = process.env.SESSION_PING_ROLE_ID || '1521593407749754990';
+const SESSION_ANNOUNCEMENT_CHANNEL_ID = '1526036392147423404';
+
+async function getSessionAnnouncementChannel(interaction: ChatInputCommandInteraction) {
+    const channel = await interaction.client.channels.fetch(SESSION_ANNOUNCEMENT_CHANNEL_ID).catch(() => null);
+    return channel?.isSendable() ? channel : null;
+}
 
 /* -------------------------------------------------------------------------- */
 /*  In-memory session vote state                                               */
@@ -39,79 +42,107 @@ interface SessionVote {
     requiredVotes: number;
     voters: string[];
     active: boolean;
+    usesPanel: boolean;
 }
 
 const activeVotes: Map<string, SessionVote> = new Map();
+const voteLocks: Map<string, Promise<void>> = new Map();
 
 function voteKey(guildId: string, messageId: string): string {
     return `${guildId}:${messageId}`;
+}
+
+/** Serializes updates to one vote message so simultaneous clicks cannot overwrite a count. */
+async function withVoteLock<T>(key: string, operation: () => Promise<T>): Promise<T> {
+    const previous = voteLocks.get(key) || Promise.resolve();
+    let releaseCurrent!: () => void;
+    const current = new Promise<void>(resolve => { releaseCurrent = resolve; });
+    const queued = previous.then(() => current);
+    voteLocks.set(key, queued);
+
+    await previous;
+    try {
+        return await operation();
+    } finally {
+        releaseCurrent();
+        if (voteLocks.get(key) === queued) voteLocks.delete(key);
+    }
 }
 
 /* -------------------------------------------------------------------------- */
 /*  Embed builders                                                             */
 /* -------------------------------------------------------------------------- */
 
-function buildSessionStartEmbed(interaction: ChatInputCommandInteraction): EmbedBuilder {
+function buildSessionStartPanel(interaction: ChatInputCommandInteraction) {
     const description = [
         `A session has been started by <@${interaction.user.id}>.`,
         '',
         `To join please click the button below or go to ERLC and enter code **${ERLC_GAME_CODE}**.`,
     ].join('\n');
 
-    return createSessionEmbed(
+    return createSessionPanel(
         'SESSION START',
         description,
-        SESSION_ACCENT_COLOR,
         'start',
+        [new ActionRowBuilder<ButtonBuilder>().addComponents(joinSessionButton())],
+        SESSION_ACCENT_COLOR,
     );
 }
 
-function buildSessionVoteEmbed(
-    interaction: ChatInputCommandInteraction,
+function buildSessionVotePanel(
+    startedById: string,
     requiredVotes: number,
     currentVotes: number,
-): EmbedBuilder {
+    voteComplete = false,
+) {
     const description = [
-        `**A session vote has been started by <@${interaction.user.id}> please vote to join.**`,
+        `**A session vote has been started by <@${startedById}>. Please vote to join.**`,
         '',
         '**NOTE IF YOU VOTE YOU MUST JOIN!**',
+        voteComplete ? '\n✅ **Vote goal reached — thank you!**' : '',
     ].join('\n');
 
-    return createSessionEmbed(
+    return createSessionPanel(
         'SESSION VOTE',
         description,
-        SESSION_ACCENT_COLOR,
         'vote',
+        [new ActionRowBuilder<ButtonBuilder>().addComponents(
+            voteButton(currentVotes, requiredVotes, voteComplete),
+        )],
+        SESSION_ACCENT_COLOR,
     );
 }
 
-function buildSessionEndEmbed(interaction: ChatInputCommandInteraction): EmbedBuilder {
-    const description = `A session has been ended by <@${interaction.user.id}>.`;
-    return createSessionEmbed(
+function buildSessionEndPanel(interaction: ChatInputCommandInteraction) {
+    const description = `The session has been shut down by <@${interaction.user.id}>. Please don't join or you may face punishment.`;
+    return createSessionPanel(
         'SESSION END',
         description,
-        SESSION_ACCENT_COLOR,
         'end',
+        [new ActionRowBuilder<ButtonBuilder>().addComponents(sessionPingRoleButton())],
+        SESSION_ACCENT_COLOR,
     );
 }
 
-function buildSessionBoostEmbed(interaction: ChatInputCommandInteraction): EmbedBuilder {
-    const description = `A session boost has been started by <@${interaction.user.id}>.`;
-    return createSessionEmbed(
+function buildSessionBoostPanel() {
+    const description = 'The session has been boosted. Make sure to join up to help us grow.';
+    return createSessionPanel(
         'SESSION BOOST',
         description,
-        SESSION_ACCENT_COLOR,
         'boost',
+        [new ActionRowBuilder<ButtonBuilder>().addComponents(joinSessionButton())],
+        SESSION_ACCENT_COLOR,
     );
 }
 
-function buildSessionFullEmbed(interaction: ChatInputCommandInteraction): EmbedBuilder {
-    const description = `The session is now full. Started by <@${interaction.user.id}>.`;
-    return createSessionEmbed(
+function buildSessionFullPanel() {
+    const description = 'The session is full. If you try to join you will be put into a waiting room.';
+    return createSessionPanel(
         'SESSION FULL',
         description,
-        SESSION_ACCENT_COLOR,
         'full',
+        [],
+        SESSION_ACCENT_COLOR,
     );
 }
 
@@ -127,12 +158,76 @@ function joinSessionButton(): ButtonBuilder {
         .setURL(ERLC_JOIN_URL);
 }
 
-function voteButton(currentVotes: number, requiredVotes: number): ButtonBuilder {
+function voteButton(currentVotes: number, requiredVotes: number, disabled = false): ButtonBuilder {
     return new ButtonBuilder()
-        .setCustomId(`session:vote:cast`)
+        .setCustomId(`session:vote:cast:${requiredVotes}`)
         .setLabel(`${currentVotes}/${requiredVotes}`)
         .setEmoji('✅')
-        .setStyle(ButtonStyle.Success);
+        .setStyle(ButtonStyle.Success)
+        .setDisabled(disabled);
+}
+
+function sessionPingRoleButton(): ButtonBuilder {
+    return new ButtonBuilder()
+        .setCustomId('session:end:ping-role')
+        .setLabel('Get Session Ping Role')
+        .setEmoji('🔔')
+        .setStyle(ButtonStyle.Primary);
+}
+
+type ComponentLike = {
+    components?: readonly ComponentLike[];
+    data?: ComponentLike;
+    customId?: string;
+    custom_id?: string;
+    label?: string;
+    content?: string;
+};
+
+/** Reads a posted V2 vote panel so a restart does not make its button dead. */
+function recoverVoteFromMessage(interaction: ButtonInteraction): SessionVote | null {
+    let requiredVotes = Number(interaction.customId.split(':')[3]);
+
+    let currentVotes = 0;
+    let startedById = interaction.user.id;
+    const visited = new Set<ComponentLike>();
+    const visit = (node: ComponentLike): void => {
+        if (visited.has(node)) return;
+        visited.add(node);
+        const data = node.data || node;
+        const customId = data.customId || data.custom_id;
+        if (customId === interaction.customId && typeof data.label === 'string') {
+            const count = data.label.match(/^(\d+)\/(\d+)$/);
+            if (count) {
+                currentVotes = Number(count[1]);
+                if (!Number.isInteger(requiredVotes)) requiredVotes = Number(count[2]);
+            }
+        }
+        if (typeof data.content === 'string') {
+            const starter = data.content.match(/started by <@(\d+)>/i)?.[1];
+            if (starter) startedById = starter;
+        }
+        for (const child of data.components || []) visit(child);
+        if (data !== node) for (const child of node.components || []) visit(child);
+    };
+    for (const component of interaction.message.components as unknown as ComponentLike[]) visit(component);
+    if (!Number.isInteger(requiredVotes) || requiredVotes < 1 || requiredVotes > MAX_VOTES) return null;
+
+    // Discord does not expose the users who clicked a button. We retain the
+    // visible count after a restart; duplicate-click protection resumes from
+    // this point onward.
+    return {
+        guildId: interaction.guildId || '',
+        channelId: interaction.channelId,
+        messageId: interaction.message.id,
+        startedById,
+        requiredVotes,
+        voters: Array.from({ length: currentVotes }, (_, index) => `recovered-${index}`),
+        active: currentVotes < requiredVotes,
+        // New V2 announcements include the required vote count in their ID.
+        // Older announcements are still updated with their legacy action row.
+        usesPanel: interaction.customId.split(':').length === 4,
+    };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -140,37 +235,88 @@ function voteButton(currentVotes: number, requiredVotes: number): ButtonBuilder 
 /* -------------------------------------------------------------------------- */
 
 export async function handleSessionButton(interaction: ButtonInteraction): Promise<boolean> {
-    if (!interaction.customId.startsWith('session:vote:')) return false;
+    if (interaction.customId === 'session:end:ping-role') {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        try {
+            const guild = interaction.guild;
+            if (!guild) {
+                await interaction.editReply('This button can only be used in the server where the session was posted.');
+                return true;
+            }
+            const [member, role] = await Promise.all([
+                guild.members.fetch(interaction.user.id),
+                guild.roles.fetch(SESSION_PING_ROLE_ID),
+            ]);
+            if (!role || role.managed) {
+                await interaction.editReply('The session ping role is not available right now. Please contact staff.');
+                return true;
+            }
+            if (member.roles.cache.has(role.id)) {
+                await interaction.editReply('You already have the Session Ping role.');
+                return true;
+            }
+            await member.roles.add(role, 'Member requested the Session Ping role from a session-end announcement.');
+            await interaction.editReply('✅ You now have the Session Ping role.');
+        } catch (error) {
+            logger.error(`[Session] Ping role button error: ${error instanceof Error ? error.message : 'Unknown'}`);
+            await interaction.editReply('I could not give you the Session Ping role. Please make sure my role is above it and I have Manage Roles.');
+        }
+        return true;
+    }
+
+    if (!interaction.customId.startsWith('session:vote:cast')) return false;
 
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     try {
         const key = voteKey(interaction.guildId || '', interaction.message.id);
-        const vote = activeVotes.get(key);
+        await withVoteLock(key, async () => {
+            let vote = activeVotes.get(key);
+            if (!vote) {
+                vote = recoverVoteFromMessage(interaction) || undefined;
+                if (vote) activeVotes.set(key, vote);
+            }
 
-        if (!vote || !vote.active) {
-            await interaction.editReply('This session vote is no longer active.');
-            return true;
-        }
+            if (!vote || !vote.active) {
+                await interaction.editReply('This session vote is no longer active.');
+                return;
+            }
 
-        if (vote.voters.includes(interaction.user.id)) {
-            await interaction.editReply('You have already voted for this session.');
-            return true;
-        }
+            if (vote.voters.includes(interaction.user.id)) {
+                await interaction.editReply('You have already voted for this session.');
+                return;
+            }
 
-        vote.voters.push(interaction.user.id);
+            const nextVoteCount = vote.voters.length + 1;
+            const completed = nextVoteCount >= vote.requiredVotes;
+            if (!interaction.message.editable) {
+                await interaction.editReply('I could not update this session vote. Please contact the session host.');
+                return;
+            }
 
-        // Update the button label to reflect the new vote count
-        const updatedRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-            voteButton(vote.voters.length, vote.requiredVotes),
-        );
+            if (vote.usesPanel) {
+                await interaction.message.edit({
+                    components: [buildSessionVotePanel(vote.startedById, vote.requiredVotes, nextVoteCount, completed)],
+                    attachments: Array.from(interaction.message.attachments.values()),
+                });
+            } else {
+                // Compatibility for an announcement posted before the panel
+                // layout was introduced. New announcements always use V2.
+                await interaction.message.edit({
+                    components: [new ActionRowBuilder<ButtonBuilder>().addComponents(
+                        voteButton(nextVoteCount, vote.requiredVotes, completed),
+                    )],
+                });
+            }
 
-        const message = interaction.message;
-        if (message.editable) {
-            await message.edit({ components: [updatedRow] });
-        }
-
-        await interaction.editReply(`✅ Your vote has been recorded! **${vote.voters.length}/${vote.requiredVotes}** votes received.`);
+            vote.voters.push(interaction.user.id);
+            vote.active = !completed;
+            await interaction.editReply(
+                completed
+                    ? `✅ Your vote has been recorded! **${nextVoteCount}/${vote.requiredVotes}** votes received — the goal has been reached.`
+                    : `✅ Your vote has been recorded! **${nextVoteCount}/${vote.requiredVotes}** votes received.`,
+            );
+        });
         return true;
     } catch (error) {
         logger.error(`[Session] Vote button error: ${error instanceof Error ? error.message : 'Unknown'}`);
@@ -192,26 +338,22 @@ const sessionStartCommand = {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         try {
-            const channel = interaction.channel;
-            if (!channel?.isSendable()) {
-                await interaction.editReply('This channel cannot receive the session announcement.');
+            const channel = await getSessionAnnouncementChannel(interaction);
+            if (!channel) {
+                await interaction.editReply(`The session announcement channel <#${SESSION_ANNOUNCEMENT_CHANNEL_ID}> is unavailable.`);
                 return;
             }
 
-            const embed = buildSessionStartEmbed(interaction);
-            const underbanner = createUnderbannerEmbed();
             const attachments = createSessionAttachments('start');
 
-            const row = new ActionRowBuilder<ButtonBuilder>().addComponents(joinSessionButton());
-
             await channel.send({
-                embeds: [embed, underbanner],
-                components: [row],
+                components: [buildSessionStartPanel(interaction)],
                 files: attachments,
+                flags: MessageFlags.IsComponentsV2,
                 allowedMentions: { parse: [] },
             });
 
-            await interaction.editReply('✅ Session start announcement has been posted in this channel.');
+            await interaction.editReply(`✅ Session start announcement has been posted in <#${SESSION_ANNOUNCEMENT_CHANNEL_ID}>.`);
         } catch (error) {
             console.error('[Session] Start command failed.', error);
             markSlashCommandFailed(interaction, error);
@@ -239,39 +381,34 @@ const sessionVoteCommand = {
         try {
             const requiredVotes = interaction.options.getInteger('votes', true);
 
-            const channel = interaction.channel;
-            if (!channel?.isSendable()) {
-                await interaction.editReply('This channel cannot receive the session vote.');
+            const channel = await getSessionAnnouncementChannel(interaction);
+            if (!channel) {
+                await interaction.editReply(`The session announcement channel <#${SESSION_ANNOUNCEMENT_CHANNEL_ID}> is unavailable.`);
                 return;
             }
 
-            const embed = buildSessionVoteEmbed(interaction, requiredVotes, 0);
-            const underbanner = createUnderbannerEmbed();
             const attachments = createSessionAttachments('vote');
 
-            const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-                voteButton(0, requiredVotes),
-            );
-
             const message = await channel.send({
-                embeds: [embed, underbanner],
-                components: [row],
+                components: [buildSessionVotePanel(interaction.user.id, requiredVotes, 0)],
                 files: attachments,
+                flags: MessageFlags.IsComponentsV2,
                 allowedMentions: { parse: [] },
             });
 
             // Track the vote in memory so the button handler can update it
             activeVotes.set(voteKey(interaction.guildId || '', message.id), {
                 guildId: interaction.guildId || '',
-                channelId: interaction.channelId,
+                channelId: channel.id,
                 messageId: message.id,
                 startedById: interaction.user.id,
                 requiredVotes,
                 voters: [],
                 active: true,
+                usesPanel: true,
             });
 
-            await interaction.editReply(`✅ Session vote has been posted in this channel. Required votes: **${requiredVotes}**.`);
+            await interaction.editReply(`✅ Session vote has been posted in <#${SESSION_ANNOUNCEMENT_CHANNEL_ID}>. Required votes: **${requiredVotes}**.`);
         } catch (error) {
             console.error('[Session] Vote command failed.', error);
             markSlashCommandFailed(interaction, error);
@@ -289,23 +426,22 @@ const sessionEndCommand = {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         try {
-            const channel = interaction.channel;
-            if (!channel?.isSendable()) {
-                await interaction.editReply('This channel cannot receive the session announcement.');
+            const channel = await getSessionAnnouncementChannel(interaction);
+            if (!channel) {
+                await interaction.editReply(`The session announcement channel <#${SESSION_ANNOUNCEMENT_CHANNEL_ID}> is unavailable.`);
                 return;
             }
 
-            const embed = buildSessionEndEmbed(interaction);
-            const underbanner = createUnderbannerEmbed();
             const attachments = createSessionAttachments('end');
 
             await channel.send({
-                embeds: [embed, underbanner],
+                components: [buildSessionEndPanel(interaction)],
                 files: attachments,
-                allowedMentions: { parse: [] },
+                flags: MessageFlags.IsComponentsV2,
+                allowedMentions: { parse: [], users: [interaction.user.id] },
             });
 
-            await interaction.editReply('✅ Session end announcement has been posted in this channel.');
+            await interaction.editReply(`✅ Session end announcement has been posted in <#${SESSION_ANNOUNCEMENT_CHANNEL_ID}>.`);
         } catch (error) {
             console.error('[Session] End command failed.', error);
             markSlashCommandFailed(interaction, error);
@@ -323,26 +459,22 @@ const sessionBoostCommand = {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         try {
-            const channel = interaction.channel;
-            if (!channel?.isSendable()) {
-                await interaction.editReply('This channel cannot receive the session boost announcement.');
+            const channel = await getSessionAnnouncementChannel(interaction);
+            if (!channel) {
+                await interaction.editReply(`The session announcement channel <#${SESSION_ANNOUNCEMENT_CHANNEL_ID}> is unavailable.`);
                 return;
             }
 
-            const embed = buildSessionBoostEmbed(interaction);
-            const underbanner = createUnderbannerEmbed();
             const attachments = createSessionAttachments('boost');
 
-            const row = new ActionRowBuilder<ButtonBuilder>().addComponents(joinSessionButton());
-
             await channel.send({
-                embeds: [embed, underbanner],
-                components: [row],
+                components: [buildSessionBoostPanel()],
                 files: attachments,
+                flags: MessageFlags.IsComponentsV2,
                 allowedMentions: { parse: [] },
             });
 
-            await interaction.editReply('✅ Session boost announcement has been posted in this channel.');
+            await interaction.editReply(`✅ Session boost announcement has been posted in <#${SESSION_ANNOUNCEMENT_CHANNEL_ID}>.`);
         } catch (error) {
             console.error('[Session] Boost command failed.', error);
             markSlashCommandFailed(interaction, error);
@@ -360,23 +492,22 @@ const sessionFullCommand = {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         try {
-            const channel = interaction.channel;
-            if (!channel?.isSendable()) {
-                await interaction.editReply('This channel cannot receive the session full announcement.');
+            const channel = await getSessionAnnouncementChannel(interaction);
+            if (!channel) {
+                await interaction.editReply(`The session announcement channel <#${SESSION_ANNOUNCEMENT_CHANNEL_ID}> is unavailable.`);
                 return;
             }
 
-            const embed = buildSessionFullEmbed(interaction);
-            const underbanner = createUnderbannerEmbed();
             const attachments = createSessionAttachments('full');
 
             await channel.send({
-                embeds: [embed, underbanner],
+                components: [buildSessionFullPanel()],
                 files: attachments,
+                flags: MessageFlags.IsComponentsV2,
                 allowedMentions: { parse: [] },
             });
 
-            await interaction.editReply('✅ Session full announcement has been posted in this channel.');
+            await interaction.editReply(`✅ Session full announcement has been posted in <#${SESSION_ANNOUNCEMENT_CHANNEL_ID}>.`);
         } catch (error) {
             console.error('[Session] Full command failed.', error);
             markSlashCommandFailed(interaction, error);

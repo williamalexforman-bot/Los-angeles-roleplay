@@ -1,14 +1,28 @@
 import {
+    ButtonBuilder,
+    ButtonStyle,
     ChatInputCommandInteraction,
-    EmbedBuilder,
+    ContainerBuilder,
+    MediaGalleryBuilder,
+    MediaGalleryItemBuilder,
+    MessageFlags,
+    SectionBuilder,
+    SeparatorBuilder,
+    SeparatorSpacingSize,
     SlashCommandBuilder,
+    TextDisplayBuilder,
 } from 'discord.js';
-import { BRAND } from '../config/constants';
-import { createLogoAttachment } from '../utils/embeds';
 import { markSlashCommandFailed } from '../utils/commandAudit';
 import { isDatabaseAvailable } from '../database/connection';
 import { Infraction } from '../database/models';
-import { getAllInfractions } from './staffManagement';
+import {
+    getAllInfractions,
+    INFRACTION_BANNER_NAME,
+    INFRACTION_UNDERBANNER_NAME,
+    infractionArtworkAttachments,
+} from './staffManagement';
+
+const INFRACTION_PANEL_COLOR = 0x3b82f6;
 
 export interface ViewInfractionRecord {
     caseNumber: string;
@@ -40,6 +54,79 @@ function normalize(record: Record<string, unknown>, source: 'database' | 'memory
         appealable: record.appealable === undefined ? true : Boolean(record.appealable),
         source,
     };
+}
+
+function media(name: string): MediaGalleryBuilder {
+    return new MediaGalleryBuilder().addItems(
+        new MediaGalleryItemBuilder().setURL(`attachment://${name}`),
+    );
+}
+
+function separator(): SeparatorBuilder {
+    return new SeparatorBuilder()
+        .setDivider(true)
+        .setSpacing(SeparatorSpacingSize.Small);
+}
+
+function compact(value: string, maxLength = 180): string {
+    const cleaned = value.replace(/[\r\n]+/g, ' ').replace(/`/g, 'ˋ').trim();
+    if (!cleaned) return 'No reason provided.';
+    return cleaned.length > maxLength ? `${cleaned.slice(0, maxLength - 1)}…` : cleaned;
+}
+
+function buildViewInfractionsPanel(
+    username: string,
+    userId: string,
+    guildId: string,
+    records: readonly ViewInfractionRecord[],
+): ContainerBuilder {
+    const activeCount = records.filter(record => record.status === 'Active').length;
+    const safeUsername = username.replace(/[\r\n]/g, ' ').slice(0, 80);
+    const summary = [
+        `## 📋 Infraction Record — ${safeUsername}`,
+        `> **Member:** <@${userId}>`,
+        `> **Total:** \`${records.length}\` • **Active:** \`${activeCount}\` • **Resolved:** \`${records.length - activeCount}\``,
+    ];
+
+    if (records.length === 0) {
+        summary.push('', '> No infractions are on this member\'s record. Keep up the great work! 🎉');
+    } else {
+        summary.push('', '### Recent Infractions');
+        for (const record of records.slice(0, 10)) {
+            const date = Math.floor(record.createdAt.getTime() / 1000);
+            const statusEmoji = record.status === 'Active' ? '🟡' : '✅';
+            const appeal = record.appealable === false ? '❌ Not appealable' : '⚖️ Appealable';
+            const link = record.threadId && !record.threadId.startsWith('punishment-')
+                ? `[🔗 Open Infraction Channel](https://discord.com/channels/${guildId}/${record.threadId})`
+                : 'No channel saved';
+            summary.push(
+                `${statusEmoji} **${compact(record.caseNumber, 40)} — ${compact(record.action, 80)}**`,
+                `> ${appeal} • ${link} • <t:${date}:d>`,
+                `> **Reason:** \`${compact(record.reason)}\``,
+            );
+        }
+        if (records.length > 10) summary.push(``, `> Showing the 10 most recent of ${records.length} infractions.`);
+    }
+
+    const badge = new ButtonBuilder()
+        .setCustomId(`view-infractions:display:${userId}`)
+        .setLabel(`${activeCount} Active • ${records.length} Total`)
+        .setStyle(ButtonStyle.Primary)
+        .setDisabled(true);
+
+    return new ContainerBuilder()
+        .setAccentColor(INFRACTION_PANEL_COLOR)
+        .addMediaGalleryComponents(media(INFRACTION_BANNER_NAME))
+        .addSeparatorComponents(separator())
+        .addSectionComponents(
+            new SectionBuilder()
+                .addTextDisplayComponents(
+                    new TextDisplayBuilder().setContent(summary.join('\n').slice(0, 4_000)),
+                )
+                .setButtonAccessory(badge),
+        )
+        .addSeparatorComponents(separator())
+        .addMediaGalleryComponents(media(INFRACTION_UNDERBANNER_NAME));
 }
 
 export const viewInfractionsCommand = {
@@ -102,49 +189,17 @@ export const viewInfractionsCommand = {
                 (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
             );
 
-            const activeCount = records.filter(r => r.status === 'Active').length;
-            const totalCount = records.length;
-
-            const embed = new EmbedBuilder()
-                .setColor(BRAND.color)
-                .setTitle(`📋 Infraction Record — ${requestedUser.username}`)
-                .setDescription(`Infraction history for **${requestedUser.username}** in **Los Angeles Roleplay**.`)
-                .addFields(
-                    { name: 'Member', value: `<@${requestedUser.id}>`, inline: true },
-                    { name: 'Total', value: `${totalCount}`, inline: true },
-                    { name: 'Active', value: `${activeCount}`, inline: true },
-                    { name: 'Resolved', value: `${totalCount - activeCount}`, inline: true },
-                )
-                .setFooter({ text: BRAND.footer })
-                .setTimestamp();
-
-            if (totalCount === 0) {
-                embed.setDescription(`${requestedUser.username} has no infractions on their record. Keep up the great work! 🎉`);
-            } else {
-                // Compact list — show up to 10 most recent so it stays readable.
-                const recent = records.slice(0, 10);
-                const lines = recent.map(r => {
-                    const date = Math.floor(r.createdAt.getTime() / 1000);
-                    const statusEmoji = r.status === 'Active' ? '🟡' : '✅';
-                    const appeal = r.appealable === false ? '❌ Not appealable' : '⚖️ Appealable';
-                    const link = r.threadId && r.threadId.startsWith('punishment-')
-                        ? 'No thread saved'
-                        : r.threadId
-                            ? `[Open Thread](https://discord.com/channels/${interaction.guildId}/${r.threadId})`
-                            : 'No link';
-                    return `${statusEmoji} **${r.caseNumber}** — ${r.action}\n${appeal} • ${link} • <t:${date}:d>`;
-                }).join('\n');
-
-                embed.addFields({
-                    name: totalCount > 10
-                        ? `Recent (${Math.min(totalCount, 10)} of ${totalCount})`
-                        : 'Infractions',
-                    value: lines.slice(0, 1024),
-                    inline: false,
-                });
-            }
-
-            await interaction.editReply({ embeds: [embed], files: [createLogoAttachment()] });
+            await interaction.editReply({
+                components: [buildViewInfractionsPanel(
+                    requestedUser.username,
+                    requestedUser.id,
+                    interaction.guildId,
+                    records,
+                )],
+                files: infractionArtworkAttachments(),
+                flags: MessageFlags.IsComponentsV2,
+                allowedMentions: { parse: [] },
+            });
         } catch (error) {
             console.error('[ViewInfractions] Command failed.', error);
             markSlashCommandFailed(interaction, error);
