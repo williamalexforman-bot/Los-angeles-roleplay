@@ -784,10 +784,6 @@ function infractionCommand() {
                     )
                     .addStringOption(option => option.setName('reason').setDescription('The reason for this infraction').setRequired(true).setMaxLength(1024))
                     .addStringOption(option => option.setName('notes').setDescription('Notes for this infraction').setRequired(true).setMaxLength(1024))
-                    .addStringOption(option => option.setName('evidence').setDescription('Evidence link or supporting information').setMaxLength(1024))
-                    .addStringOption(option => option.setName('internal-notes').setDescription('Private notes for authorized staff').setMaxLength(1024))
-                    .addBooleanOption(option => option.setName('notify-member').setDescription('Also notify the member by direct message'))
-                    .addStringOption(option => option.setName('expiration').setDescription('When this infraction expires, if applicable').setMaxLength(100))
                     .addStringOption(option =>
                         option
                             .setName('appealable')
@@ -797,7 +793,11 @@ function infractionCommand() {
                                 { name: 'Yes', value: 'true' },
                                 { name: 'No', value: 'false' },
                             ),
-                    ),
+                    )
+                    .addStringOption(option => option.setName('evidence').setDescription('Evidence link or supporting information').setMaxLength(1024))
+                    .addStringOption(option => option.setName('internal-notes').setDescription('Private notes for authorized staff').setMaxLength(1024))
+                    .addBooleanOption(option => option.setName('notify-member').setDescription('Also notify the member by direct message'))
+                    .addStringOption(option => option.setName('expiration').setDescription('When this infraction expires, if applicable').setMaxLength(100)),
             ),
 
         async execute(interaction: ChatInputCommandInteraction): Promise<void> {
