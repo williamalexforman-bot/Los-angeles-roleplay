@@ -494,6 +494,20 @@ function infractionControlRows(
         new ButtonBuilder().setCustomId(controlId('history')).setLabel('View History').setStyle(ButtonStyle.Secondary),
     );
 
+    // Appeal button row — clickable when appealable, disabled when not
+    const appealRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        record.appealable
+            ? new ButtonBuilder()
+                .setCustomId(`infraction-appeal:start:${threadId}`)
+                .setLabel('⚖️ Appeal Infraction')
+                .setStyle(ButtonStyle.Primary)
+            : new ButtonBuilder()
+                .setCustomId('infraction-appeal:disabled')
+                .setLabel('Not Appealable')
+                .setStyle(ButtonStyle.Secondary)
+                .setDisabled(true),
+    );
+
     const closeRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder()
             .setLabel('Open Evidence Thread')
@@ -506,7 +520,7 @@ function infractionControlRows(
             .setDisabled(closed),
     );
 
-    return [primaryRow, closeRow];
+    return [appealRow, primaryRow, closeRow];
 }
 
 /**
@@ -520,17 +534,11 @@ function buildInfractionPanel(
     threadId?: string,
     threadUrl?: string,
 ): ContainerBuilder {
-    // Appeal button INSIDE the embed — clickable when appealable, disabled when not
-    const appealButton = record.appealable
-        ? new ButtonBuilder()
-            .setCustomId(`infraction-appeal:start:${threadId || 'pending'}`)
-            .setLabel('⚖️ Appeal Infraction')
-            .setStyle(ButtonStyle.Primary)
-        : new ButtonBuilder()
-            .setCustomId('infraction-appeal:disabled')
-            .setLabel('Not Appealable')
-            .setStyle(ButtonStyle.Secondary)
-            .setDisabled(true);
+    const punishmentBadge = new ButtonBuilder()
+        .setCustomId(`infraction:punishment-display:${threadId || 'pending'}`)
+        .setLabel(punishmentBadgeLabel(record))
+        .setStyle(ButtonStyle.Primary)
+        .setDisabled(true);
 
     const panel = new ContainerBuilder()
         .setAccentColor(BRAND_COLOR)
@@ -541,7 +549,7 @@ function buildInfractionPanel(
                 .addTextDisplayComponents(
                     new TextDisplayBuilder().setContent(infractionSummary(record)),
                 )
-                .setButtonAccessory(appealButton),
+                .setButtonAccessory(punishmentBadge),
         );
 
     if (threadId && threadUrl) {
