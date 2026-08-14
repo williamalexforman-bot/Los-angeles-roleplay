@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { ChannelType, PermissionFlagsBits, TextChannel } from 'discord.js';
+import { ChannelType, Collection, PermissionFlagsBits, TextChannel } from 'discord.js';
 import { commandDefinitions } from '../src/commands/registry';
 import { detectProhibitedWords, detectRaidThreat, handleMessageModeration } from '../src/events/messageModeration';
 import {
@@ -481,6 +481,11 @@ for (const required of [
         ['infraction-banner.png', 'underbanner.webp'],
         'the case message must attach both infraction artwork files',
     );
+    const initialAppealButton = initialInfractionPanel.components
+        .find((component: { type: number; components?: Array<{ custom_id?: string }> }) => component.type === 1
+            && component.components?.[0]?.custom_id?.startsWith('infraction-appeal:start:'))
+        ?.components?.[0];
+    assert.equal(initialAppealButton?.custom_id, 'infraction-appeal:start:INF-0001', 'the first case message must already contain its Appeal button');
     assert.equal(infractionDetailEdit?.components?.length, 1, 'the updated case must remain one visual panel');
     const infractionPanel = infractionDetailEdit?.components?.[0]?.toJSON();
     const punishmentBadge = infractionPanel?.components?.find((component: { type: number }) => component.type === 9)?.accessory;
@@ -490,22 +495,80 @@ for (const required of [
         ?.components?.[0];
     assert.equal(punishmentBadge?.label, 'Staff Warning #1');
     assert.equal(punishmentBadge?.disabled, true, 'the punishment badge is visual-only');
-    assert.equal(appealButton?.custom_id, `infraction-appeal:start:${infractionThread.id}`);
+    assert.equal(appealButton?.custom_id, 'infraction-appeal:start:INF-0001');
     assert.notEqual(appealButton?.disabled, true, 'appealable cases must expose a working appeal button');
     assert.equal(infractionDms.length, 1, 'the infracted member must receive a DM by default');
     const infractionDmButtons = infractionDms[0].components[0].toJSON().components;
     assert.equal(infractionDmButtons[0]?.label, 'Open Infraction Channel');
     assert.equal(infractionDmButtons[0]?.url, infractionThread.url);
-    assert.equal(infractionDmButtons[1]?.custom_id, `infraction-appeal:start:${infractionThread.id}`);
+    assert.equal(infractionDmButtons[1]?.custom_id, 'infraction-appeal:start:INF-0001');
     assert(infractionReplies.some(reply => String(reply).includes('INF-0001 has been issued successfully')));
 
+    let fallbackInfraction: InfractionRecord | null = null;
+    configureInfractionPersistence({
+        nextCaseNumber: async () => 2,
+        saveInfraction: async record => { fallbackInfraction = record; },
+        getInfractionByThreadId: async key => key === 'INF-0002' ? fallbackInfraction : null,
+    });
+    let fallbackPanelEdit: any = null;
+    let fallbackMessageDeleted = false;
+    const fallbackParent = Object.create(TextChannel.prototype) as any;
+    Object.defineProperties(fallbackParent, {
+        id: { value: '1526044664975851642' },
+        type: { value: ChannelType.GuildText },
+        isSendable: { value: () => true },
+        send: {
+            value: async () => ({
+                id: '1526044664975851888',
+                url: 'https://discord.com/channels/guild/1526044664975851642/1526044664975851888',
+                startThread: async () => { throw new Error('Missing Create Public Threads'); },
+                edit: async (payload: any) => { fallbackPanelEdit = payload; },
+                delete: async () => { fallbackMessageDeleted = true; },
+            }),
+        },
+    });
+    const fallbackReplies: string[] = [];
+    await commandNamed('infraction').execute({
+        guildId: '789699000047370261',
+        guild: { ownerId: 'fallback-issuer' },
+        deferReply: async () => undefined,
+        editReply: async (content: string) => { fallbackReplies.push(content); },
+        user: { id: 'fallback-issuer' },
+        memberPermissions: { has: () => true },
+        options: {
+            getSubcommand: () => 'issue',
+            getUser: () => ({ id: 'fallback-member', username: 'FallbackMember' }),
+            getString: (name: string) => ({
+                action: 'Warning',
+                reason: 'Fallback test.',
+                notes: 'Staff Conduct 2.1',
+                appealable: 'true',
+            } as Record<string, string>)[name] ?? null,
+            getBoolean: () => false,
+        },
+        client: { channels: { fetch: async () => fallbackParent } },
+    } as never);
+    assert(!fallbackMessageDeleted, 'a missing thread permission must not delete the issued infraction');
+    assert.equal((fallbackInfraction as InfractionRecord | null)?.threadId, '1526044664975851888');
+    const fallbackPanel = fallbackPanelEdit.components[0].toJSON();
+    const fallbackAppealButton = fallbackPanel.components
+        .find((component: { type: number; components?: Array<{ custom_id?: string }> }) => component.type === 1
+            && component.components?.[0]?.custom_id?.startsWith('infraction-appeal:start:'))
+        ?.components?.[0];
+    assert.equal(fallbackAppealButton?.custom_id, 'infraction-appeal:start:INF-0002');
+    assert(fallbackReplies.some(reply => reply.includes('INF-0002 has been issued successfully')));
+    assert(!fallbackReplies.some(reply => reply.includes('Unable to create')));
+
     let viewInfractionsPayload: any = null;
+    let viewInfractionsLoadingDeleted = false;
     await commandNamed('view-infractions').execute({
         guildId: '789699000047370261',
         user: infractionTarget,
         options: { getUser: () => infractionTarget },
         deferReply: async () => undefined,
-        editReply: async (payload: any) => { viewInfractionsPayload = payload; },
+        followUp: async (payload: any) => { viewInfractionsPayload = payload; },
+        deleteReply: async () => { viewInfractionsLoadingDeleted = true; },
+        editReply: async () => undefined,
     } as never);
     assert.equal(viewInfractionsPayload?.flags, 32_768, '/view-infractions must use Components V2');
     const viewInfractionsPanel = viewInfractionsPayload.components[0].toJSON();
@@ -518,6 +581,7 @@ for (const required of [
         .join('\n');
     assert(viewInfractionText.includes('INF-0001'));
     assert(viewInfractionText.includes('Open Infraction Channel'));
+    assert(viewInfractionsLoadingDeleted, 'the private loading response should be removed after the public V2 panel is posted');
 
     const sessionBannerNames = new Map([
         ['session-start', 'session-start-banner.png'],
@@ -526,12 +590,38 @@ for (const required of [
         ['session-boost', 'session-boost-banner.png'],
         ['session-full', 'session-full-banner.png'],
     ]);
+    let deletedSessionMessages = 0;
+    let sessionVotePayload: any = null;
     for (const [commandName, bannerName] of sessionBannerNames) {
+        const sessionSchema = commandNamed(commandName).data.toJSON() as {
+            default_member_permissions?: string | null;
+            dm_permission?: boolean;
+        };
+        assert.equal(sessionSchema.default_member_permissions, null, `/${commandName} must be enabled for server members`);
+        assert.equal(sessionSchema.dm_permission, false, `/${commandName} must be server-only`);
         let sessionPayload: any = null;
         let fetchedSessionChannelId = '';
+        const priorMessages = new Collection<string, any>();
+        if (commandName === 'session-end') {
+            priorMessages.set('old-session-message', {
+                author: { id: 'session-bot' },
+                components: [],
+                embeds: [{ title: 'SESSION START' }],
+                attachments: new Collection(),
+                delete: async () => { deletedSessionMessages += 1; },
+            });
+            priorMessages.set('unrelated-bot-message', {
+                author: { id: 'session-bot' },
+                components: [],
+                embeds: [{ title: 'Rules' }],
+                attachments: new Collection(),
+                delete: async () => { throw new Error('unrelated message must not be deleted'); },
+            });
+        }
         const sessionDestination = {
             id: '1526036392147423404',
             isSendable: () => true,
+            messages: { fetch: async () => priorMessages },
             send: async (payload: any) => {
                 sessionPayload = payload;
                 return { id: `${commandName}-message` };
@@ -547,6 +637,7 @@ for (const required of [
                 send: async () => { throw new Error('session command used the invocation channel'); },
             },
             client: {
+                user: { id: 'session-bot' },
                 channels: {
                     fetch: async (channelId: string) => {
                         fetchedSessionChannelId = channelId;
@@ -576,7 +667,9 @@ for (const required of [
             sessionPayload.files.map((file: { name: string }) => file.name),
             [bannerName, 'underbanner.webp'],
         );
+        if (commandName === 'session-vote') sessionVotePayload = sessionPayload;
     }
+    assert.equal(deletedSessionMessages, 1, '/session-end must delete prior bot session announcements only');
 
     let sessionVoteEdit: any = null;
     const sessionVoteReplies: string[] = [];
@@ -592,7 +685,7 @@ for (const required of [
                 ['session-vote-banner', { id: 'session-vote-banner' }],
                 ['underbanner', { id: 'underbanner' }],
             ]),
-            components: [],
+            components: sessionVotePayload.components,
             edit: async (payload: any) => { sessionVoteEdit = payload; },
         },
         deferReply: async () => undefined,
@@ -603,18 +696,18 @@ for (const required of [
 
     let appealModal: any = null;
     const appealStartHandled = await handleInfractionAppealButton({
-        customId: `infraction-appeal:start:${infractionThread.id}`,
+        customId: 'infraction-appeal:start:INF-0001',
         client: { channels: { fetch: async () => null } },
         guildId: '789699000047370261',
         user: infractionTarget,
         showModal: async (modal: any) => { appealModal = modal; },
     } as never);
     assert(appealStartHandled);
-    assert.equal(appealModal?.toJSON().custom_id, `infraction-appeal:form:${infractionThread.id}`);
+    assert.equal(appealModal?.toJSON().custom_id, 'infraction-appeal:form:INF-0001');
 
     const unauthorizedAppealReplies: any[] = [];
     await handleInfractionAppealButton({
-        customId: `infraction-appeal:start:${infractionThread.id}`,
+        customId: 'infraction-appeal:start:INF-0001',
         client: { channels: { fetch: async () => null } },
         guildId: '789699000047370261',
         user: { id: 'different-member' },
@@ -663,7 +756,7 @@ for (const required of [
 
     const appealSubmissionReplies: string[] = [];
     await handleInfractionAppealModal({
-        customId: `infraction-appeal:form:${infractionThread.id}`,
+        customId: 'infraction-appeal:form:INF-0001',
         client: appealClient,
         guildId: '789699000047370261',
         user: infractionTarget,

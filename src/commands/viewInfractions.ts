@@ -140,8 +140,10 @@ export const viewInfractionsCommand = {
         ),
 
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
-        // NOT ephemeral — everyone can see the result.
-        await interaction.deferReply();
+        // Keep the loading acknowledgement private, then create the public
+        // result as a fresh Components V2 message. Discord does not reliably
+        // allow a deferred legacy response to be converted into V2 afterward.
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         try {
             if (!interaction.guildId) {
@@ -189,7 +191,7 @@ export const viewInfractionsCommand = {
                 (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
             );
 
-            await interaction.editReply({
+            await interaction.followUp({
                 components: [buildViewInfractionsPanel(
                     requestedUser.username,
                     requestedUser.id,
@@ -200,6 +202,7 @@ export const viewInfractionsCommand = {
                 flags: MessageFlags.IsComponentsV2,
                 allowedMentions: { parse: [] },
             });
+            await interaction.deleteReply().catch(() => undefined);
         } catch (error) {
             console.error('[ViewInfractions] Command failed.', error);
             markSlashCommandFailed(interaction, error);

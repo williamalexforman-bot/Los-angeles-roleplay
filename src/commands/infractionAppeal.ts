@@ -99,7 +99,9 @@ async function loadInfractionForAppeal(
     }
     if (record || !isDatabaseAvailable()) return record;
 
-    const databaseRecord = await Infraction.findOne({ threadId }).lean().exec().catch(() => null) as unknown as {
+    const databaseRecord = await Infraction.findOne({
+        $or: [{ threadId }, { caseNumber: threadId }],
+    }).lean().exec().catch(() => null) as unknown as {
         appealable?: boolean;
         action?: string;
         reason?: string;
@@ -370,8 +372,15 @@ export async function handleInfractionAppealModal(interaction: ModalSubmitIntera
             return true;
         }
 
-        const infraction = await client.channels.fetch(threadId).catch(() => null);
-        const threadUrl = infraction?.isThread() ? infraction.url : `https://discord.com/channels/${interaction.guildId}/${threadId}`;
+        const infractionSource = await client.channels.fetch(sourceRecord.threadId).catch(() => null);
+        const threadUrl = infractionSource?.isThread()
+            ? infractionSource.url
+            : sourceRecord.parentChannelId && sourceRecord.detailMessageId
+                ? `https://discord.com/channels/${sourceRecord.guildId}/${sourceRecord.parentChannelId}/${sourceRecord.detailMessageId}`
+                : `https://discord.com/channels/${sourceRecord.guildId || interaction.guildId}/${sourceRecord.threadId}`;
+        const noticeChannelId = infractionSource?.isThread()
+            ? infractionSource.id
+            : sourceRecord.parentChannelId || sourceRecord.threadId;
 
         const appealId = generateAppealId();
         const embed = brandedEmbed(`⚖️ Infraction Appeal | ${appealId}`)
@@ -404,7 +413,7 @@ export async function handleInfractionAppealModal(interaction: ModalSubmitIntera
         const appealRecord: InfractionAppealRecord = {
             appealId,
             guildId: sourceRecord.guildId || interaction.guildId || '',
-            infractionThreadId: threadId,
+            infractionThreadId: noticeChannelId,
             infractionCaseNumber: sourceRecord.caseNumber,
             infractionLink: threadUrl,
             userId: interaction.user.id,

@@ -77,9 +77,10 @@ export function configureInfractionDatabaseAdapter(): void {
         },
         async getInfractionByThreadId(threadId) {
             requireDatabase();
-            const record = await Infraction.findOne({ threadId }).lean().exec();
+            const record = await Infraction.findOne({
+                $or: [{ threadId }, { caseNumber: threadId }],
+            }).lean().exec();
             return record ? fromDatabase(record as unknown as Record<string, unknown>) : null;
         },
     });
 }
-

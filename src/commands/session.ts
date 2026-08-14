@@ -4,6 +4,7 @@ import {
     ButtonInteraction,
     ButtonStyle,
     ChatInputCommandInteraction,
+    type Message,
     MessageFlags,
     SlashCommandBuilder,
 } from 'discord.js';
@@ -28,6 +29,45 @@ const SESSION_ANNOUNCEMENT_CHANNEL_ID = '1526036392147423404';
 async function getSessionAnnouncementChannel(interaction: ChatInputCommandInteraction) {
     const channel = await interaction.client.channels.fetch(SESSION_ANNOUNCEMENT_CHANNEL_ID).catch(() => null);
     return channel?.isSendable() ? channel : null;
+}
+
+type SessionComponentNode = {
+    components?: readonly SessionComponentNode[];
+    customId?: string;
+    custom_id?: string;
+    data?: SessionComponentNode;
+};
+
+function hasSessionComponent(nodes: readonly SessionComponentNode[]): boolean {
+    return nodes.some(node => {
+        const data = node.data || node;
+        const customId = data.customId || data.custom_id;
+        return Boolean(customId?.startsWith('session:'))
+            || hasSessionComponent(data.components || [])
+            || (data !== node && hasSessionComponent(node.components || []));
+    });
+}
+
+function isSessionAnnouncementMessage(message: Message): boolean {
+    if (hasSessionComponent(message.components as unknown as SessionComponentNode[])) return true;
+    if (message.embeds.some(embed => /^SESSION (START|VOTE|END|BOOST|FULL)$/i.test(embed.title || ''))) return true;
+    return message.attachments.some(attachment => /^session-(start|vote|end|boost|full)(?:-banner|-combo)?\.png$/i.test(attachment.name || ''));
+}
+
+async function deletePreviousSessionAnnouncements(
+    channel: Awaited<ReturnType<typeof getSessionAnnouncementChannel>>,
+    botUserId: string,
+): Promise<{ deleted: number; failed: number }> {
+    if (!channel) return { deleted: 0, failed: 0 };
+    const messages = await channel.messages.fetch({ limit: 100 }).catch(() => null);
+    if (!messages) return { deleted: 0, failed: 0 };
+
+    const previousAnnouncements = messages.filter(message =>
+        message.author.id === botUserId && isSessionAnnouncementMessage(message),
+    );
+    const results = await Promise.allSettled(previousAnnouncements.map(message => message.delete()));
+    const deleted = results.filter(result => result.status === 'fulfilled').length;
+    return { deleted, failed: results.length - deleted };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -332,7 +372,9 @@ export async function handleSessionButton(interaction: ButtonInteraction): Promi
 const sessionStartCommand = {
     data: new SlashCommandBuilder()
         .setName('session-start')
-        .setDescription('Start a new roleplay session announcement'),
+        .setDescription('Start a new roleplay session announcement')
+        .setDMPermission(false)
+        .setDefaultMemberPermissions(null),
 
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -366,6 +408,8 @@ const sessionVoteCommand = {
     data: new SlashCommandBuilder()
         .setName('session-vote')
         .setDescription('Start a session vote to gauge interest in joining a roleplay session')
+        .setDMPermission(false)
+        .setDefaultMemberPermissions(null)
         .addIntegerOption(option =>
             option
                 .setName('votes')
@@ -420,7 +464,9 @@ const sessionVoteCommand = {
 const sessionEndCommand = {
     data: new SlashCommandBuilder()
         .setName('session-end')
-        .setDescription('End a roleplay session announcement'),
+        .setDescription('End a roleplay session announcement')
+        .setDMPermission(false)
+        .setDefaultMemberPermissions(null),
 
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -432,6 +478,10 @@ const sessionEndCommand = {
                 return;
             }
 
+            const cleanup = await deletePreviousSessionAnnouncements(channel, interaction.client.user?.id || '');
+            for (const [key, vote] of activeVotes) {
+                if (vote.guildId === interaction.guildId && vote.channelId === channel.id) activeVotes.delete(key);
+            }
             const attachments = createSessionAttachments('end');
 
             await channel.send({
@@ -441,7 +491,11 @@ const sessionEndCommand = {
                 allowedMentions: { parse: [], users: [interaction.user.id] },
             });
 
-            await interaction.editReply(`✅ Session end announcement has been posted in <#${SESSION_ANNOUNCEMENT_CHANNEL_ID}>.`);
+            await interaction.editReply(
+                `✅ Session end announcement has been posted in <#${SESSION_ANNOUNCEMENT_CHANNEL_ID}>.`
+                + `${cleanup.deleted ? ` Removed **${cleanup.deleted}** earlier session announcement${cleanup.deleted === 1 ? '' : 's'}.` : ''}`
+                + `${cleanup.failed ? ` Warning: **${cleanup.failed}** earlier message${cleanup.failed === 1 ? '' : 's'} could not be removed.` : ''}`,
+            );
         } catch (error) {
             console.error('[Session] End command failed.', error);
             markSlashCommandFailed(interaction, error);
@@ -453,7 +507,9 @@ const sessionEndCommand = {
 const sessionBoostCommand = {
     data: new SlashCommandBuilder()
         .setName('session-boost')
-        .setDescription('Announce a session boost to encourage more players to join'),
+        .setDescription('Announce a session boost to encourage more players to join')
+        .setDMPermission(false)
+        .setDefaultMemberPermissions(null),
 
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -486,7 +542,9 @@ const sessionBoostCommand = {
 const sessionFullCommand = {
     data: new SlashCommandBuilder()
         .setName('session-full')
-        .setDescription('Announce that the current session is full'),
+        .setDescription('Announce that the current session is full')
+        .setDMPermission(false)
+        .setDefaultMemberPermissions(null),
 
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });

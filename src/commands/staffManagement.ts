@@ -129,7 +129,9 @@ export function configureInfractionAuthorization(handler: InfractionAuthorizatio
  * fallback when MongoDB is unavailable so /view-infractions still works.
  */
 export function getAllInfractions(): InfractionRecord[] {
-    return Array.from(inMemoryInfractions.values());
+    return Array.from(new Map(
+        Array.from(inMemoryInfractions.values()).map(record => [record.caseNumber, record]),
+    ).values());
 }
 
 /**
@@ -239,7 +241,10 @@ export async function recoverInfractionByThreadId(
         guildId || thread.guildId,
         starter as unknown as { id?: string; createdAt?: Date; components?: readonly ComponentNode[] },
     );
-    if (record) inMemoryInfractions.set(record.threadId, record);
+    if (record) {
+        inMemoryInfractions.set(record.threadId, record);
+        inMemoryInfractions.set(record.caseNumber, record);
+    }
     return record;
 }
 
@@ -403,6 +408,7 @@ function addHistory(record: InfractionRecord, action: string, actorId: string, d
 
 async function persistRecord(record: InfractionRecord): Promise<boolean> {
     inMemoryInfractions.set(record.threadId, record);
+    inMemoryInfractions.set(record.caseNumber, record);
     if (!persistenceAdapter) return false;
 
     try {
@@ -421,7 +427,10 @@ async function getInfractionRecord(threadId: string): Promise<InfractionRecord |
 
     try {
         const record = await persistenceAdapter.getInfractionByThreadId(threadId);
-        if (record) inMemoryInfractions.set(threadId, record);
+        if (record) {
+            inMemoryInfractions.set(record.threadId, record);
+            inMemoryInfractions.set(record.caseNumber, record);
+        }
         return record;
     } catch (error) {
         console.error('[Infractions] Unable to load the infraction record.', error);
@@ -542,13 +551,36 @@ function buildPromotionPanel(details: PromotionPanelDetails): ContainerBuilder {
 
 function infractionControlRows(
     record: InfractionRecord,
-    threadId: string,
-    threadUrl: string,
+    appealKey: string,
+    sourceUrl?: string,
+    managementThreadId?: string,
 ): ActionRowBuilder<ButtonBuilder>[] {
     const inactive = record.status !== 'Active';
     const closed = record.status === 'Closed';
-    const controlId = (action: string) => `infraction:${action}:${threadId}`;
 
+    const appealRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        record.appealable
+            ? new ButtonBuilder()
+                .setCustomId(`infraction-appeal:start:${appealKey}`)
+                .setLabel('⚖️ Appeal Infraction')
+                .setStyle(ButtonStyle.Primary)
+            : new ButtonBuilder()
+                .setCustomId('infraction-appeal:disabled')
+                .setLabel('Not Appealable')
+                .setStyle(ButtonStyle.Secondary)
+                .setDisabled(true),
+    );
+    if (!sourceUrl) return [appealRow];
+
+    const linkRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+            .setLabel(managementThreadId ? 'Open Evidence Thread' : 'Open Infraction Message')
+            .setStyle(ButtonStyle.Link)
+            .setURL(sourceUrl),
+    );
+    if (!managementThreadId) return [appealRow, linkRow];
+
+    const controlId = (action: string) => `infraction:${action}:${managementThreadId}`;
     const primaryRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder().setCustomId(controlId('edit')).setLabel('Edit').setStyle(ButtonStyle.Primary).setDisabled(inactive),
         new ButtonBuilder()
@@ -565,25 +597,7 @@ function infractionControlRows(
         new ButtonBuilder().setCustomId(controlId('history')).setLabel('View History').setStyle(ButtonStyle.Secondary),
     );
 
-    // Appeal button row — clickable when appealable, disabled when not
-    const appealRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        record.appealable
-            ? new ButtonBuilder()
-                .setCustomId(`infraction-appeal:start:${threadId}`)
-                .setLabel('⚖️ Appeal Infraction')
-                .setStyle(ButtonStyle.Primary)
-            : new ButtonBuilder()
-                .setCustomId('infraction-appeal:disabled')
-                .setLabel('Not Appealable')
-                .setStyle(ButtonStyle.Secondary)
-                .setDisabled(true),
-    );
-
-    const closeRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder()
-            .setLabel('Open Evidence Thread')
-            .setStyle(ButtonStyle.Link)
-            .setURL(threadUrl),
+    linkRow.addComponents(
         new ButtonBuilder()
             .setCustomId(controlId('close'))
             .setLabel('Close Thread')
@@ -591,7 +605,7 @@ function infractionControlRows(
             .setDisabled(closed),
     );
 
-    return [appealRow, primaryRow, closeRow];
+    return [appealRow, primaryRow, linkRow];
 }
 
 /**
@@ -602,11 +616,12 @@ function infractionControlRows(
  */
 function buildInfractionPanel(
     record: InfractionRecord,
-    threadId?: string,
-    threadUrl?: string,
+    appealKey: string = record.caseNumber,
+    sourceUrl?: string,
+    managementThreadId?: string,
 ): ContainerBuilder {
     const punishmentBadge = new ButtonBuilder()
-        .setCustomId(`infraction:punishment-display:${threadId || 'pending'}`)
+        .setCustomId(`infraction:punishment-display:${managementThreadId || appealKey}`)
         .setLabel(punishmentBadgeLabel(record))
         .setStyle(ButtonStyle.Primary)
         .setDisabled(true);
@@ -623,10 +638,8 @@ function buildInfractionPanel(
                 .setButtonAccessory(punishmentBadge),
         );
 
-    if (threadId && threadUrl) {
-        for (const row of infractionControlRows(record, threadId, threadUrl)) {
-            panel.addActionRowComponents(row);
-        }
+    for (const row of infractionControlRows(record, appealKey, sourceUrl, managementThreadId)) {
+        panel.addActionRowComponents(row);
     }
 
     return panel
@@ -644,7 +657,7 @@ async function updateInfractionDetailMessage(thread: ThreadChannel, record: Infr
     if (!message) message = await thread.messages.fetch(record.detailMessageId).catch(() => null);
     if (!message) return;
     await message.edit({
-        components: [buildInfractionPanel(record, record.threadId, thread.url)],
+        components: [buildInfractionPanel(record, record.caseNumber, thread.url, record.threadId)],
         flags: MessageFlags.IsComponentsV2,
         // Discord requires existing attachment IDs when a Components V2 panel
         // is edited. Retaining them keeps both supplied banners visible after
@@ -902,10 +915,11 @@ function infractionCommand() {
                 const caseNumber = await nextInfractionCaseNumber(interaction.guildId);
 
                 const fetchedParent = await interaction.client.channels.fetch(INFRACTION_PARENT_CHANNEL_ID).catch(() => null);
-                if (!(fetchedParent instanceof TextChannel) || fetchedParent.type !== ChannelType.GuildText) {
+                if (!fetchedParent || fetchedParent.type !== ChannelType.GuildText || !fetchedParent.isSendable()) {
                     await interaction.editReply('The configured infraction parent channel is unavailable or is not a standard text channel.');
                     return;
                 }
+                const infractionParent = fetchedParent as TextChannel;
 
                 const now = new Date().toISOString();
                 const record: InfractionRecord = {
@@ -923,7 +937,7 @@ function infractionCommand() {
                     appealable,
                     expiration,
                     status: 'Active',
-                    parentChannelId: fetchedParent.id,
+                    parentChannelId: infractionParent.id,
                     headerMessageId: '',
                     threadId: '',
                     detailMessageId: '',
@@ -935,7 +949,7 @@ function infractionCommand() {
 
                 let detailMessage;
                 try {
-                    detailMessage = await fetchedParent.send({
+                    detailMessage = await infractionParent.send({
                         components: [buildInfractionPanel(record)],
                         files: infractionArtworkAttachments(),
                         flags: MessageFlags.IsComponentsV2,
@@ -944,8 +958,12 @@ function infractionCommand() {
                 } catch (error) { throw error; }
                 record.headerMessageId = detailMessage.id;
                 record.detailMessageId = detailMessage.id;
+                // The first V2 message already contains the Appeal button.
+                // Cache its stable case-number key immediately so even a fast
+                // click can load the record while thread setup is still running.
+                inMemoryInfractions.set(record.caseNumber, record);
 
-                let thread: ThreadChannel;
+                let thread: ThreadChannel | null = null;
                 try {
                     thread = await detailMessage.startThread({
                         name: `${caseNumber} | ${sanitizeThreadSegment(member.username)} | ${action}`.slice(0, 100),
@@ -954,16 +972,29 @@ function infractionCommand() {
                     });
                     record.threadId = thread.id;
                 } catch (error) {
-                    await detailMessage.delete().catch(() => null);
-                    throw error;
+                    // Creating a public thread requires extra Discord channel
+                    // permissions. The infraction itself remains valid without
+                    // one, so keep the case in the parent channel and retain a
+                    // working Appeal button instead of failing the command.
+                    record.threadId = detailMessage.id;
+                    addHistory(
+                        record,
+                        'Evidence Thread Unavailable',
+                        interaction.user.id,
+                        'Discord did not allow the bot to create an evidence thread; the case remains in the infraction channel.',
+                    );
+                    logger.warn(`[Infractions] ${caseNumber} was issued without an evidence thread: ${error instanceof Error ? error.message : 'Unknown error'}`);
                 }
                 issuedCase = { caseNumber, url: detailMessage.url, appealable: record.appealable };
 
-                // The thread is started on detailMessage, so that message is the thread's
-                // single starting message. Add the live controls to the same Components V2
-                // panel after the thread ID exists, rather than duplicating the case in it.
+                const infractionUrl = thread?.url || detailMessage.url;
                 await detailMessage.edit({
-                    components: [buildInfractionPanel(record, thread.id, thread.url)],
+                    components: [buildInfractionPanel(
+                        record,
+                        record.caseNumber,
+                        infractionUrl,
+                        thread?.id,
+                    )],
                     flags: MessageFlags.IsComponentsV2,
                     attachments: retainedMessageAttachments(detailMessage),
                     allowedMentions: { parse: [], users: [member.id] },
@@ -977,7 +1008,7 @@ function infractionCommand() {
                         { name: 'Reason', value: reason },
                         { name: 'Rule Broken', value: ruleBroken },
                         { name: 'Expiration', value: expiration },
-                        { name: 'Evidence Thread', value: thread ? thread.url : 'Not available' },
+                        { name: thread ? 'Evidence Thread' : 'Infraction Message', value: infractionUrl },
                     );
                 if (notifyMember) {
                     try {
@@ -985,12 +1016,12 @@ function infractionCommand() {
                             new ButtonBuilder()
                                 .setLabel('Open Infraction Channel')
                                 .setStyle(ButtonStyle.Link)
-                                .setURL(thread.url),
+                                .setURL(infractionUrl),
                         );
                         if (record.appealable) {
                             notificationButtons.addComponents(
                                 new ButtonBuilder()
-                                    .setCustomId(`infraction-appeal:start:${thread.id}`)
+                                    .setCustomId(`infraction-appeal:start:${record.caseNumber}`)
                                     .setLabel('Appeal Infraction')
                                     .setStyle(ButtonStyle.Primary)
                                     .setEmoji('⚖️'),
@@ -1018,13 +1049,14 @@ function infractionCommand() {
                 );
 
                 const persisted = await persistRecord(record);
+                const caseEventChannel = thread || infractionParent;
                 if (notifyMember && !memberNotified) {
-                    await thread.send('The member could not be notified by direct message.').catch(error => {
+                    await caseEventChannel.send('The member could not be notified by direct message.').catch(error => {
                         logger.warn(`Could not post the infraction DM-status notice for ${caseNumber}: ${error instanceof Error ? error.message : 'Unknown error'}`);
                     });
                 }
                 if (!persisted) {
-                    await thread.send('Database persistence is currently unavailable. The case remains active in this process only.').catch(error => {
+                    await caseEventChannel.send('Database persistence is currently unavailable. The case remains active in this process only.').catch(error => {
                         logger.warn(`Could not post the infraction persistence notice for ${caseNumber}: ${error instanceof Error ? error.message : 'Unknown error'}`);
                     });
                 }
@@ -1032,6 +1064,7 @@ function infractionCommand() {
                 await interaction.editReply(
                     `✅ ${caseNumber} has been issued successfully: ${detailMessage.url}`
                     + `${record.appealable ? '\nThe Appeal Infraction button is active on the case and in the member notification.' : '\nThis case was marked as not appealable.'}`
+                    + `${thread ? '' : '\nWarning: Discord did not allow an evidence thread, so the case was kept in the infraction channel.'}`
                     + `${notifyMember ? memberNotified ? '\nThe member was notified by DM.' : '\nWarning: the member DM could not be delivered.' : '\nThe member DM was skipped.'}`
                     + `${persisted ? '' : '\nWarning: database persistence is unavailable.'}`,
                 );
@@ -1049,7 +1082,11 @@ function infractionCommand() {
                     return;
                 }
                 markSlashCommandFailed(interaction, error);
-                await interaction.editReply('Unable to create the infraction case right now. Please verify the bot permissions and try again.');
+                await interaction.editReply(
+                    `I could not post the infraction in <#${INFRACTION_PARENT_CHANNEL_ID}>. `
+                    + 'Please give the bot **View Channel**, **Send Messages**, **Embed Links**, and **Attach Files** in that channel. '
+                    + 'Creating threads is optional and will no longer prevent the infraction from being issued.',
+                );
             }
         },
     };
