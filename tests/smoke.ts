@@ -16,6 +16,7 @@ import {
     setInfractionAppealClient,
 } from '../src/commands/infractionAppeal';
 import { handleSessionButton } from '../src/commands/session';
+import { handleLoaButton } from '../src/commands/loa';
 import { interactionCreate } from '../src/handlers/interactionCreate';
 import { sanitizedCommandOptions } from '../src/utils/commandAudit';
 import { fetchErlcServer, type ErlcServerSnapshot } from '../src/services/erlcService';
@@ -164,7 +165,9 @@ for (const required of [
 
     const promotionSchema = commandNamed('promotion').data.toJSON() as {
         options: Array<{ name: string; options?: Array<{ name: string; type: number }> }>;
+        dm_permission?: boolean;
     };
+    assert.equal(promotionSchema.dm_permission, false, '/promotion must be server-only');
     const promotionIssueOptions = promotionSchema.options.find(option => option.name === 'issue')?.options || [];
     const promotionRoleOption = promotionIssueOptions.find(option => option.name === 'new-role');
     assert.equal(promotionRoleOption?.type, 8, '/promotion issue new-role must use Discord\'s server-role selector');
@@ -329,6 +332,7 @@ for (const required of [
 
     const promotionSends: any[] = [];
     const promotionDms: any[] = [];
+    let promotionDestinationId = '';
     const promotedMember = {
         id: '1489388257925005508',
         username: 'PromotedUser',
@@ -342,6 +346,10 @@ for (const required of [
         deferReply: async () => undefined,
         editReply: async () => undefined,
         user: { id: '1523122912201277590' },
+        channelId: 'outside-promotions-channel',
+        channel: {
+            send: async () => { throw new Error('promotion used the invocation channel'); },
+        },
         member: {
             roles: { cache: new Map([[PROMOTION_AUTHORIZED_ROLE_ID, { id: PROMOTION_AUTHORIZED_ROLE_ID }]]) },
         },
@@ -357,17 +365,21 @@ for (const required of [
         },
         client: {
             channels: {
-                fetch: async () => ({
+                fetch: async (channelId: string) => {
+                    promotionDestinationId = channelId;
+                    return {
                     isSendable: () => true,
                     send: async (payload: any) => {
                         promotionSends.push(payload);
                         return { url: 'https://discord.com/channels/guild/promotions/promotion-message' };
                     },
-                }),
+                    };
+                },
             },
         },
     } as never;
     await commandNamed('promotion').execute(promotionInteraction);
+    assert.equal(promotionDestinationId, '1526044978109743255', 'promotions must always use the canonical promotion channel');
     assert.equal(promotionSends.length, 1);
     assert.equal(promotionSends[0].flags, 32_768, 'promotions must use Components V2');
     const promotionPanel = promotionSends[0].components[0].toJSON();
@@ -392,6 +404,74 @@ for (const required of [
     assert.equal(viewPromotionButton?.label, 'View Promotion');
     assert.equal(viewPromotionButton?.url, 'https://discord.com/channels/guild/promotions/promotion-message');
 
+    // A pending LOA message can outlive the bot process. Approval must recover
+    // its data from the still-visible Discord embed rather than claiming that
+    // the untouched request was already processed after a restart.
+    const loaUserId = '1489388257925005508';
+    const loaPendingId = `${loaUserId}-${Date.now()}`;
+    const loaStart = Math.floor((Date.now() + 60_000) / 1_000);
+    const loaEnd = Math.floor((Date.now() + 86_400_000) / 1_000);
+    let loaRoleAssigned = '';
+    let loaRequestDeleted = false;
+    const loaResultSends: any[] = [];
+    const loaReviewReplies: string[] = [];
+    const loaEarlyReplies: any[] = [];
+    const loaMember = {
+        id: loaUserId,
+        user: { tag: 'LoaUser#0001', username: 'LoaUser' },
+        roles: {
+            add: async (roleId: string) => { loaRoleAssigned = roleId; },
+            remove: async () => undefined,
+        },
+        send: async () => undefined,
+    };
+    const loaChannel = {
+        isTextBased: () => true,
+        isSendable: () => true,
+        messages: {
+            fetch: async () => ({ delete: async () => { loaRequestDeleted = true; } }),
+        },
+        send: async (payload: any) => { loaResultSends.push(payload); return {}; },
+    };
+    const recoveredLoaHandled = await handleLoaButton({
+        customId: `loa:review:approve:${loaPendingId}`,
+        guildId: '789699000047370261',
+        user: { id: '1523122912201277590' },
+        memberPermissions: { has: () => true },
+        member: { roles: [] },
+        message: {
+            id: 'loa-request-message',
+            channelId: '1528206019237515344',
+            createdAt: new Date(),
+            embeds: [{
+                title: '📝 LOA Request Submitted',
+                fields: [
+                    { name: 'Requested By', value: `<@${loaUserId}>` },
+                    { name: 'Name', value: 'Loa User' },
+                    { name: 'Start Date', value: `<t:${loaStart}:F>` },
+                    { name: 'End Date', value: `<t:${loaEnd}:F>` },
+                    { name: 'Reason', value: 'Temporary leave request.' },
+                    { name: 'Submitted At', value: `<t:${Math.floor(Date.now() / 1_000)}:F>` },
+                ],
+            }],
+        },
+        client: {
+            guilds: {
+                fetch: async () => ({ members: { fetch: async () => loaMember } }),
+            },
+            channels: { fetch: async () => loaChannel },
+        },
+        reply: async (payload: any) => { loaEarlyReplies.push(payload); },
+        deferReply: async () => undefined,
+        editReply: async (content: string) => { loaReviewReplies.push(content); },
+    } as never);
+    assert(recoveredLoaHandled);
+    assert.equal(loaEarlyReplies.length, 0, 'a recoverable pending LOA must not be reported as already processed');
+    assert.equal(loaRoleAssigned, '1521593407795888329', 'approving a recovered LOA must assign the LOA role');
+    assert(loaRequestDeleted, 'the original request should be deleted only after approval completes');
+    assert.equal(loaResultSends.length, 1, 'the approved LOA result must be posted once');
+    assert(loaReviewReplies.some(reply => reply.includes('approved')));
+
     let savedInfraction: InfractionRecord | null = null;
     configureInfractionPersistence({
         nextCaseNumber: async () => 1,
@@ -415,26 +495,26 @@ for (const required of [
             roles: { fetch: async () => null },
         },
         send: async () => ({ id: '1526044664975852000' }),
+        delete: async () => undefined,
     };
     const infractionParent = Object.create(TextChannel.prototype) as any;
     Object.defineProperties(infractionParent, {
         id: { value: '1526044664975851642' },
         type: { value: ChannelType.GuildText },
+        threads: {
+            value: {
+                create: async (options: any) => {
+                    attachedThreadOptions = options;
+                    return infractionThread;
+                },
+            },
+        },
         send: {
             value: async (payload: any) => {
                 infractionParentSends.push(payload);
                 return {
                     id: '1526044664975851777',
                     url: 'https://discord.com/channels/guild/1526044664975851642/1526044664975851777',
-                    startThread: async (options: any) => {
-                        attachedThreadOptions = options;
-                        return infractionThread;
-                    },
-                    edit: async (payload: any) => {
-                        infractionDetailEdit = payload;
-                        return {};
-                    },
-                    delete: async () => undefined,
                 };
             },
         },
@@ -465,7 +545,7 @@ for (const required of [
         client: { channels: { fetch: async () => infractionParent } },
     } as never;
     await commandNamed('infraction').execute(infractionInteraction);
-    assert(attachedThreadOptions, 'the infraction record message should receive an attached evidence thread');
+    assert(attachedThreadOptions, 'the infraction should receive a standalone evidence thread');
     assert.equal(attachedThreadOptions.name, 'INF-0001 | ExampleUser | Warning');
     assert.equal(infractionParentSends.length, 1, 'the complete infraction embed should be sent to the parent channel');
     assert((savedInfraction as InfractionRecord | null)?.threadId === infractionThread.id);
@@ -486,8 +566,8 @@ for (const required of [
             && component.components?.[0]?.custom_id?.startsWith('infraction-appeal:start:'))
         ?.components?.[0];
     assert.equal(initialAppealButton?.custom_id, 'infraction-appeal:start:INF-0001', 'the first case message must already contain its Appeal button');
-    assert.equal(infractionDetailEdit?.components?.length, 1, 'the updated case must remain one visual panel');
-    const infractionPanel = infractionDetailEdit?.components?.[0]?.toJSON();
+    assert.equal(infractionDetailEdit, null, 'the V2 case message must not be edited after its first send');
+    const infractionPanel = initialInfractionPanel;
     const punishmentBadge = infractionPanel?.components?.find((component: { type: number }) => component.type === 9)?.accessory;
     const appealButton = infractionPanel?.components
         ?.find((component: { type: number; components?: Array<{ custom_id?: string }> }) => component.type === 1
@@ -510,21 +590,27 @@ for (const required of [
         saveInfraction: async record => { fallbackInfraction = record; },
         getInfractionByThreadId: async key => key === 'INF-0002' ? fallbackInfraction : null,
     });
-    let fallbackPanelEdit: any = null;
+    let fallbackPanelPayload: any = null;
     let fallbackMessageDeleted = false;
     const fallbackParent = Object.create(TextChannel.prototype) as any;
     Object.defineProperties(fallbackParent, {
         id: { value: '1526044664975851642' },
         type: { value: ChannelType.GuildText },
         isSendable: { value: () => true },
+        threads: {
+            value: {
+                create: async () => { throw new Error('Missing Create Public Threads'); },
+            },
+        },
         send: {
-            value: async () => ({
-                id: '1526044664975851888',
-                url: 'https://discord.com/channels/guild/1526044664975851642/1526044664975851888',
-                startThread: async () => { throw new Error('Missing Create Public Threads'); },
-                edit: async (payload: any) => { fallbackPanelEdit = payload; },
-                delete: async () => { fallbackMessageDeleted = true; },
-            }),
+            value: async (payload: any) => {
+                fallbackPanelPayload = payload;
+                return {
+                    id: '1526044664975851888',
+                    url: 'https://discord.com/channels/guild/1526044664975851642/1526044664975851888',
+                    delete: async () => { fallbackMessageDeleted = true; },
+                };
+            },
         },
     });
     const fallbackReplies: string[] = [];
@@ -550,7 +636,7 @@ for (const required of [
     } as never);
     assert(!fallbackMessageDeleted, 'a missing thread permission must not delete the issued infraction');
     assert.equal((fallbackInfraction as InfractionRecord | null)?.threadId, '1526044664975851888');
-    const fallbackPanel = fallbackPanelEdit.components[0].toJSON();
+    const fallbackPanel = fallbackPanelPayload.components[0].toJSON();
     const fallbackAppealButton = fallbackPanel.components
         .find((component: { type: number; components?: Array<{ custom_id?: string }> }) => component.type === 1
             && component.components?.[0]?.custom_id?.startsWith('infraction-appeal:start:'))
@@ -565,10 +651,11 @@ for (const required of [
         guildId: '789699000047370261',
         user: infractionTarget,
         options: { getUser: () => infractionTarget },
-        deferReply: async () => undefined,
-        followUp: async (payload: any) => { viewInfractionsPayload = payload; },
+        deferred: false,
+        replied: false,
+        reply: async (payload: any) => { viewInfractionsPayload = payload; },
+        followUp: async () => { throw new Error('successful view must not use a follow-up'); },
         deleteReply: async () => { viewInfractionsLoadingDeleted = true; },
-        editReply: async () => undefined,
     } as never);
     assert.equal(viewInfractionsPayload?.flags, 32_768, '/view-infractions must use Components V2');
     const viewInfractionsPanel = viewInfractionsPayload.components[0].toJSON();
@@ -581,7 +668,7 @@ for (const required of [
         .join('\n');
     assert(viewInfractionText.includes('INF-0001'));
     assert(viewInfractionText.includes('Open Infraction Channel'));
-    assert(viewInfractionsLoadingDeleted, 'the private loading response should be removed after the public V2 panel is posted');
+    assert(!viewInfractionsLoadingDeleted, 'the public V2 panel must never be deleted as loading-response cleanup');
 
     const sessionBannerNames = new Map([
         ['session-start', 'session-start-banner.png'],

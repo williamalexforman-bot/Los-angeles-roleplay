@@ -49,8 +49,14 @@ const PROMOTION_BANNER_NAME = 'promotion-banner.png';
 const PROMOTION_BANNER_PATH = resolve(__dirname, '..', '..', 'assets', PROMOTION_BANNER_NAME);
 
 const TRAINING_RESULTS_CHANNEL_ID = process.env.TRAINING_RESULTS_CHANNEL_ID || '1526490481398124614';
-const PROMOTIONS_CHANNEL_ID = process.env.PROMOTIONS_CHANNEL_ID || '1526044978109743255';
-const INFRACTION_PARENT_CHANNEL_ID = process.env.INFRACTION_PARENT_CHANNEL_ID || '1526044664975851642';
+// Promotions always publish here, regardless of the channel where staff run
+// the command. This also prevents an old host environment override from
+// routing the command through a legacy announcement path.
+const PROMOTIONS_CHANNEL_ID = '1526044978109743255';
+// This server uses one canonical public infraction channel. Keeping it fixed
+// prevents an old hosting-environment override from silently sending cases to
+// a retired channel with different permissions.
+const INFRACTION_PARENT_CHANNEL_ID = '1526044664975851642';
 
 const INFRACTION_ACTIONS = [
     'Verbal Warning',
@@ -770,6 +776,7 @@ function promotionCommand() {
         data: new SlashCommandBuilder()
             .setName('promotion')
             .setDescription('Manage staff promotions')
+            .setDMPermission(false)
             .addSubcommand(subcommand =>
                 subcommand
                     .setName('issue')
@@ -947,36 +954,19 @@ function infractionCommand() {
                 };
                 addHistory(record, 'Created', interaction.user.id, `${action} issued to ${member.username}.`);
 
-                let detailMessage;
-                try {
-                    detailMessage = await infractionParent.send({
-                        components: [buildInfractionPanel(record)],
-                        files: infractionArtworkAttachments(),
-                        flags: MessageFlags.IsComponentsV2,
-                        allowedMentions: { parse: [], users: [member.id] },
-                    });
-                } catch (error) { throw error; }
-                record.headerMessageId = detailMessage.id;
-                record.detailMessageId = detailMessage.id;
-                // The first V2 message already contains the Appeal button.
-                // Cache its stable case-number key immediately so even a fast
-                // click can load the record while thread setup is still running.
-                inMemoryInfractions.set(record.caseNumber, record);
-
+                // Create a standalone evidence thread first. Starting a thread
+                // from the Components V2 case message can cause Discord to turn
+                // that message into a blank thread starter, stripping the case
+                // panel and its Appeal button from the parent channel.
                 let thread: ThreadChannel | null = null;
                 try {
-                    thread = await detailMessage.startThread({
+                    thread = await infractionParent.threads.create({
                         name: `${caseNumber} | ${sanitizeThreadSegment(member.username)} | ${action}`.slice(0, 100),
                         autoArchiveDuration: ThreadAutoArchiveDuration.OneDay,
                         reason: `${caseNumber} issued by ${interaction.user.id}`,
                     });
                     record.threadId = thread.id;
                 } catch (error) {
-                    // Creating a public thread requires extra Discord channel
-                    // permissions. The infraction itself remains valid without
-                    // one, so keep the case in the parent channel and retain a
-                    // working Appeal button instead of failing the command.
-                    record.threadId = detailMessage.id;
                     addHistory(
                         record,
                         'Evidence Thread Unavailable',
@@ -985,20 +975,38 @@ function infractionCommand() {
                     );
                     logger.warn(`[Infractions] ${caseNumber} was issued without an evidence thread: ${error instanceof Error ? error.message : 'Unknown error'}`);
                 }
+
+                let detailMessage;
+                try {
+                    detailMessage = await infractionParent.send({
+                        components: [buildInfractionPanel(
+                            record,
+                            record.caseNumber,
+                            thread?.url,
+                            thread?.id,
+                        )],
+                        files: infractionArtworkAttachments(),
+                        flags: MessageFlags.IsComponentsV2,
+                        allowedMentions: { parse: [], users: [member.id] },
+                    });
+                } catch (error) {
+                    // Roll back only the empty thread created by this failed
+                    // command so unsuccessful attempts never clutter the channel.
+                    if (thread) await thread.delete('The infraction case panel could not be posted.').catch(() => null);
+                    throw error;
+                }
+                record.headerMessageId = detailMessage.id;
+                record.detailMessageId = detailMessage.id;
+                if (!thread) record.threadId = detailMessage.id;
+
+                // The public message is now final on its first send and already
+                // contains the Appeal button. Cache both stable lookup keys
+                // immediately so even a fast click can resolve the case.
+                inMemoryInfractions.set(record.caseNumber, record);
+                inMemoryInfractions.set(record.threadId, record);
                 issuedCase = { caseNumber, url: detailMessage.url, appealable: record.appealable };
 
                 const infractionUrl = thread?.url || detailMessage.url;
-                await detailMessage.edit({
-                    components: [buildInfractionPanel(
-                        record,
-                        record.caseNumber,
-                        infractionUrl,
-                        thread?.id,
-                    )],
-                    flags: MessageFlags.IsComponentsV2,
-                    attachments: retainedMessageAttachments(detailMessage),
-                    allowedMentions: { parse: [], users: [member.id] },
-                });
 
                 let memberNotified = false;
                 const notificationEmbed = brandedEmbed(`Staff Infraction | ${caseNumber}`)

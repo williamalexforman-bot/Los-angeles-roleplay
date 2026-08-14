@@ -61,6 +61,23 @@ export const onReady = async (client: Client): Promise<void> => {
     const guildId = process.env.GUILD_ID;
     try {
         if (guildId) {
+            // This deployment is intentionally guild-scoped. Remove legacy
+            // global definitions first so Discord cannot offer a stale copy of
+            // /infraction (or any other command) alongside the current guild
+            // command and route the user through an obsolete schema.
+            const legacyGlobalCommands = await rest.get(
+                Routes.applicationCommands(client.application.id),
+            ) as Array<{ id: string; name: string }>;
+            if (legacyGlobalCommands.length > 0) {
+                await rest.put(Routes.applicationCommands(client.application.id), { body: [] });
+                // Do a one-time clean guild registration while legacy globals
+                // exist. This refreshes command IDs and clears the stale
+                // Discord registration state that left only some /session-*
+                // commands invokable. Future restarts skip this reset because
+                // the global command list is then empty.
+                await rest.put(Routes.applicationGuildCommands(client.application.id, guildId), { body: [] });
+                logger.info(`Removed ${legacyGlobalCommands.length} legacy global slash commands and reset the guild command cache.`);
+            }
             await rest.put(Routes.applicationGuildCommands(client.application.id, guildId), { body: commands });
             logger.info(`Registered ${commands.length} guild slash commands.`);
         } else {

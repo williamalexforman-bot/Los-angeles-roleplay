@@ -63,6 +63,73 @@ interface ActiveLoa {
 
 const inMemoryPending: Map<string, PendingLoa> = new Map();
 const inMemoryActive: Map<string, ActiveLoa> = new Map();
+const processingPendingIds: Set<string> = new Set();
+
+type RecoverableLoaEmbed = {
+    title?: string | null;
+    timestamp?: string | null;
+    fields?: readonly { name: string; value: string }[];
+};
+
+function pendingExpiryTimer(pendingId: string): NodeJS.Timeout {
+    const timer = setTimeout(() => {
+        if (inMemoryPending.has(pendingId)) inMemoryPending.delete(pendingId);
+    }, 7 * 24 * 60 * 60 * 1_000);
+    timer.unref?.();
+    return timer;
+}
+
+function fieldValue(embed: RecoverableLoaEmbed, name: string): string {
+    return embed.fields?.find(field => field.name.toLowerCase() === name.toLowerCase())?.value.trim() || '';
+}
+
+function storedDate(value: string): string {
+    const discordTimestamp = value.match(/^<t:(\d+)(?::[A-Za-z])?>$/)?.[1];
+    return discordTimestamp
+        ? new Date(Number(discordTimestamp) * 1_000).toISOString()
+        : value;
+}
+
+/**
+ * Rebuild a pending request from the still-visible Discord review message.
+ * LOA buttons outlive process memory, so a restart must not make a genuinely
+ * pending request look as though it was already approved or denied.
+ */
+function recoverPendingFromMessage(interaction: ButtonInteraction, pendingId: string): PendingLoa | null {
+    if (!interaction.guildId) return null;
+    const message = interaction.message;
+    const embed = message.embeds.find(candidate => /LOA Request Submitted/i.test(candidate.title || ''));
+    if (!embed) return null;
+
+    const requestedBy = fieldValue(embed, 'Requested By');
+    const userId = requestedBy.match(/<@!?(\d{17,20})>/)?.[1];
+    const name = fieldValue(embed, 'Name');
+    const startDate = storedDate(fieldValue(embed, 'Start Date'));
+    const endDate = storedDate(fieldValue(embed, 'End Date'));
+    const reason = fieldValue(embed, 'Reason');
+    if (!userId || !name || !startDate || !endDate || !reason || !pendingId.startsWith(`${userId}-`)) return null;
+
+    const requestedAt = storedDate(fieldValue(embed, 'Submitted At'))
+        || embed.timestamp
+        || message.createdAt?.toISOString()
+        || new Date().toISOString();
+    const pending: PendingLoa = {
+        guildId: interaction.guildId,
+        userId,
+        memberUsername: name,
+        name,
+        startDate,
+        endDate,
+        reason,
+        requestedAt,
+        channelId: message.channelId,
+        messageId: message.id,
+        timer: pendingExpiryTimer(pendingId),
+    };
+    inMemoryPending.set(pendingId, pending);
+    logger.info(`Recovered pending LOA ${pendingId} from its Discord review message after a restart.`);
+    return pending;
+}
 
 function pendingTimestamp(loa: PendingLoa): string {
     return `<t:${Math.floor(new Date(loa.requestedAt).getTime() / 1000)}:F>`;
@@ -269,9 +336,12 @@ export async function handleLoaButton(interaction: ButtonInteraction): Promise<b
         const pendingId = parts.slice(3).join(':');
 
         if (!['approve', 'deny'].includes(action)) return false;
-        const pending = inMemoryPending.get(pendingId);
+        const pending = inMemoryPending.get(pendingId) || recoverPendingFromMessage(interaction, pendingId);
         if (!pending) {
-            await interaction.reply({ content: 'This LOA request has already been processed.', flags: MessageFlags.Ephemeral });
+            await interaction.reply({
+                content: 'This LOA request could not be recovered from its review message. Please submit a new request.',
+                flags: MessageFlags.Ephemeral,
+            });
             return true;
         }
 
@@ -295,12 +365,13 @@ export async function handleLoaButton(interaction: ButtonInteraction): Promise<b
                 return true;
             }
 
-            pending.approvedBy = interaction.user.id;
-            clearTimeout(pending.timer);
-            inMemoryPending.delete(pendingId);
+            if (processingPendingIds.has(pendingId)) {
+                await interaction.editReply('This LOA request is currently being processed by another reviewer.');
+                return true;
+            }
+            processingPendingIds.add(pendingId);
 
-            // Remove the request message that contains the private reason.
-            await deleteOriginalRequest(pending, interaction.client);
+            pending.approvedBy = interaction.user.id;
 
             const member = await fetchMember(pending.guildId, pending.userId, interaction.client);
 
@@ -335,8 +406,16 @@ export async function handleLoaButton(interaction: ButtonInteraction): Promise<b
                         embeds: [approvedEmbed(active)],
                         files: [createLogoAttachment()],
                         allowedMentions: { parse: [], users: [pending.userId] },
+                    }).catch(error => {
+                        logger.warn(`Could not post the approved LOA for ${pending.userId}: ${error instanceof Error ? error.message : 'Unknown'}`);
                     });
                 }
+
+                clearTimeout(pending.timer);
+                inMemoryPending.delete(pendingId);
+                // Remove the request message only after the decision has been
+                // applied, so a mid-review failure never loses the request.
+                await deleteOriginalRequest(pending, interaction.client);
 
                 const roleMessage = roleAssigned ? 'the LOA role was assigned' : '⚠️ the LOA role could NOT be assigned';
                 await interaction.editReply(`✅ LOA for **${pending.name}** approved. The member was notified, ${roleMessage}, and the approved LOA was posted to <#${LOA_REQUEST_CHANNEL_ID}>.`);
@@ -357,8 +436,14 @@ export async function handleLoaButton(interaction: ButtonInteraction): Promise<b
                         embeds: [deniedEmbed(pending.memberUsername)],
                         files: [createLogoAttachment()],
                         allowedMentions: { parse: [], users: [pending.userId] },
+                    }).catch(error => {
+                        logger.warn(`Could not post the denied LOA for ${pending.userId}: ${error instanceof Error ? error.message : 'Unknown'}`);
                     });
                 }
+
+                clearTimeout(pending.timer);
+                inMemoryPending.delete(pendingId);
+                await deleteOriginalRequest(pending, interaction.client);
 
                 await interaction.editReply(`❌ LOA for **${pending.name}** was denied. The member was notified.`);
                 return true;
@@ -367,6 +452,8 @@ export async function handleLoaButton(interaction: ButtonInteraction): Promise<b
             logger.error(`LOA review failed: ${error instanceof Error ? error.message : 'Unknown'}`);
             await interaction.editReply('Unable to process this LOA review right now. Please try again later.');
             return true;
+        } finally {
+            processingPendingIds.delete(pendingId);
         }
     }
 
@@ -403,9 +490,7 @@ export async function handleLoaModal(interaction: ModalSubmitInteraction): Promi
             endDate,
             reason,
             requestedAt: new Date().toISOString(),
-            timer: setTimeout(() => {
-                if (inMemoryPending.has(pendingId)) inMemoryPending.delete(pendingId);
-            }, 7 * 24 * 60 * 60 * 1_000),
+            timer: pendingExpiryTimer(pendingId),
         };
         inMemoryPending.set(pendingId, pending);
 
@@ -489,4 +574,3 @@ export const loaCommand = {
         }
     },
 };
-
