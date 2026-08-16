@@ -5,6 +5,7 @@ import { logger } from '../utils/logger';
 import { getDiscordBotToken } from '../config/env';
 import { startShiftQuotaScheduler } from '../commands/shift';
 import { registerTicketRobloxInfo } from './ticketRobloxInfo';
+import { registerOffDutyCommandWatcher } from './offDutyCommandWatcher';
 
 // Custom status refresh — updates "Watching [member count] members" every 5 minutes.
 const MEMBER_COUNT_REFRESH_MS = 5 * 60 * 1000;
@@ -53,6 +54,7 @@ export const onReady = async (client: Client): Promise<void> => {
     }
 
     registerTicketRobloxInfo(client);
+    registerOffDutyCommandWatcher(client);
 
     const uniqueNames = new Set<string>();
     const commands = commandDefinitions.map(command => {
@@ -92,7 +94,7 @@ export const onReady = async (client: Client): Promise<void> => {
         logger.error(`Failed to register slash commands: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
 
-try {
+    try {
         await loadProhibitedWordOverrides([...client.guilds.cache.keys()]);
     } catch (error) {
         logger.warn(`Prohibited-word overrides could not be loaded: ${error instanceof Error ? error.message : 'Unknown error'}`);
