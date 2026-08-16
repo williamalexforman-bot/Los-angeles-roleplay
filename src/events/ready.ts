@@ -4,19 +4,13 @@ import { loadProhibitedWordOverrides } from '../commands/prohibitedWords';
 import { logger } from '../utils/logger';
 import { getDiscordBotToken } from '../config/env';
 import { startShiftQuotaScheduler } from '../commands/shift';
+import { startPaidAdScheduler } from '../commands/paidAds';
 import { registerTicketRobloxInfo } from './ticketRobloxInfo';
 import { registerOffDutyCommandWatcher } from './offDutyCommandWatcher';
 
-// Custom status refresh — updates "Watching [member count] members" every 5 minutes.
 const MEMBER_COUNT_REFRESH_MS = 5 * 60 * 1000;
 let memberCountPresenceTimer: ReturnType<typeof setInterval> | null = null;
 
-/**
- * Sets the bot's presence to "Watching [member count] members". Prefers a fresh
- * guild fetch so the count refreshes on the interval even without the Server
- * Members Intent; falls back to the cached member count so the status never
- * breaks. Errors are logged and never thrown.
- */
 async function updateMemberCountPresence(client: Client): Promise<void> {
     try {
         const guildId = process.env.GUILD_ID || client.guilds.cache.firstKey();
@@ -26,8 +20,6 @@ async function updateMemberCountPresence(client: Client): Promise<void> {
         }
         let memberCount: number | null | undefined;
         try {
-            // Force a fresh fetch from the API so the member count is accurate
-            // every interval even without the Server Members Intent.
             const guild = await client.guilds.fetch({ guild: guildId, force: true });
             memberCount = guild.memberCount;
         } catch {
@@ -45,8 +37,6 @@ async function updateMemberCountPresence(client: Client): Promise<void> {
 
 export const onReady = async (client: Client): Promise<void> => {
     logger.info(`Logged in as ${client.user?.tag}.`);
-    // Prefer the token that actually authenticated this client. The environment
-    // resolver is retained for mocks and older discord.js-compatible clients.
     const token = client.token || getDiscordBotToken();
     if (!token || !client.application) {
         logger.error('Bot token or application information is missing.');
@@ -67,20 +57,11 @@ export const onReady = async (client: Client): Promise<void> => {
     const guildId = process.env.GUILD_ID;
     try {
         if (guildId) {
-            // This deployment is intentionally guild-scoped. Remove legacy
-            // global definitions first so Discord cannot offer a stale copy of
-            // /infraction (or any other command) alongside the current guild
-            // command and route the user through an obsolete schema.
             const legacyGlobalCommands = await rest.get(
                 Routes.applicationCommands(client.application.id),
             ) as Array<{ id: string; name: string }>;
             if (legacyGlobalCommands.length > 0) {
                 await rest.put(Routes.applicationCommands(client.application.id), { body: [] });
-                // Do a one-time clean guild registration while legacy globals
-                // exist. This refreshes command IDs and clears the stale
-                // Discord registration state that left only some /session-*
-                // commands invokable. Future restarts skip this reset because
-                // the global command list is then empty.
                 await rest.put(Routes.applicationGuildCommands(client.application.id, guildId), { body: [] });
                 logger.info(`Removed ${legacyGlobalCommands.length} legacy global slash commands and reset the guild command cache.`);
             }
@@ -100,8 +81,6 @@ export const onReady = async (client: Client): Promise<void> => {
         logger.warn(`Prohibited-word overrides could not be loaded: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
 
-    // Refresh the "Watching [member count] members" status immediately, then
-    // every 5 minutes. Clears any prior timer so reconnects never stack intervals.
     if (memberCountPresenceTimer) {
         clearInterval(memberCountPresenceTimer);
         memberCountPresenceTimer = null;
@@ -111,4 +90,5 @@ export const onReady = async (client: Client): Promise<void> => {
         void updateMemberCountPresence(client);
     }, MEMBER_COUNT_REFRESH_MS);
     startShiftQuotaScheduler(client);
+    startPaidAdScheduler(client);
 };
