@@ -11,6 +11,8 @@ import {
     MediaGalleryItemBuilder,
     Message,
     MessageFlags,
+    ModalBuilder,
+    ModalSubmitInteraction,
     PermissionFlagsBits,
     SeparatorBuilder,
     SeparatorSpacingSize,
@@ -18,6 +20,8 @@ import {
     StringSelectMenuBuilder,
     StringSelectMenuInteraction,
     TextDisplayBuilder,
+    TextInputBuilder,
+    TextInputStyle,
     type Guild,
     type GuildMember,
 } from 'discord.js';
@@ -242,6 +246,71 @@ function compact(value: string, max = 240): string {
     return clean.length > max ? `${clean.slice(0, max - 1)}…` : clean;
 }
 
+export interface ApplicationAiAssessment {
+    flagged: boolean;
+    score: number;
+    signals: string[];
+}
+
+/**
+ * Screens for common AI-writing signals without claiming certainty. Automated
+ * AI detection is imperfect, so flagged submissions are always presented as
+ * requiring manual staff review rather than being automatically denied.
+ */
+export function analyzeApplicationAi(answers: readonly string[]): ApplicationAiAssessment {
+    const text = answers.join('\n').toLowerCase();
+    const signals: string[] = [];
+    let score = 0;
+
+    if (/\b(?:as an ai|as a language model|i am an ai)\b/i.test(text)) {
+        score += 10;
+        signals.push('The response directly references being an AI or language model.');
+    }
+
+    const formalMarkers = [
+        'it is important to note',
+        'in conclusion',
+        'furthermore',
+        'moreover',
+        'to ensure a safe and respectful environment',
+        'i would take the following steps',
+        'first and foremost',
+    ].filter(marker => text.includes(marker));
+    if (formalMarkers.length >= 2) {
+        score += Math.min(formalMarkers.length, 4);
+        signals.push(`Several formulaic AI-style phrases were found (${formalMarkers.slice(0, 3).join(', ')}).`);
+    }
+
+    const longAnswers = answers.filter(answer => answer.trim().split(/\s+/).length >= 100).length;
+    if (longAnswers >= 3) {
+        score += 2;
+        signals.push('Several answers are unusually long and consistently structured.');
+    }
+
+    const repeatedWould = answers.filter(answer => /^\s*i would\b/i.test(answer)).length;
+    if (repeatedWould >= 4) {
+        score += 2;
+        signals.push('Many separate answers use the same “I would” response template.');
+    }
+
+    const transitionCount = (text.match(/\b(?:firstly|secondly|additionally|subsequently|finally)\b/g) || []).length;
+    if (transitionCount >= 5) {
+        score += 2;
+        signals.push('The responses repeatedly use formal, sequential transition wording.');
+    }
+
+    return { flagged: score >= 4, score, signals };
+}
+
+function aiReviewLine(answers: readonly string[]): string {
+    const assessment = analyzeApplicationAi(answers);
+    if (!assessment.flagged) return '> **AI Check:** ✅ No strong AI-writing indicators detected.';
+    return [
+        '> **AI Check:** ⚠️ `Potential AI Use — Manual Review Required`',
+        `> **Signals:** ${compact(assessment.signals.join(' '), 450)}`,
+    ].join('\n');
+}
+
 function reviewCopy(userId: string, session: ApplicationSession): string {
     const setup = APPLICATION_QUESTIONS[session.type];
     return [
@@ -249,6 +318,7 @@ function reviewCopy(userId: string, session: ApplicationSession): string {
         `> **Applicant:** <@${userId}> (\`${userId}\`)`,
         `> **Submitted:** <t:${Math.floor(Date.now() / 1_000)}:F>`,
         '> **Status:** `Pending Review`',
+        aiReviewLine(session.answers),
         '',
         ...setup.questions.flatMap((question, index) => [
             `**${index + 1}. ${question}**`,
@@ -288,6 +358,7 @@ function buildApplicationResultPanel(
     type: ActiveApplicationType,
     approved: boolean,
     reviewerId: string,
+    reviewReason: string,
 ): ContainerBuilder {
     const status = approved ? 'approved' : 'denied';
     return new ContainerBuilder()
@@ -298,6 +369,7 @@ function buildApplicationResultPanel(
             `## ${approved ? '✅' : '❌'} Application ${approved ? 'Approved' : 'Denied'}`,
             `<@${userId}>, your **${APPLICATION_QUESTIONS[type].label}** has been **${status}**.`,
             `> **Reviewed by:** <@${reviewerId}>`,
+            `> **Reason:** ${compact(reviewReason, 800)}`,
             approved
                 ? 'Staff will contact you with the next steps.'
                 : 'Thank you for taking the time to apply. You may reapply when permitted by the application guidelines.',
@@ -306,7 +378,9 @@ function buildApplicationResultPanel(
         .addMediaGalleryComponents(media(UNDERBANNER_NAME));
 }
 
-function memberRoleIds(member: ButtonInteraction['member']): string[] {
+type ApplicationReviewInteraction = ButtonInteraction | ModalSubmitInteraction;
+
+function memberRoleIds(member: ApplicationReviewInteraction['member']): string[] {
     if (!member) return [];
     const roles = (member as GuildMember).roles;
     if (roles && 'cache' in roles) return Array.from(roles.cache.keys());
@@ -315,14 +389,14 @@ function memberRoleIds(member: ButtonInteraction['member']): string[] {
         : [];
 }
 
-async function canReviewApplications(interaction: ButtonInteraction): Promise<boolean> {
+async function canReviewApplications(interaction: ApplicationReviewInteraction): Promise<boolean> {
     if (memberRoleIds(interaction.member).includes(APPLICATION_REVIEWER_ROLE_ID)) return true;
     const member = await interaction.guild?.members.fetch(interaction.user.id).catch(() => null);
     return Boolean(member?.roles.cache.has(APPLICATION_REVIEWER_ROLE_ID));
 }
 
 async function assignApplicationRoles(
-    interaction: ButtonInteraction,
+    interaction: ApplicationReviewInteraction,
     userId: string,
     type: ActiveApplicationType,
 ): Promise<{ assigned: string[]; failed: string[] }> {
@@ -349,10 +423,12 @@ async function assignApplicationRoles(
 }
 
 function updatedReviewComponents(
-    interaction: ButtonInteraction,
+    message: Message,
+    reviewerId: string,
     approved: boolean,
+    reviewReason: string,
 ): { components: unknown[]; alreadyProcessed: boolean } {
-    const components = interaction.message.components
+    const components = message.components
         .map(component => component.toJSON()) as unknown as Array<Record<string, unknown>>;
     let reviewButtonCount = 0;
     let disabledReviewButtonCount = 0;
@@ -361,8 +437,8 @@ function updatedReviewComponents(
         if (typeof node.content === 'string' && node.content.includes('> **Status:**')) {
             node.content = node.content.replace(
                 /> \*\*Status:\*\*[^\n]*/,
-                `> **Status:** \`${status}\` • Reviewed by <@${interaction.user.id}>`,
-            );
+                `> **Status:** \`${status}\` • Reviewed by <@${reviewerId}>\n> **Decision Reason:** ${compact(reviewReason, 700)}`,
+            ).slice(0, 4_000);
         }
         if (typeof node.custom_id === 'string' && node.custom_id.startsWith('applications:review:')) {
             reviewButtonCount += 1;
@@ -378,6 +454,29 @@ function updatedReviewComponents(
         components,
         alreadyProcessed: reviewButtonCount > 0 && disabledReviewButtonCount === reviewButtonCount,
     };
+}
+
+function reviewDecisionModal(
+    action: 'approve' | 'deny',
+    userId: string,
+    type: ActiveApplicationType,
+    channelId: string,
+    messageId: string,
+): ModalBuilder {
+    return new ModalBuilder()
+        .setCustomId(`applications:decision:${action}:${userId}:${type}:${channelId}:${messageId}`)
+        .setTitle(action === 'approve' ? 'Approve Application' : 'Deny Application')
+        .addComponents(
+            new ActionRowBuilder<TextInputBuilder>().addComponents(
+                new TextInputBuilder()
+                    .setCustomId('decision_reason')
+                    .setLabel(action === 'approve' ? 'Reason for approval' : 'Reason for denial')
+                    .setStyle(TextInputStyle.Paragraph)
+                    .setRequired(true)
+                    .setMinLength(3)
+                    .setMaxLength(1_000),
+            ),
+        );
 }
 
 function fullTranscript(userId: string, session: ApplicationSession): Buffer {
@@ -445,7 +544,37 @@ export async function handleApplicationButton(interaction: ButtonInteraction): P
         return true;
     }
 
-    const reviewKey = interaction.message.id;
+    await interaction.showModal(reviewDecisionModal(
+        action,
+        userId,
+        rawType as ActiveApplicationType,
+        interaction.channelId,
+        interaction.message.id,
+    ));
+    return true;
+}
+
+export async function handleApplicationModal(interaction: ModalSubmitInteraction): Promise<boolean> {
+    if (!interaction.customId.startsWith('applications:decision:')) return false;
+    const [, , action, userId, rawType, channelId, messageId] = interaction.customId.split(':');
+    if ((action !== 'approve' && action !== 'deny')
+        || !userId
+        || !(rawType in APPLICATION_QUESTIONS)
+        || !channelId
+        || !messageId) {
+        await interaction.reply({ content: 'This application decision is invalid.', flags: MessageFlags.Ephemeral });
+        return true;
+    }
+    if (!(await canReviewApplications(interaction))) {
+        await interaction.reply({
+            content: `You must have <@&${APPLICATION_REVIEWER_ROLE_ID}> to review applications.`,
+            flags: MessageFlags.Ephemeral,
+            allowedMentions: { parse: [] },
+        });
+        return true;
+    }
+
+    const reviewKey = messageId;
     if (applicationReviewLocks.has(reviewKey)) {
         await interaction.reply({ content: 'This application is already being processed.', flags: MessageFlags.Ephemeral });
         return true;
@@ -454,13 +583,25 @@ export async function handleApplicationButton(interaction: ButtonInteraction): P
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     try {
         const approved = action === 'approve';
-        const updated = updatedReviewComponents(interaction, approved);
+        const reviewReason = interaction.fields.getTextInputValue('decision_reason').trim();
+        const channel = await interaction.client.channels.fetch(channelId).catch(() => null);
+        if (!channel || !('messages' in channel)) {
+            await interaction.editReply('The original application channel is unavailable.');
+            return true;
+        }
+        const reviewMessage = await channel.messages.fetch(messageId).catch(() => null);
+        if (!reviewMessage) {
+            await interaction.editReply('The original application message could not be found.');
+            return true;
+        }
+
+        const updated = updatedReviewComponents(reviewMessage, interaction.user.id, approved, reviewReason);
         if (updated.alreadyProcessed) {
             await interaction.editReply('This application has already been processed.');
             return true;
         }
 
-        await interaction.message.edit({ components: updated.components as never });
+        await reviewMessage.edit({ components: updated.components as never });
         const type = rawType as ActiveApplicationType;
         const roleResult = approved
             ? await assignApplicationRoles(interaction, userId, type)
@@ -469,7 +610,7 @@ export async function handleApplicationButton(interaction: ButtonInteraction): P
         try {
             const applicant = await interaction.client.users.fetch(userId);
             await applicant.send({
-                components: [buildApplicationResultPanel(userId, type, approved, interaction.user.id)],
+                components: [buildApplicationResultPanel(userId, type, approved, interaction.user.id, reviewReason)],
                 files: artwork(),
                 flags: MessageFlags.IsComponentsV2,
                 allowedMentions: { parse: [] },

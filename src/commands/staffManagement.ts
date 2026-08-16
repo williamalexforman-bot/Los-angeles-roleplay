@@ -25,6 +25,7 @@ import {
     TextInputBuilder,
     TextInputStyle,
     ThreadAutoArchiveDuration,
+    type Message,
     type SendableChannels,
     type ThreadChannel,
 } from 'discord.js';
@@ -621,14 +622,14 @@ async function updateInfractionDetailMessage(thread: ThreadChannel, record: Infr
 }
 
 async function createInfractionThread(
-    parent: TextChannel,
+    caseMessage: Message<true>,
     name: string,
     reason: string,
 ): Promise<ThreadChannel> {
     let lastError: unknown;
     for (let attempt = 1; attempt <= 3; attempt += 1) {
         try {
-            return await parent.threads.create({
+            return await caseMessage.startThread({
                 name,
                 autoArchiveDuration: ThreadAutoArchiveDuration.OneDay,
                 reason,
@@ -923,48 +924,39 @@ function infractionCommand() {
                 };
                 addHistory(record, 'Created', interaction.user.id, `${action} issued to ${member.username}.`);
 
-                // Create a standalone evidence thread first. Starting a thread
-                // from the Components V2 case message can cause Discord to turn
-                // that message into a blank thread starter, stripping the case
-                // panel and its Appeal button from the parent channel.
+                const detailMessage = await infractionParent.send({
+                    components: [buildInfractionPanel(
+                        record,
+                        record.caseNumber,
+                    )],
+                    files: infractionArtworkAttachments(),
+                    flags: MessageFlags.IsComponentsV2,
+                    allowedMentions: { parse: [], users: [member.id] },
+                });
+                record.headerMessageId = detailMessage.id;
+                record.detailMessageId = detailMessage.id;
+
+                // Attach the evidence thread to the actual case message so
+                // Discord displays it directly beneath the infraction text and
+                // Appeal button instead of as a separate standalone channel item.
                 let thread: ThreadChannel | null = null;
                 try {
                     thread = await createInfractionThread(
-                        infractionParent,
+                        detailMessage,
                         `${caseNumber} | ${sanitizeThreadSegment(member.username)} | ${action}`.slice(0, 100),
                         `${caseNumber} issued by ${interaction.user.id}`,
                     );
                     record.threadId = thread.id;
                 } catch (error) {
+                    record.threadId = detailMessage.id;
                     addHistory(
                         record,
                         'Evidence Thread Unavailable',
                         interaction.user.id,
-                        'Discord did not allow the bot to create an evidence thread; the case remains in the infraction channel.',
+                        'Discord did not allow the bot to attach an evidence thread; the case remains in the infraction channel.',
                     );
-                    logger.warn(`[Infractions] ${caseNumber} was issued without an evidence thread: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                    logger.warn(`[Infractions] ${caseNumber} was issued without an attached evidence thread: ${error instanceof Error ? error.message : 'Unknown error'}`);
                 }
-
-                let detailMessage;
-                try {
-                    detailMessage = await infractionParent.send({
-                        components: [buildInfractionPanel(
-                            record,
-                            record.caseNumber,
-                        )],
-                        files: infractionArtworkAttachments(),
-                        flags: MessageFlags.IsComponentsV2,
-                        allowedMentions: { parse: [], users: [member.id] },
-                    });
-                } catch (error) {
-                    // Roll back only the empty thread created by this failed
-                    // command so unsuccessful attempts never clutter the channel.
-                    if (thread) await thread.delete('The infraction case panel could not be posted.').catch(() => null);
-                    throw error;
-                }
-                record.headerMessageId = detailMessage.id;
-                record.detailMessageId = detailMessage.id;
-                if (!thread) record.threadId = detailMessage.id;
 
                 // The public message is now final on its first send and already
                 // contains the Appeal button. Cache both stable lookup keys

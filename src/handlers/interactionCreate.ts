@@ -15,8 +15,14 @@ import { handleLoaButton, handleLoaModal } from '../commands/loa';
 import { handleBanAppealButton, handleBanAppealModal } from '../commands/banAppeal';
 import { handleInfractionAppealButton, handleInfractionAppealModal } from '../commands/infractionAppeal';
 import { handleSessionButton } from '../commands/session';
-import { handleTicketButton, handleTicketModal, handleTicketSelect } from '../commands/tickets';
-import { handleApplicationButton, handleApplicationSelect } from '../commands/applications';
+import {
+    handleTicketButton,
+    handleTicketModal,
+    handleTicketSelect,
+    isTicketPanelCommandName,
+    postTicketPanel,
+} from '../commands/tickets';
+import { handleApplicationButton, handleApplicationModal, handleApplicationSelect } from '../commands/applications';
 // economy module removed
 import { INFRACTION_AUTHORIZED_ROLE_ID, PROMOTION_AUTHORIZED_ROLE_ID } from '../config/constants';
 import { logger } from '../utils/logger';
@@ -108,6 +114,13 @@ async function reportInteractionError(interaction: Interaction, error: unknown):
 
 async function handleChatCommand(interaction: ChatInputCommandInteraction): Promise<void> {
     try {
+        // Ticket panels are routed directly instead of depending on the
+        // registry map. This also handles stale Discord registrations using
+        // ticketpanel or ticket-panel while commands refresh after a deploy.
+        if (isTicketPanelCommandName(interaction.commandName)) {
+            await postTicketPanel(interaction);
+            return;
+        }
         const handler = commandHandlers.get(interaction.commandName);
         if (!handler) {
             await interaction.reply({ content: 'That command is not currently available.', ephemeral: true });
@@ -152,6 +165,7 @@ export const interactionCreate = async (interaction: Interaction): Promise<void>
         }
 
         if (interaction.isModalSubmit()) {
+            if (await handleApplicationModal(interaction)) return;
             if (await handleTicketModal(interaction)) return;
             if (await handleTrainingModal(interaction)) return;
             if (await handleCommunityModal(interaction)) return;

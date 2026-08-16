@@ -58,6 +58,7 @@ const COMMANDS: CommandEntry[] = [
     { name: '/rename', description: 'Rename a channel (emoji allowed)', category: 'Utility' },
     { name: '/ticket panel', description: 'Post the V2 support-ticket panel in its configured channel', category: 'Utility' },
     { name: '/ticket-panel', description: 'Legacy alias for /ticket panel', category: 'Utility' },
+    { name: '/ticketpanel', description: 'Compatibility alias for /ticket panel', category: 'Utility' },
     { name: '/close', description: 'Close the current support ticket and save its transcript', category: 'Utility' },
     { name: '/closerequest', description: 'Ask the ticket opener to approve closing a support ticket', category: 'Utility' },
 ];

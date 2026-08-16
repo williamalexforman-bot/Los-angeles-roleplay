@@ -19,8 +19,10 @@ import { handleSessionButton } from '../src/commands/session';
 import { handleTicketModal, handleTicketSelect } from '../src/commands/tickets';
 import {
     APPLICATION_APPROVAL_ROLE_IDS,
+    analyzeApplicationAi,
     handleApplicationButton,
     handleApplicationDmMessage,
+    handleApplicationModal,
     handleApplicationSelect,
 } from '../src/commands/applications';
 import { handleLoaButton } from '../src/commands/loa';
@@ -45,7 +47,7 @@ for (const required of [
         'movie-feedback', 'staff-feedback', 'partnership', 'staff-complaint', 'training-results',
         'promotion', 'infraction', 'view-infractions', 'session-start', 'session-vote', 'session-end',
         'session-boost', 'session-full', 'prohibited-word', 'say', 'loa', 'activitycheck',
-        'request-training', 'roleplay-log', 'rename', 'ticket', 'ticket-panel', 'close', 'closerequest',
+        'request-training', 'roleplay-log', 'rename', 'ticket', 'ticket-panel', 'ticketpanel', 'close', 'closerequest',
         'applications-panel',
     ]) {
         assert(names.includes(required), `missing /${required}`);
@@ -509,20 +511,16 @@ for (const required of [
     Object.defineProperties(infractionParent, {
         id: { value: '1526044664975851642' },
         type: { value: ChannelType.GuildText },
-        threads: {
-            value: {
-                create: async (options: any) => {
-                    attachedThreadOptions = options;
-                    return infractionThread;
-                },
-            },
-        },
         send: {
             value: async (payload: any) => {
                 infractionParentSends.push(payload);
                 return {
                     id: '1526044664975851777',
                     url: 'https://discord.com/channels/guild/1526044664975851642/1526044664975851777',
+                    startThread: async (options: any) => {
+                        attachedThreadOptions = options;
+                        return infractionThread;
+                    },
                 };
             },
         },
@@ -553,7 +551,7 @@ for (const required of [
         client: { channels: { fetch: async () => infractionParent } },
     } as never;
     await commandNamed('infraction').execute(infractionInteraction);
-    assert(attachedThreadOptions, 'the infraction should receive a standalone evidence thread');
+    assert(attachedThreadOptions, 'the infraction should receive an evidence thread attached to its case message');
     assert.equal(attachedThreadOptions.name, 'INF-0001 | ExampleUser | Warning');
     assert.equal(infractionParentSends.length, 1, 'the complete infraction embed should be sent to the parent channel');
     assert((savedInfraction as InfractionRecord | null)?.threadId === infractionThread.id);
@@ -616,17 +614,13 @@ for (const required of [
         id: { value: '1526044664975851642' },
         type: { value: ChannelType.GuildText },
         isSendable: { value: () => true },
-        threads: {
-            value: {
-                create: async () => { throw new Error('Missing Create Public Threads'); },
-            },
-        },
         send: {
             value: async (payload: any) => {
                 fallbackPanelPayload = payload;
                 return {
                     id: '1526044664975851888',
                     url: 'https://discord.com/channels/guild/1526044664975851642/1526044664975851888',
+                    startThread: async () => { throw new Error('Missing Create Public Threads'); },
                     delete: async () => { fallbackMessageDeleted = true; },
                 };
             },
@@ -865,6 +859,46 @@ for (const required of [
         editReply: async () => undefined,
     } as never);
     assert.equal(ticketPanelPayload?.flags, 32_768, '/ticket panel must resolve to the working V2 panel handler');
+    ticketPanelPayload = null;
+    await commandNamed('ticketpanel').execute({
+        client: { channels: { fetch: async () => ticketPanelDestination } },
+        deferReply: async () => undefined,
+        editReply: async () => undefined,
+    } as never);
+    assert.equal(ticketPanelPayload?.flags, 32_768, '/ticketpanel must resolve to the working V2 panel handler');
+
+    const routedTicketPanelNames: string[] = [];
+    const routedTicketPanelReplies: any[] = [];
+    for (const commandName of ['ticket', 'ticket-panel', 'ticketpanel']) {
+        await interactionCreate({
+            commandName,
+            client: {
+                channels: {
+                    fetch: async (channelId: string) => {
+                        assert.equal(channelId, '1526034504953892925');
+                        return {
+                            isSendable: () => true,
+                            send: async (payload: any) => {
+                                assert.equal(payload.flags, 32_768);
+                                routedTicketPanelNames.push(commandName);
+                            },
+                        };
+                    },
+                },
+            },
+            deferReply: async () => undefined,
+            editReply: async (payload: any) => { routedTicketPanelReplies.push(payload); },
+            reply: async (payload: any) => { routedTicketPanelReplies.push(payload); },
+            isButton: () => false,
+            isModalSubmit: () => false,
+            isStringSelectMenu: () => false,
+            isChatInputCommand: () => true,
+            isRepliable: () => true,
+        } as never);
+    }
+    assert.deepEqual(routedTicketPanelNames, ['ticket', 'ticket-panel', 'ticketpanel']);
+    assert(!routedTicketPanelReplies.some(reply => String(reply?.content || reply).includes('not currently available')),
+        'every ticket panel command spelling must bypass the unavailable-command fallback');
 
     let generalTicketModal: any = null;
     assert(await handleTicketSelect({
@@ -1001,6 +1035,17 @@ for (const required of [
     const reviewBanners = applicationReviewPanel.components.filter((component: { type: number }) => component.type === 12);
     assert.equal(reviewBanners[0]?.items?.[0]?.media?.url, 'attachment://applications-banner.png');
     assert.equal(reviewBanners[1]?.items?.[0]?.media?.url, 'attachment://underbanner.webp');
+    const applicationReviewText = applicationReviewPanel.components
+        .map((component: { content?: string }) => component.content || '')
+        .join('\n');
+    assert(applicationReviewText.includes('AI Check'));
+    assert(applicationReviewText.includes('No strong AI-writing indicators'));
+    const flaggedAiAssessment = analyzeApplicationAi([
+        'As an AI language model, it is important to note that I would take the following steps.',
+        'Furthermore, I would ensure a safe and respectful environment.',
+        'Moreover, first and foremost, I would remain professional. In conclusion, these are my steps.',
+    ]);
+    assert(flaggedAiAssessment.flagged, 'obvious AI-writing signals must flag the application for manual review');
     const applicationReviewButtons = applicationReviewPanel.components
         .find((component: { type: number; components?: Array<{ custom_id?: string }> }) => component.type === 1
             && component.components?.some(button => button.custom_id?.startsWith('applications:review:')))
@@ -1029,7 +1074,9 @@ for (const required of [
             await handleApplicationDmMessage({
                 author: user,
                 guildId: null,
-                content: `${type} answer ${index + 1}`,
+                content: type === 'media' && index === 0
+                    ? 'As an AI language model, furthermore, it is important to note that I would take the following steps.'
+                    : `${type} answer ${index + 1}`,
                 attachments: new Collection<string, any>(),
                 client: {
                     channels: {
@@ -1053,6 +1100,10 @@ for (const required of [
     assert.equal(applicationReviewSends.length, 3, 'Discord, Media, and Ban Appeal submissions must all reach review');
     assert.equal(applicationReviewSends[1].flags, 32_768);
     assert.equal(applicationReviewSends[2].flags, 32_768);
+    const flaggedMediaReviewText = applicationReviewSends[1].components[0].toJSON().components
+        .map((component: { content?: string }) => component.content || '')
+        .join('\n');
+    assert(flaggedMediaReviewText.includes('Potential AI Use — Manual Review Required'));
 
     const unauthorizedApplicationReplies: any[] = [];
     assert(await handleApplicationButton({
@@ -1067,6 +1118,7 @@ for (const required of [
     let updatedApplicationReview: any = null;
     const applicationReviewResults: string[] = [];
     const applicationResultDms: any[] = [];
+    let applicationDecisionModal: any = null;
     const grantedApplicationRoles: string[] = [];
     const approvedApplicantMember = {
         roles: {
@@ -1078,13 +1130,47 @@ for (const required of [
         customId: 'applications:review:approve:1489388257925005777:discord',
         user: { id: 'authorized-reviewer' },
         member: { roles: ['1538351617840254998'] },
-        guild: { members: { fetch: async () => approvedApplicantMember } },
+        channelId: '1538352573248176229',
         message: {
-            id: 'application-review-message-1',
+            id: '1538352573248176999',
             components: applicationReviewSends[0].components,
             edit: async (payload: any) => { updatedApplicationReview = payload; },
         },
+        showModal: async (modal: any) => { applicationDecisionModal = modal; },
+    } as never));
+    assert.equal(
+        applicationDecisionModal?.toJSON().custom_id,
+        'applications:decision:approve:1489388257925005777:discord:1538352573248176229:1538352573248176999',
+    );
+    assert.equal(applicationDecisionModal?.toJSON().components[0]?.components?.[0]?.custom_id, 'decision_reason');
+
+    let denialDecisionModal: any = null;
+    assert(await handleApplicationButton({
+        customId: 'applications:review:deny:1489388257925005888:media',
+        user: { id: 'authorized-reviewer' },
+        member: { roles: ['1538351617840254998'] },
+        channelId: '1538352573248176229',
+        message: { id: '1538352573248177000' },
+        showModal: async (modal: any) => { denialDecisionModal = modal; },
+    } as never));
+    assert.equal(denialDecisionModal?.toJSON().title, 'Deny Application');
+    assert.equal(denialDecisionModal?.toJSON().components[0]?.components?.[0]?.custom_id, 'decision_reason');
+
+    const reviewMessageForDecision = {
+        id: '1538352573248176999',
+        components: applicationReviewSends[0].components,
+        edit: async (payload: any) => { updatedApplicationReview = payload; },
+    };
+    assert(await handleApplicationModal({
+        customId: applicationDecisionModal.toJSON().custom_id,
+        user: { id: 'authorized-reviewer' },
+        member: { roles: ['1538351617840254998'] },
+        guild: { members: { fetch: async () => approvedApplicantMember } },
+        fields: { getTextInputValue: () => 'Strong answers and prior moderation experience.' },
         client: {
+            channels: {
+                fetch: async () => ({ messages: { fetch: async () => reviewMessageForDecision } }),
+            },
             users: {
                 fetch: async () => ({ send: async (payload: any) => { applicationResultDms.push(payload); } }),
             },
@@ -1097,6 +1183,7 @@ for (const required of [
         .map((component: { content?: string }) => component.content || '')
         .join('\n');
     assert(updatedApplicationText.includes('`Approved`'));
+    assert(updatedApplicationText.includes('Strong answers and prior moderation experience.'));
     const updatedApplicationButtons = updatedApplicationContainer.components
         .find((component: { type?: number; components?: Array<{ custom_id?: string; disabled?: boolean }> }) =>
             component.type === 1 && component.components?.some(button => button.custom_id?.startsWith('applications:review:')),
@@ -1104,6 +1191,10 @@ for (const required of [
     assert.equal(updatedApplicationButtons.length, 2);
     assert(updatedApplicationButtons.every((button: { disabled?: boolean }) => button.disabled));
     assert.equal(applicationResultDms[0]?.flags, 32_768, 'application results must be sent as V2 emblems');
+    const applicationResultText = applicationResultDms[0].components[0].toJSON().components
+        .map((component: { content?: string }) => component.content || '')
+        .join('\n');
+    assert(applicationResultText.includes('Strong answers and prior moderation experience.'));
     assert(applicationReviewResults.some(result => result.includes('approved')));
     assert.deepEqual(grantedApplicationRoles, [
         '1530363357423468706',

@@ -567,7 +567,12 @@ export async function handleTicketModal(interaction: ModalSubmitInteraction): Pr
     return false;
 }
 
-async function postTicketPanel(interaction: ChatInputCommandInteraction): Promise<void> {
+export function isTicketPanelCommandName(commandName: string): boolean {
+    return commandName.replace(/[-_\s]/g, '').toLowerCase() === 'ticketpanel'
+        || commandName.toLowerCase() === 'ticket';
+}
+
+export async function postTicketPanel(interaction: ChatInputCommandInteraction): Promise<void> {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const channel = await interaction.client.channels.fetch(TICKET_PANEL_CHANNEL_ID).catch(() => null);
     if (!channel?.isSendable()) {
@@ -595,6 +600,17 @@ const ticketPanelCommand = {
     data: new SlashCommandBuilder()
         .setName('ticket-panel')
         .setDescription('Post the Los Angeles Roleplay support ticket panel (legacy alias)')
+        .setDMPermission(false)
+        .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
+    async execute(interaction: ChatInputCommandInteraction): Promise<void> {
+        await postTicketPanel(interaction);
+    },
+};
+
+const ticketPanelCompatibilityCommand = {
+    data: new SlashCommandBuilder()
+        .setName('ticketpanel')
+        .setDescription('Post the Los Angeles Roleplay V2 support ticket panel')
         .setDMPermission(false)
         .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -644,4 +660,10 @@ const closeRequestCommand = {
     },
 };
 
-export const ticketCommands = [ticketCommand, ticketPanelCommand, closeCommand, closeRequestCommand];
+export const ticketCommands = [
+    ticketCommand,
+    ticketPanelCommand,
+    ticketPanelCompatibilityCommand,
+    closeCommand,
+    closeRequestCommand,
+];
