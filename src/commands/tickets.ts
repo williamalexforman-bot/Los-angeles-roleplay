@@ -35,6 +35,7 @@ const ASSISTANCE_BANNER_PATH = resolve(__dirname, '..', '..', 'assets', ASSISTAN
 const UNDERBANNER_PATH = resolve(__dirname, '..', '..', 'assets', UNDERBANNER_NAME);
 
 const TICKET_SUPPORT_ROLE_ID = '1523122697746382868';
+const TICKET_PANEL_CHANNEL_ID = '1526034504953892925';
 const TICKET_LOG_CHANNEL_ID = '1526255112149008524';
 const TICKET_TRANSCRIPT_CHANNEL_ID = '1526255184303493291';
 const TICKET_CATEGORIES = {
@@ -566,22 +567,54 @@ export async function handleTicketModal(interaction: ModalSubmitInteraction): Pr
     return false;
 }
 
-const ticketPanelCommand = {
-    data: new SlashCommandBuilder()
-        .setName('ticket-panel')
-        .setDescription('Post the Los Angeles Roleplay support ticket panel')
-        .setDMPermission(false)
-        .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
-    async execute(interaction: ChatInputCommandInteraction): Promise<void> {
-        // Return the panel as the interaction response itself. This avoids a
-        // second channel.send request being rejected even though Discord
-        // allowed the slash command interaction in that channel.
-        await interaction.reply({
+async function postTicketPanel(interaction: ChatInputCommandInteraction): Promise<void> {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const channel = await interaction.client.channels.fetch(TICKET_PANEL_CHANNEL_ID).catch(() => null);
+    if (!channel?.isSendable()) {
+        await interaction.editReply(`The ticket panel channel <#${TICKET_PANEL_CHANNEL_ID}> is unavailable.`);
+        return;
+    }
+
+    try {
+        await channel.send({
             components: [buildTicketLauncher()],
             files: artwork(),
             flags: MessageFlags.IsComponentsV2,
             allowedMentions: { parse: [] },
         });
+        await interaction.editReply(`✅ The V2 Assistance ticket panel was posted in <#${TICKET_PANEL_CHANNEL_ID}>.`);
+    } catch (error) {
+        logger.error(`[Tickets] Could not post the ticket panel: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        await interaction.editReply(
+            `I could not post in <#${TICKET_PANEL_CHANNEL_ID}>. Check that I can view the channel, send messages, and attach files.`,
+        );
+    }
+}
+
+const ticketPanelCommand = {
+    data: new SlashCommandBuilder()
+        .setName('ticket-panel')
+        .setDescription('Post the Los Angeles Roleplay support ticket panel (legacy alias)')
+        .setDMPermission(false)
+        .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
+    async execute(interaction: ChatInputCommandInteraction): Promise<void> {
+        await postTicketPanel(interaction);
+    },
+};
+
+const ticketCommand = {
+    data: new SlashCommandBuilder()
+        .setName('ticket')
+        .setDescription('Manage the Los Angeles Roleplay ticket system')
+        .setDMPermission(false)
+        .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
+        .addSubcommand(subcommand =>
+            subcommand
+                .setName('panel')
+                .setDescription('Post the V2 support ticket panel in the configured channel'),
+        ),
+    async execute(interaction: ChatInputCommandInteraction): Promise<void> {
+        await postTicketPanel(interaction);
     },
 };
 
@@ -611,4 +644,4 @@ const closeRequestCommand = {
     },
 };
 
-export const ticketCommands = [ticketPanelCommand, closeCommand, closeRequestCommand];
+export const ticketCommands = [ticketCommand, ticketPanelCommand, closeCommand, closeRequestCommand];

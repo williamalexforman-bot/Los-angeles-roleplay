@@ -45,7 +45,7 @@ for (const required of [
         'movie-feedback', 'staff-feedback', 'partnership', 'staff-complaint', 'training-results',
         'promotion', 'infraction', 'view-infractions', 'session-start', 'session-vote', 'session-end',
         'session-boost', 'session-full', 'prohibited-word', 'say', 'loa', 'activitycheck',
-        'request-training', 'roleplay-log', 'rename', 'ticket-panel', 'close', 'closerequest',
+        'request-training', 'roleplay-log', 'rename', 'ticket', 'ticket-panel', 'close', 'closerequest',
         'applications-panel',
     ]) {
         assert(names.includes(required), `missing /${required}`);
@@ -822,9 +822,25 @@ for (const required of [
     assert(sessionVoteReplies.some(reply => reply.includes('1/5')));
 
     let ticketPanelPayload: any = null;
+    let fetchedTicketPanelChannelId = '';
+    const ticketPanelConfirmations: string[] = [];
+    const ticketPanelDestination = {
+        isSendable: () => true,
+        send: async (payload: any) => { ticketPanelPayload = payload; },
+    };
     await commandNamed('ticket-panel').execute({
-        reply: async (payload: any) => { ticketPanelPayload = payload; },
+        client: {
+            channels: {
+                fetch: async (channelId: string) => {
+                    fetchedTicketPanelChannelId = channelId;
+                    return ticketPanelDestination;
+                },
+            },
+        },
+        deferReply: async () => undefined,
+        editReply: async (content: string) => { ticketPanelConfirmations.push(content); },
     } as never);
+    assert.equal(fetchedTicketPanelChannelId, '1526034504953892925');
     assert.equal(ticketPanelPayload?.flags, 32_768, '/ticket-panel must post a Components V2 emblem');
     const ticketLauncher = ticketPanelPayload.components[0].toJSON();
     const ticketLauncherBanners = ticketLauncher.components.filter((component: { type: number }) => component.type === 12);
@@ -838,6 +854,17 @@ for (const required of [
         ticketLauncherSelect?.options?.map((option: { value: string }) => option.value),
         ['general', 'internal', 'management', 'highrank'],
     );
+    assert(ticketPanelConfirmations.some(content => content.includes('1526034504953892925')));
+
+    const ticketCommandSchema = commandNamed('ticket').data.toJSON() as { options?: Array<{ name: string; type: number }> };
+    assert.equal(ticketCommandSchema.options?.[0]?.name, 'panel');
+    ticketPanelPayload = null;
+    await commandNamed('ticket').execute({
+        client: { channels: { fetch: async () => ticketPanelDestination } },
+        deferReply: async () => undefined,
+        editReply: async () => undefined,
+    } as never);
+    assert.equal(ticketPanelPayload?.flags, 32_768, '/ticket panel must resolve to the working V2 panel handler');
 
     let generalTicketModal: any = null;
     assert(await handleTicketSelect({

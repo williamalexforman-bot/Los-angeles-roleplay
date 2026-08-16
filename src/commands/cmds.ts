@@ -56,7 +56,8 @@ const COMMANDS: CommandEntry[] = [
     { name: '/request-training', description: 'Request a training session (Training Dept only)', category: 'Utility' },
     { name: '/view-infractions', description: 'View your own infraction count and history', category: 'Utility' },
     { name: '/rename', description: 'Rename a channel (emoji allowed)', category: 'Utility' },
-    { name: '/ticket-panel', description: 'Post the V2 support-ticket panel', category: 'Utility' },
+    { name: '/ticket panel', description: 'Post the V2 support-ticket panel in its configured channel', category: 'Utility' },
+    { name: '/ticket-panel', description: 'Legacy alias for /ticket panel', category: 'Utility' },
     { name: '/close', description: 'Close the current support ticket and save its transcript', category: 'Utility' },
     { name: '/closerequest', description: 'Ask the ticket opener to approve closing a support ticket', category: 'Utility' },
 ];
