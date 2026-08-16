@@ -96,8 +96,7 @@ function buildMarketplacePanel(): ContainerBuilder {
     const claimButton = new ButtonBuilder()
         .setCustomId('marketplace:claim')
         .setLabel('Claim Purchase')
-        .setStyle(ButtonStyle.Primary)
-        .setDisabled(true);
+        .setStyle(ButtonStyle.Primary);
 
     const panel = new ContainerBuilder()
         .setAccentColor(MARKETPLACE_ACCENT_COLOR)
