@@ -21,6 +21,7 @@ import { ticketCommands } from './tickets';
 import { applicationsPanelCommand } from './applications';
 import { roleCommand } from './role';
 import { shiftCommand, viewCommand } from './shift';
+import { marketplacePanelCommand } from './marketplace';
 
 export interface CommandDefinition {
     data: {
@@ -61,6 +62,7 @@ export const commandDefinitions: CommandDefinition[] = [
     roleCommand,
     shiftCommand,
     viewCommand,
+    marketplacePanelCommand,
     { data: cmdsCommandData, execute: executeCmds as (interaction: ChatInputCommandInteraction) => Promise<unknown> },
 ] as CommandDefinition[];
 
