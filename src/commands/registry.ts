@@ -23,6 +23,7 @@ import { roleCommand } from './role';
 import { shiftCommand, viewCommand } from './shift';
 import { marketplacePanelCommand } from './marketplace';
 import { erlcUtilityCommands } from './erlcUtilities';
+import { dockConfigCommand } from './dockConfig';
 
 export interface CommandDefinition {
     data: {
@@ -65,6 +66,7 @@ export const commandDefinitions: CommandDefinition[] = [
     viewCommand,
     marketplacePanelCommand,
     ...erlcUtilityCommands,
+    dockConfigCommand,
     { data: cmdsCommandData, execute: executeCmds as (interaction: ChatInputCommandInteraction) => Promise<unknown> },
 ] as CommandDefinition[];
 
