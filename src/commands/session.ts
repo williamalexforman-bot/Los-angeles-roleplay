@@ -23,7 +23,8 @@ import { logger } from '../utils/logger';
 const ERLC_JOIN_URL = 'https://erlc.gg/join?code=LARNRPP&placeId=2534724415';
 const ERLC_GAME_CODE = 'LARNRPP';
 const MAX_VOTES = 50;
-const SESSION_PING_ROLE_ID = process.env.SESSION_PING_ROLE_ID || '1521593407749754990';
+const SESSION_PING_ROLE_ID = '1521593407749754990';
+const SESSION_PING_MENTION = `<@&${SESSION_PING_ROLE_ID}>`;
 const SESSION_ANNOUNCEMENT_CHANNEL_ID = '1526036392147423404';
 
 async function getSessionAnnouncementChannel(interaction: ChatInputCommandInteraction) {
@@ -59,15 +60,35 @@ async function deletePreviousSessionAnnouncements(
     botUserId: string,
 ): Promise<{ deleted: number; failed: number }> {
     if (!channel) return { deleted: 0, failed: 0 };
-    const messages = await channel.messages.fetch({ limit: 100 }).catch(() => null);
-    if (!messages) return { deleted: 0, failed: 0 };
+    let deleted = 0;
+    let failed = 0;
+    let before: string | undefined;
+    const visited = new Set<string>();
 
-    const previousAnnouncements = messages.filter(message =>
-        message.author.id === botUserId && isSessionAnnouncementMessage(message),
-    );
-    const results = await Promise.allSettled(previousAnnouncements.map(message => message.delete()));
-    const deleted = results.filter(result => result.status === 'fulfilled').length;
-    return { deleted, failed: results.length - deleted };
+    // Discord returns at most 100 messages per request. Walk every page so an
+    // old start/vote/boost/full announcement cannot survive session cleanup.
+    for (;;) {
+        const messages = await channel.messages.fetch({ limit: 100, ...(before ? { before } : {}) }).catch(() => null);
+        if (!messages || messages.size === 0) break;
+        const page = [...messages.values()];
+        const unseen = page.filter(message => !visited.has(message.id));
+        if (unseen.length === 0) break;
+        unseen.forEach(message => visited.add(message.id));
+
+        const previousAnnouncements = unseen.filter(message =>
+            message.author.id === botUserId && isSessionAnnouncementMessage(message),
+        );
+        const results = await Promise.allSettled(previousAnnouncements.map(message => message.delete()));
+        deleted += results.filter(result => result.status === 'fulfilled').length;
+        failed += results.filter(result => result.status === 'rejected').length;
+
+        if (page.length < 100) break;
+        const oldest = page.at(-1);
+        if (!oldest || oldest.id === before) break;
+        before = oldest.id;
+    }
+
+    return { deleted, failed };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -115,6 +136,8 @@ async function withVoteLock<T>(key: string, operation: () => Promise<T>): Promis
 
 function buildSessionStartPanel(interaction: ChatInputCommandInteraction) {
     const description = [
+        SESSION_PING_MENTION,
+        '',
         `A session has been started by <@${interaction.user.id}>.`,
         '',
         `To join please click the button below or go to ERLC and enter code **${ERLC_GAME_CODE}**.`,
@@ -136,6 +159,8 @@ function buildSessionVotePanel(
     voteComplete = false,
 ) {
     const description = [
+        SESSION_PING_MENTION,
+        '',
         `**A session vote has been started by <@${startedById}>. Please vote to join.**`,
         '',
         '**NOTE IF YOU VOTE YOU MUST JOIN!**',
@@ -154,7 +179,7 @@ function buildSessionVotePanel(
 }
 
 function buildSessionEndPanel(interaction: ChatInputCommandInteraction) {
-    const description = `The session has been shut down by <@${interaction.user.id}>. Please don't join or you may face punishment.`;
+    const description = `${SESSION_PING_MENTION}\n\nThe session has been shut down by <@${interaction.user.id}>. Please don't join or you may face punishment.`;
     return createSessionPanel(
         'SESSION END',
         description,
@@ -165,7 +190,7 @@ function buildSessionEndPanel(interaction: ChatInputCommandInteraction) {
 }
 
 function buildSessionBoostPanel() {
-    const description = 'The session has been boosted. Make sure to join up to help us grow.';
+    const description = `${SESSION_PING_MENTION}\n\nThe session has been boosted. Make sure to join up to help us grow.`;
     return createSessionPanel(
         'SESSION BOOST',
         description,
@@ -176,7 +201,7 @@ function buildSessionBoostPanel() {
 }
 
 function buildSessionFullPanel() {
-    const description = 'The session is full. If you try to join you will be put into a waiting room.';
+    const description = `${SESSION_PING_MENTION}\n\nThe session is full. If you try to join you will be put into a waiting room.`;
     return createSessionPanel(
         'SESSION FULL',
         description,
@@ -358,7 +383,13 @@ export async function handleSessionButton(interaction: ButtonInteraction): Promi
 
     if (!interaction.customId.startsWith('session:vote:cast')) return false;
 
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    // A component update acknowledges the button against the original vote
+    // message. This remains reliable when the process cache was rebuilt after
+    // a restart and avoids Discord displaying an interaction-failed banner.
+    await interaction.deferUpdate();
+    const feedback = async (content: string): Promise<void> => {
+        await interaction.followUp({ content, flags: MessageFlags.Ephemeral }).catch(() => null);
+    };
 
     try {
         const key = voteKey(interaction.guildId || '', interaction.message.id);
@@ -370,30 +401,27 @@ export async function handleSessionButton(interaction: ButtonInteraction): Promi
             }
 
             if (!vote || !vote.active) {
-                await interaction.editReply('This session vote is no longer active.');
+                await feedback('This session vote is no longer active.');
                 return;
             }
 
             if (vote.voters.includes(interaction.user.id)) {
-                await interaction.editReply('You have already voted for this session.');
+                await feedback('You have already voted for this session.');
                 return;
             }
 
             const nextVoteCount = vote.voters.length + 1;
             const completed = nextVoteCount >= vote.requiredVotes;
-            if (!interaction.message.editable) {
-                await interaction.editReply('I could not update this session vote. Please contact the session host.');
-                return;
-            }
 
             if (vote.usesPanel) {
-                await interaction.message.edit({
+                await interaction.editReply({
                     components: [updatedVotePanel(interaction, vote, nextVoteCount, completed) as never],
+                    flags: MessageFlags.IsComponentsV2,
                 });
             } else {
                 // Compatibility for an announcement posted before the panel
                 // layout was introduced. New announcements always use V2.
-                await interaction.message.edit({
+                await interaction.editReply({
                     components: [new ActionRowBuilder<ButtonBuilder>().addComponents(
                         voteButton(nextVoteCount, vote.requiredVotes, completed),
                     )],
@@ -402,7 +430,7 @@ export async function handleSessionButton(interaction: ButtonInteraction): Promi
 
             vote.voters.push(interaction.user.id);
             vote.active = !completed;
-            await interaction.editReply(
+            await feedback(
                 completed
                     ? `✅ Your vote has been recorded! **${nextVoteCount}/${vote.requiredVotes}** votes received — the goal has been reached.`
                     : `✅ Your vote has been recorded! **${nextVoteCount}/${vote.requiredVotes}** votes received.`,
@@ -411,7 +439,7 @@ export async function handleSessionButton(interaction: ButtonInteraction): Promi
         return true;
     } catch (error) {
         logger.error(`[Session] Vote button error: ${error instanceof Error ? error.message : 'Unknown'}`);
-        await interaction.editReply('Unable to process your vote right now. Please try again later.');
+        await feedback('Unable to process your vote right now. Please try again later.');
         return true;
     }
 }
@@ -443,7 +471,7 @@ const sessionStartCommand = {
                 components: [buildSessionStartPanel(interaction)],
                 files: attachments,
                 flags: MessageFlags.IsComponentsV2,
-                allowedMentions: { parse: [] },
+                allowedMentions: { parse: [], roles: [SESSION_PING_ROLE_ID], users: [interaction.user.id] },
             });
 
             await interaction.editReply(`✅ Session start announcement has been posted in <#${SESSION_ANNOUNCEMENT_CHANNEL_ID}>.`);
@@ -488,7 +516,7 @@ const sessionVoteCommand = {
                 components: [buildSessionVotePanel(interaction.user.id, requiredVotes, 0)],
                 files: attachments,
                 flags: MessageFlags.IsComponentsV2,
-                allowedMentions: { parse: [] },
+                allowedMentions: { parse: [], roles: [SESSION_PING_ROLE_ID], users: [interaction.user.id] },
             });
 
             // Track the vote in memory so the button handler can update it
@@ -539,7 +567,7 @@ const sessionEndCommand = {
                 components: [buildSessionEndPanel(interaction)],
                 files: attachments,
                 flags: MessageFlags.IsComponentsV2,
-                allowedMentions: { parse: [], users: [interaction.user.id] },
+                allowedMentions: { parse: [], roles: [SESSION_PING_ROLE_ID], users: [interaction.user.id] },
             });
 
             await interaction.editReply(
@@ -578,7 +606,7 @@ const sessionBoostCommand = {
                 components: [buildSessionBoostPanel()],
                 files: attachments,
                 flags: MessageFlags.IsComponentsV2,
-                allowedMentions: { parse: [] },
+                allowedMentions: { parse: [], roles: [SESSION_PING_ROLE_ID] },
             });
 
             await interaction.editReply(`✅ Session boost announcement has been posted in <#${SESSION_ANNOUNCEMENT_CHANNEL_ID}>.`);
@@ -613,7 +641,7 @@ const sessionFullCommand = {
                 components: [buildSessionFullPanel()],
                 files: attachments,
                 flags: MessageFlags.IsComponentsV2,
-                allowedMentions: { parse: [] },
+                allowedMentions: { parse: [], roles: [SESSION_PING_ROLE_ID] },
             });
 
             await interaction.editReply(`✅ Session full announcement has been posted in <#${SESSION_ANNOUNCEMENT_CHANNEL_ID}>.`);

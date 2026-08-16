@@ -706,13 +706,23 @@ for (const required of [
         const priorMessages = new Collection<string, any>();
         if (commandName === 'session-end') {
             priorMessages.set('old-session-message', {
+                id: 'old-session-message',
                 author: { id: 'session-bot' },
                 components: [],
                 embeds: [{ title: 'SESSION START' }],
                 attachments: new Collection(),
                 delete: async () => { deletedSessionMessages += 1; },
             });
+            priorMessages.set('old-session-vote', {
+                id: 'old-session-vote',
+                author: { id: 'session-bot' },
+                components: [{ data: { customId: 'session:vote:cast:5' } }],
+                embeds: [],
+                attachments: new Collection(),
+                delete: async () => { deletedSessionMessages += 1; },
+            });
             priorMessages.set('unrelated-bot-message', {
+                id: 'unrelated-bot-message',
                 author: { id: 'session-bot' },
                 components: [],
                 embeds: [{ title: 'Rules' }],
@@ -769,12 +779,19 @@ for (const required of [
             sessionPayload.files.map((file: { name: string }) => file.name),
             [bannerName, 'underbanner.webp'],
         );
+        assert.deepEqual(sessionPayload.allowedMentions.roles, ['1521593407749754990']);
+        const sessionText = sessionPanel.components
+            .flatMap((component: { components?: Array<{ content?: string }> }) => component.components || [])
+            .map((component: { content?: string }) => component.content || '')
+            .join('\n');
+        assert(sessionText.includes('<@&1521593407749754990>'), `/${commandName} must mention the session role inside its V2 emblem`);
         if (commandName === 'session-vote') sessionVotePayload = sessionPayload;
     }
-    assert.equal(deletedSessionMessages, 1, '/session-end must delete prior bot session announcements only');
+    assert.equal(deletedSessionMessages, 2, '/session-end must delete every prior bot session announcement only');
 
     let sessionVoteEdit: any = null;
     const sessionVoteReplies: string[] = [];
+    let sessionVoteDeferred = false;
     const liveSessionVotePanel = JSON.parse(JSON.stringify(sessionVotePayload.components[0].toJSON()));
     const replaceVoteMediaUrls = (node: any): void => {
         if (node.media?.url === 'attachment://session-vote-banner.png') {
@@ -793,14 +810,15 @@ for (const required of [
         user: { id: 'session-voter' },
         message: {
             id: 'session-vote-message',
-            editable: true,
             attachments: new Map(),
             components: [{ toJSON: () => liveSessionVotePanel }],
-            edit: async (payload: any) => { sessionVoteEdit = payload; },
         },
-        deferReply: async () => undefined,
-        editReply: async (content: string) => { sessionVoteReplies.push(content); },
+        deferUpdate: async () => { sessionVoteDeferred = true; },
+        editReply: async (payload: any) => { sessionVoteEdit = payload; },
+        followUp: async (payload: any) => { sessionVoteReplies.push(payload.content); },
     } as never);
+    assert(sessionVoteDeferred, 'vote buttons must acknowledge by deferring an update to the original message');
+    assert.equal(sessionVoteEdit?.flags, 32_768, 'vote updates must preserve the Components V2 message flag');
     assert.equal(sessionVoteEdit?.attachments, undefined, 'vote updates must not re-upload or clear the original media');
     const editedVotePanel = sessionVoteEdit.components[0];
     assert.equal(
