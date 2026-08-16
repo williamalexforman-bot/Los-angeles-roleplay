@@ -4,7 +4,7 @@ import { loadProhibitedWordOverrides } from '../commands/prohibitedWords';
 import { logger } from '../utils/logger';
 import { getDiscordBotToken } from '../config/env';
 import { startShiftQuotaScheduler } from '../commands/shift';
-import { startPaidAdScheduler } from '../commands/paidAds';
+import { startAdvancedPaidAdScheduler } from '../commands/advancedPaidAds';
 import { registerTicketRobloxInfo } from './ticketRobloxInfo';
 import { registerOffDutyCommandWatcher } from './offDutyCommandWatcher';
 import { registerJoinAccountDateCorrection } from './joinAccountDateCorrection';
@@ -92,5 +92,5 @@ export const onReady = async (client: Client): Promise<void> => {
         void updateMemberCountPresence(client);
     }, MEMBER_COUNT_REFRESH_MS);
     startShiftQuotaScheduler(client);
-    startPaidAdScheduler(client);
+    startAdvancedPaidAdScheduler(client);
 };
