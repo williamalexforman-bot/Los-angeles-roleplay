@@ -4,6 +4,7 @@ import { loadProhibitedWordOverrides } from '../commands/prohibitedWords';
 import { logger } from '../utils/logger';
 import { getDiscordBotToken } from '../config/env';
 import { startShiftQuotaScheduler } from '../commands/shift';
+import { registerTicketRobloxInfo } from './ticketRobloxInfo';
 
 // Custom status refresh — updates "Watching [member count] members" every 5 minutes.
 const MEMBER_COUNT_REFRESH_MS = 5 * 60 * 1000;
@@ -50,6 +51,8 @@ export const onReady = async (client: Client): Promise<void> => {
         logger.error('Bot token or application information is missing.');
         return;
     }
+
+    registerTicketRobloxInfo(client);
 
     const uniqueNames = new Set<string>();
     const commands = commandDefinitions.map(command => {
