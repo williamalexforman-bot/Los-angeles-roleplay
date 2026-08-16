@@ -15,6 +15,7 @@ import { handleLoaButton, handleLoaModal } from '../commands/loa';
 import { handleBanAppealButton, handleBanAppealModal } from '../commands/banAppeal';
 import { handleInfractionAppealButton, handleInfractionAppealModal } from '../commands/infractionAppeal';
 import { handleSessionButton } from '../commands/session';
+import { handleEnhancedSessionButton, handleEnhancedSessionCommand } from '../commands/sessionEnhancements';
 import {
     handleTicketButton,
     handleTicketModal,
@@ -124,6 +125,9 @@ async function handleChatCommand(interaction: ChatInputCommandInteraction): Prom
             await postTicketPanel(interaction);
             return;
         }
+        // Enhanced session routing adds persistent voter lists, voter pings on
+        // session start, and a full channel cleanup on session end.
+        if (await handleEnhancedSessionCommand(interaction)) return;
         // Keep /role add and /role all callable even while Discord refreshes
         // the guild command registration after a deployment.
         if (interaction.commandName === 'role') {
@@ -187,6 +191,7 @@ export const interactionCreate = async (interaction: Interaction): Promise<void>
             if (await handleLoaButton(interaction)) return;
             if (await handleBanAppealButton(interaction)) return;
             if (await handleInfractionAppealButton(interaction)) return;
+            if (await handleEnhancedSessionButton(interaction)) return;
             if (await handleSessionButton(interaction)) return;
             return;
         }
