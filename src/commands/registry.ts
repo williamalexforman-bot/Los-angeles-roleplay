@@ -19,6 +19,7 @@ import { renameCommand } from './rename';
 import { sessionCommands } from './session';
 import { ticketCommands } from './tickets';
 import { applicationsPanelCommand } from './applications';
+import { roleCommand } from './role';
 
 export interface CommandDefinition {
     data: {
@@ -57,6 +58,7 @@ export const commandDefinitions: CommandDefinition[] = [
     ...sessionCommands,
     ...ticketCommands,
     applicationsPanelCommand,
+    roleCommand,
     { data: cmdsCommandData, execute: executeCmds as (interaction: ChatInputCommandInteraction) => Promise<unknown> },
 ] as CommandDefinition[];
 

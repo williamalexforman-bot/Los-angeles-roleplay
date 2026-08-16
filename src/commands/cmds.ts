@@ -25,6 +25,8 @@ const COMMANDS: CommandEntry[] = [
     // ── Admin ──
     { name: '/admin role-add', description: 'Add a role to a user', category: 'Admin' },
     { name: '/admin role-remove', description: 'Remove a role from a user', category: 'Admin' },
+    { name: '/role add', description: 'Add a selected role to one member (Administrator only)', category: 'Admin' },
+    { name: '/role all', description: 'Add a selected role to every non-bot member (Administrator only)', category: 'Admin' },
     { name: '/admin staff-list', description: 'Display a list of all staff members', category: 'Admin' },
     { name: '/say', description: 'Make the bot say a message in a specified channel', category: 'Admin' },
     { name: '/prohibited-word', description: 'Manage prohibited words (add/remove/list) for auto-moderation', category: 'Admin' },
@@ -61,6 +63,7 @@ const COMMANDS: CommandEntry[] = [
     { name: '/ticketpanel', description: 'Compatibility alias for /ticket panel', category: 'Utility' },
     { name: '/close', description: 'Close the current support ticket and save its transcript', category: 'Utility' },
     { name: '/closerequest', description: 'Ask the ticket opener to approve closing a support ticket', category: 'Utility' },
+    { name: '/unclaim', description: 'Unclaim the current support ticket and restore its claim button', category: 'Utility' },
 ];
 
 const CATEGORY_ORDER = ['Moderation', 'Admin', 'Staff Management', 'Community', 'Game', 'Utility'];

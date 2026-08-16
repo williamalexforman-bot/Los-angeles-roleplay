@@ -16,7 +16,7 @@ import {
     setInfractionAppealClient,
 } from '../src/commands/infractionAppeal';
 import { handleSessionButton } from '../src/commands/session';
-import { handleTicketModal, handleTicketSelect } from '../src/commands/tickets';
+import { handleTicketButton, handleTicketModal, handleTicketSelect } from '../src/commands/tickets';
 import {
     APPLICATION_APPROVAL_ROLE_IDS,
     analyzeApplicationAi,
@@ -51,7 +51,7 @@ for (const required of [
         'promotion', 'infraction', 'view-infractions', 'session-start', 'session-vote', 'session-end',
         'session-boost', 'session-full', 'prohibited-word', 'say', 'loa', 'activitycheck',
         'request-training', 'roleplay-log', 'rename', 'ticket', 'ticket-panel', 'ticketpanel', 'close', 'closerequest',
-        'applications-panel',
+        'applications-panel', 'unclaim', 'role',
     ]) {
         assert(names.includes(required), `missing /${required}`);
     }
@@ -86,6 +86,85 @@ for (const required of [
     assert(renameSchema.options.find(option => option.name === 'name')?.required, '/rename name must be required');
     assert(renameSchema.options.find(option => option.name === 'name')?.max_length === 100);
     assert(BigInt(renameSchema.default_member_permissions || '0') & PermissionFlagsBits.ManageChannels, '/rename must require Manage Channels');
+
+    const roleSchema = commandNamed('role').data.toJSON() as {
+        options: Array<{ name: string; options?: Array<{ name: string }> }>;
+        default_member_permissions?: string;
+    };
+    assert.deepEqual(roleSchema.options.map(option => option.name), ['add', 'all']);
+    assert.deepEqual(roleSchema.options.find(option => option.name === 'add')?.options?.map(option => option.name), ['member', 'role']);
+    assert.deepEqual(roleSchema.options.find(option => option.name === 'all')?.options?.map(option => option.name), ['role']);
+    assert(BigInt(roleSchema.default_member_permissions || '0') & PermissionFlagsBits.Administrator,
+        '/role must be restricted to administrators');
+
+    const assignableRole = { id: 'assignable-role', name: 'Community Member', managed: false, editable: true };
+    const individualRoleAdds: string[] = [];
+    let individualRoleReply: any = null;
+    await commandNamed('role').execute({
+        guildId: 'role-guild',
+        guild: {
+            ownerId: 'server-owner',
+            roles: { fetch: async () => assignableRole },
+            members: {
+                fetch: async () => ({
+                    id: 'role-target',
+                    roles: {
+                        cache: new Map(),
+                        add: async (role: { id: string }) => { individualRoleAdds.push(role.id); },
+                    },
+                }),
+            },
+        },
+        user: { id: 'role-admin' },
+        memberPermissions: { has: (permission: bigint) => permission === PermissionFlagsBits.Administrator },
+        options: {
+            getSubcommand: () => 'add',
+            getRole: () => assignableRole,
+            getUser: () => ({ id: 'role-target', username: 'RoleTarget' }),
+        },
+        deferReply: async () => undefined,
+        editReply: async (payload: any) => { individualRoleReply = payload; },
+    } as never);
+    assert.deepEqual(individualRoleAdds, ['assignable-role']);
+    assert(String(individualRoleReply?.content || individualRoleReply).includes('Added'));
+
+    const massRoleAdds: string[] = [];
+    let massRoleReply: any = null;
+    const massMembers = new Collection<string, any>([
+        ['human-needs-role', {
+            id: 'human-needs-role',
+            user: { bot: false },
+            roles: { cache: new Map(), add: async () => { massRoleAdds.push('human-needs-role'); } },
+        }],
+        ['human-has-role', {
+            id: 'human-has-role',
+            user: { bot: false },
+            roles: { cache: new Map([['assignable-role', assignableRole]]), add: async () => undefined },
+        }],
+        ['bot-member', {
+            id: 'bot-member',
+            user: { bot: true },
+            roles: { cache: new Map(), add: async () => { throw new Error('bots must be skipped'); } },
+        }],
+    ]);
+    await commandNamed('role').execute({
+        guildId: 'role-guild',
+        guild: {
+            ownerId: 'server-owner',
+            roles: { fetch: async () => assignableRole },
+            members: { fetch: async () => massMembers },
+        },
+        user: { id: 'role-admin' },
+        memberPermissions: { has: () => true },
+        options: { getSubcommand: () => 'all', getRole: () => assignableRole },
+        deferReply: async () => undefined,
+        editReply: async (payload: any) => { massRoleReply = payload; },
+    } as never);
+    assert.deepEqual(massRoleAdds, ['human-needs-role']);
+    const massRoleText = String(massRoleReply?.content || massRoleReply);
+    assert(massRoleText.includes('Assigned:** 1'));
+    assert(massRoleText.includes('Already had role:** 1'));
+    assert(massRoleText.includes('Bots skipped:** 1'));
 
     const partnershipSchema = commandNamed('partnership').data.toJSON() as {
         options: Array<{ name: string; options?: Array<{ name: string }> }>;
@@ -1018,9 +1097,41 @@ for (const required of [
 
     let ticketCreateOptions: any = null;
     let openTicketPayload: any = null;
-    const createdTicketChannel = {
+    let createdTicketTopic = '';
+    let openTicketMessage: any = null;
+    let restoredTicketPanel: any = null;
+    const createdTicketChannel: any = {
         id: 'ticket-channel-1',
-        send: async (payload: any) => { openTicketPayload = payload; },
+        type: ChannelType.GuildText,
+        topic: '',
+        client: { user: { id: 'ticket-bot' } },
+        messages: {
+            fetch: async (messageId: string | { limit: number }) => {
+                if (typeof messageId === 'string') return messageId === openTicketMessage?.id ? openTicketMessage : null;
+                return new Collection(openTicketMessage ? [[openTicketMessage.id, openTicketMessage]] : []);
+            },
+        },
+        setTopic: async (topic: string) => {
+            createdTicketTopic = topic;
+            createdTicketChannel.topic = topic;
+        },
+        send: async (payload: any) => {
+            openTicketPayload = payload;
+            openTicketMessage = {
+                id: 'ticket-panel-message-1',
+                author: { id: 'ticket-bot' },
+                components: payload.components,
+                attachments: new Collection([
+                    ['assistance', { id: 'assistance', name: 'assistance-banner.png' }],
+                    ['underbanner', { id: 'underbanner', name: 'underbanner.webp' }],
+                ]),
+                edit: async (editPayload: any) => {
+                    restoredTicketPanel = editPayload;
+                    openTicketMessage.components = editPayload.components.map((component: any) => ({ toJSON: () => component }));
+                },
+            };
+            return openTicketMessage;
+        },
         delete: async () => undefined,
     };
     const ticketGuild = {
@@ -1028,6 +1139,8 @@ for (const required of [
             cache: new Collection<string, any>(),
             create: async (options: any) => {
                 ticketCreateOptions = options;
+                createdTicketTopic = options.topic;
+                createdTicketChannel.topic = options.topic;
                 return createdTicketChannel;
             },
         },
@@ -1062,6 +1175,41 @@ for (const required of [
         .map((button: { custom_id?: string }) => button.custom_id);
     assert.deepEqual(openTicketButtons, ['ticket:claim', 'ticket:close', 'ticket:close-request']);
     assert(ticketCreationReplies.some(reply => reply.includes('ticket-channel-1')));
+
+    let claimedTicketComponents: any[] = [];
+    assert(await handleTicketButton({
+        customId: 'ticket:claim',
+        channel: createdTicketChannel,
+        user: { id: 'ticket-agent', username: 'TicketAgent' },
+        member: { roles: { cache: new Map([['1523122697746382868', { id: '1523122697746382868' }]]) } },
+        memberPermissions: { has: () => false },
+        message: openTicketMessage,
+        update: async (payload: any) => {
+            claimedTicketComponents = payload.components;
+            openTicketMessage.components = payload.components.map((component: any) => ({ toJSON: () => component }));
+        },
+        followUp: async () => undefined,
+    } as never));
+    assert(claimedTicketComponents.length > 0, 'ticket claim must update the panel controls');
+    const unclaimReplies: string[] = [];
+    await commandNamed('unclaim').execute({
+        channel: createdTicketChannel,
+        user: { id: 'ticket-agent' },
+        member: { roles: { cache: new Map([['1523122697746382868', { id: '1523122697746382868' }]]) } },
+        memberPermissions: { has: () => false },
+        deferReply: async () => undefined,
+        editReply: async (content: string) => { unclaimReplies.push(content); },
+    } as never);
+    assert(restoredTicketPanel, '/unclaim must edit the ticket panel');
+    const restoredClaimButton = restoredTicketPanel.components
+        .flatMap((component: { components?: Array<{ components?: Array<{ custom_id?: string; label?: string; disabled?: boolean }> }> }) =>
+            component.components || [])
+        .flatMap((component: { components?: Array<{ custom_id?: string; label?: string; disabled?: boolean }> }) => component.components || [])
+        .find((component: { custom_id?: string }) => component.custom_id === 'ticket:claim');
+    assert.equal(restoredClaimButton?.label, 'Claim Ticket');
+    assert.equal(restoredClaimButton?.disabled, false);
+    assert(unclaimReplies.some(reply => reply.includes('Ticket unclaimed')));
+    assert(createdTicketTopic, '/unclaim must persist the cleared claim in the ticket channel topic');
 
     let applicationsPanelPayload: any = null;
     await commandNamed('applications-panel').execute({

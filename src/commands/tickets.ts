@@ -24,6 +24,7 @@ import {
     TextInputBuilder,
     TextInputStyle,
     type GuildMember,
+    type Message,
     type TextChannel,
 } from 'discord.js';
 import { BRAND } from '../config/constants';
@@ -52,6 +53,7 @@ interface TicketMetadata {
     type: TicketType;
     createdAt: string;
     claimedBy?: string;
+    panelMessageId?: string;
 }
 
 const PANEL_COPY = [
@@ -353,7 +355,7 @@ async function createTicket(interaction: ModalSubmitInteraction, type: TicketTyp
         });
 
         const member = await guild.members.fetch(interaction.user.id).catch(() => null);
-        await channel.send({
+        const panelMessage = await channel.send({
             components: [buildOpenTicketPanel(
                 interaction.user.id,
                 interaction.user.username,
@@ -367,6 +369,8 @@ async function createTicket(interaction: ModalSubmitInteraction, type: TicketTyp
             flags: MessageFlags.IsComponentsV2,
             allowedMentions: { parse: [], users: [interaction.user.id], roles: [TICKET_SUPPORT_ROLE_ID] },
         });
+        metadata.panelMessageId = panelMessage.id;
+        await channel.setTopic(encodeMetadata(metadata), `Ticket panel linked for ${interaction.user.id}`);
         await interaction.editReply(`✅ Your ${category.label} ticket has been created: <#${channel.id}>`);
     } catch (error) {
         if (channel) await channel.delete('Ticket setup failed.').catch(() => undefined);
@@ -462,6 +466,37 @@ function updatedClaimComponents(interaction: ButtonInteraction): unknown[] {
     };
     for (const component of components) visit(component);
     return components;
+}
+
+function restoredClaimComponents(message: Message): unknown[] {
+    const components = message.components.map(component => component.toJSON()) as unknown as Array<Record<string, unknown>>;
+    const visit = (node: Record<string, unknown>): void => {
+        if (node.custom_id === 'ticket:claim') {
+            node.label = 'Claim Ticket';
+            node.disabled = false;
+            node.style = ButtonStyle.Primary;
+        }
+        for (const child of (node.components as Array<Record<string, unknown>> | undefined) || []) visit(child);
+    };
+    for (const component of components) visit(component);
+    return components;
+}
+
+function containsClaimButton(message: Message): boolean {
+    const visit = (node: Record<string, unknown>): boolean => {
+        if (node.custom_id === 'ticket:claim') return true;
+        return ((node.components as Array<Record<string, unknown>> | undefined) || []).some(visit);
+    };
+    return message.components.some(component => visit(component.toJSON() as unknown as Record<string, unknown>));
+}
+
+async function findTicketPanelMessage(channel: TextChannel, metadata: TicketMetadata): Promise<Message | null> {
+    if (metadata.panelMessageId) {
+        const linked = await channel.messages.fetch(metadata.panelMessageId).catch(() => null);
+        if (linked && containsClaimButton(linked)) return linked;
+    }
+    const recent = await channel.messages.fetch({ limit: 100 }).catch(() => null);
+    return recent?.find(message => message.author.id === channel.client.user.id && containsClaimButton(message)) || null;
 }
 
 export async function handleTicketSelect(interaction: StringSelectMenuInteraction): Promise<boolean> {
@@ -660,10 +695,65 @@ const closeRequestCommand = {
     },
 };
 
+const unclaimCommand = {
+    data: new SlashCommandBuilder()
+        .setName('unclaim')
+        .setDescription('Unclaim the current support ticket')
+        .setDMPermission(false),
+    async execute(interaction: ChatInputCommandInteraction): Promise<void> {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        const channel = interaction.channel;
+        if (!channel || channel.type !== ChannelType.GuildText) {
+            await interaction.editReply('This command can only be used inside a ticket channel.');
+            return;
+        }
+        const metadata = decodeMetadata(channel.topic);
+        if (!metadata) {
+            await interaction.editReply('This is not a managed ticket channel.');
+            return;
+        }
+        if (!isTicketStaff(interaction)) {
+            await interaction.editReply('Only support staff can unclaim tickets.');
+            return;
+        }
+
+        const panelMessage = await findTicketPanelMessage(channel, metadata);
+        if (!panelMessage) {
+            await interaction.editReply('I could not find the ticket panel message, so the claim was not changed.');
+            return;
+        }
+
+        const previousClaimant = metadata.claimedBy;
+        delete metadata.claimedBy;
+        metadata.panelMessageId = panelMessage.id;
+        await channel.setTopic(encodeMetadata(metadata), `Ticket unclaimed by ${interaction.user.id}`);
+        try {
+            await panelMessage.edit({
+                components: restoredClaimComponents(panelMessage) as never,
+                flags: MessageFlags.IsComponentsV2,
+                attachments: Array.from(panelMessage.attachments.values()),
+            });
+        } catch (error) {
+            if (previousClaimant) {
+                metadata.claimedBy = previousClaimant;
+                await channel.setTopic(encodeMetadata(metadata), 'Restoring ticket claim after panel update failure').catch(() => undefined);
+            }
+            logger.error(`[Tickets] Could not restore the claim button in ${channel.id}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            await interaction.editReply('I could not restore the Claim Ticket button, so the existing claim was kept.');
+            return;
+        }
+
+        await interaction.editReply(previousClaimant
+            ? `✅ Ticket unclaimed. It was previously claimed by <@${previousClaimant}>.`
+            : '✅ The ticket was already unclaimed; the Claim Ticket button has been restored.');
+    },
+};
+
 export const ticketCommands = [
     ticketCommand,
     ticketPanelCommand,
     ticketPanelCompatibilityCommand,
     closeCommand,
     closeRequestCommand,
+    unclaimCommand,
 ];
