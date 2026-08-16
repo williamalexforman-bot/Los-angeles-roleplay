@@ -12,6 +12,7 @@ import { logger } from '../utils/logger';
 
 const registeredClients = new WeakSet<Client>();
 const TICKET_TOPIC_PREFIX = 'larp-ticket:';
+const ROBLOX_LOGO = '<:roblox_logo:1530323847922848044>';
 
 interface TicketMetadata {
     ownerId?: string;
@@ -38,6 +39,7 @@ function decodeTicketMetadata(topic: string | null): TicketMetadata | null {
 function robloxAccountBlock(
     ownerId: string,
     data: {
+        discordUsername?: string | null;
         username?: string | null;
         displayName?: string | null;
         robloxId?: string | null;
@@ -54,9 +56,10 @@ function robloxAccountBlock(
         : 'Unavailable';
 
     return [
-        '### 🎮 Roblox Account Information',
+        `### ${ROBLOX_LOGO} Roblox Account Information`,
         `> **Discord User:** <@${ownerId}>`,
-        `> **Username:** ${data.username ? `\`${data.username}\`` : 'Unavailable'}`,
+        `> **Discord Username:** ${data.discordUsername ? `\`${data.discordUsername}\`` : 'Unavailable'}`,
+        `> **Roblox Username:** ${data.username ? `\`${data.username}\`` : 'Unavailable'}`,
         `> **Display Name:** ${data.displayName ? `\`${data.displayName}\`` : 'Unavailable'}`,
         `> **Roblox User ID:** ${data.robloxId ? `\`${data.robloxId}\`` : 'Unavailable'}`,
         `> **Account Created:** ${created}`,
@@ -98,9 +101,14 @@ async function insertRobloxInfoIntoTicket(
     const message = await findTicketPanelMessage(client, channelId, metadata);
     if (!message) return;
 
-    const lookup = await resolveDockRobloxProfile(guildId, metadata.ownerId, { timeoutMs: 5_000 });
+    const [lookup, discordUser] = await Promise.all([
+        resolveDockRobloxProfile(guildId, metadata.ownerId, { timeoutMs: 5_000 }),
+        client.users.fetch(metadata.ownerId).catch(() => null),
+    ]);
+    const discordUsername = discordUser?.username || null;
     const block = lookup.ok
         ? robloxAccountBlock(metadata.ownerId, {
+            discordUsername,
             username: lookup.profile.username,
             displayName: lookup.profile.displayName,
             robloxId: lookup.profile.robloxId,
@@ -108,6 +116,7 @@ async function insertRobloxInfoIntoTicket(
             status: '✅ Dock Verified',
         })
         : robloxAccountBlock(metadata.ownerId, {
+            discordUsername,
             status: lookup.status === 'not_verified'
                 ? '⚠️ No Dock-verified Roblox account is linked.'
                 : lookup.status === 'not_configured'
