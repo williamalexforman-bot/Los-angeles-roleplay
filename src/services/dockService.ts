@@ -1,6 +1,6 @@
 const DOCK_DISCORD_TO_ROBLOX_ENDPOINT = 'https://api.docksys.xyz/api/v1/public/discord-to-roblox';
 const ROBLOX_USER_ENDPOINT = 'https://users.roblox.com/v1/users';
-const DEFAULT_TIMEOUT_MS = 2_000;
+const DEFAULT_TIMEOUT_MS = 3_000;
 
 type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
 type UnknownRecord = Record<string, unknown>;
@@ -10,6 +10,10 @@ export interface DockRobloxProfile {
     robloxId: string;
     username: string | null;
     displayName: string | null;
+    createdAt: string | null;
+    description: string | null;
+    isBanned: boolean | null;
+    hasVerifiedBadge: boolean | null;
 }
 
 export type DockLookupStatus =
@@ -40,29 +44,54 @@ function text(value: unknown): string | null {
     return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
+function bool(value: unknown): boolean | null {
+    return typeof value === 'boolean' ? value : null;
+}
+
 function failure(status: Exclude<DockLookupStatus, 'ok'>, message: string): DockLookupResult {
     return { ok: false, status, message };
+}
+
+interface RobloxProfileDetails {
+    username: string | null;
+    displayName: string | null;
+    createdAt: string | null;
+    description: string | null;
+    isBanned: boolean | null;
+    hasVerifiedBadge: boolean | null;
 }
 
 async function fetchRobloxProfile(
     robloxId: string,
     fetchImpl: FetchLike,
     signal: AbortSignal,
-): Promise<{ username: string | null; displayName: string | null }> {
+): Promise<RobloxProfileDetails> {
+    const empty: RobloxProfileDetails = {
+        username: null,
+        displayName: null,
+        createdAt: null,
+        description: null,
+        isBanned: null,
+        hasVerifiedBadge: null,
+    };
     try {
         const response = await fetchImpl(`${ROBLOX_USER_ENDPOINT}/${encodeURIComponent(robloxId)}`, {
             headers: { Accept: 'application/json' },
             signal,
         });
-        if (!response.ok) return { username: null, displayName: null };
+        if (!response.ok) return empty;
         const payload = await response.json().catch(() => null);
-        if (!isRecord(payload)) return { username: null, displayName: null };
+        if (!isRecord(payload)) return empty;
         return {
             username: text(payload.name),
             displayName: text(payload.displayName),
+            createdAt: text(payload.created),
+            description: text(payload.description),
+            isBanned: bool(payload.isBanned),
+            hasVerifiedBadge: bool(payload.hasVerifiedBadge),
         };
     } catch {
-        return { username: null, displayName: null };
+        return empty;
     }
 }
 
@@ -143,11 +172,8 @@ export async function resolveDockRobloxProfile(
         username = text(payload.resolved.username);
         displayName = text(payload.resolved.displayName);
     }
-    if (!username || !displayName) {
-        const fallback = await fetchRobloxProfile(robloxId, fetchImpl, controller.signal);
-        username ||= fallback.username;
-        displayName ||= fallback.displayName;
-    }
+
+    const details = await fetchRobloxProfile(robloxId, fetchImpl, controller.signal);
     clearTimeout(timer);
 
     return {
@@ -156,8 +182,12 @@ export async function resolveDockRobloxProfile(
         profile: {
             discordId: discordUserId,
             robloxId,
-            username,
-            displayName,
+            username: username || details.username,
+            displayName: displayName || details.displayName,
+            createdAt: details.createdAt,
+            description: details.description,
+            isBanned: details.isBanned,
+            hasVerifiedBadge: details.hasVerifiedBadge,
         },
     };
 }
