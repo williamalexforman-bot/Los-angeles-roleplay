@@ -86,7 +86,7 @@ async function attemptCommand(command: string, serverKey: string, timeoutMs: num
         const apiMessage = text(payload?.message);
         const retryAfterMs = retryAfterMilliseconds(response, payload);
 
-        if (response.ok && (code === null || code === 0)) {
+        if (response.ok && code === null) {
             return { ok: true, message: apiMessage || 'Success' };
         }
 
