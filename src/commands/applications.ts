@@ -33,6 +33,23 @@ const APPLICATION_REVIEWER_ROLE_ID = '1538351617840254998';
 const APPLICATION_SESSION_TTL_MS = 2 * 60 * 60 * 1_000;
 
 const APPLICATION_QUESTIONS = {
+    media: {
+        label: 'Media Team Application',
+        questions: [
+            'What are your Discord username and Roblox username?',
+            'What device do you play on?',
+            'What interests you about joining our Media and Content Creation Team?',
+            'How many photos or videos can you create each week?',
+            'How many hours could you spend helping with content creation or scenes?',
+            'Do you have any other media or content-creation experience?',
+            [
+                'What position are you interested in?',
+                '• News Reporter — Turn people’s stories, tragic incidents, or major emergencies into a news report.',
+                '• Editing Team — Edit raw footage sent by other media members (videos, pictures, or both).',
+                '• Content Creation Actor — Act out scenes and appear in our videos.',
+            ].join('\n'),
+        ],
+    },
     discord: {
         label: 'Discord Moderator Application',
         questions: [
@@ -62,9 +79,23 @@ const APPLICATION_QUESTIONS = {
             'Do you agree to always remain professional?',
         ],
     },
+    ban_appeal: {
+        label: 'In-Game Ban Appeal',
+        questions: [
+            'What are your Discord name and user ID?',
+            'What is your Roblox username?',
+            'Why should we approve your ban appeal? You must also state why you were banned.',
+        ],
+    },
 } as const;
 
 type ActiveApplicationType = keyof typeof APPLICATION_QUESTIONS;
+
+export const APPLICATION_APPROVAL_ROLE_IDS: Readonly<Partial<Record<ActiveApplicationType, readonly string[]>>> = {
+    ingame: ['1524013351850737835'],
+    discord: ['1530363357423468706', '1530363248728084620', '1521593407791825036'],
+    media: ['1521593407770722497'],
+};
 
 interface ApplicationSession {
     type: ActiveApplicationType;
@@ -131,10 +162,10 @@ function applicationSelect(): ActionRowBuilder<StringSelectMenuBuilder> {
             .setCustomId('applications:type')
             .setPlaceholder('Choose an application')
             .addOptions(
-                { label: 'Media Application', value: 'media', emoji: '📸', description: 'Questions coming soon' },
+                { label: 'Media Team Application', value: 'media', emoji: '📸' },
                 { label: 'In-Game Staff Application', value: 'ingame', emoji: '🎮' },
                 { label: 'Discord Moderator Application', value: 'discord', emoji: '🛡️' },
-                { label: 'In-Game Ban Appeal', value: 'ban_appeal', emoji: '⚖️', description: 'Questions coming soon' },
+                { label: 'In-Game Ban Appeal', value: 'ban_appeal', emoji: '⚖️' },
             ),
     );
 }
@@ -290,6 +321,33 @@ async function canReviewApplications(interaction: ButtonInteraction): Promise<bo
     return Boolean(member?.roles.cache.has(APPLICATION_REVIEWER_ROLE_ID));
 }
 
+async function assignApplicationRoles(
+    interaction: ButtonInteraction,
+    userId: string,
+    type: ActiveApplicationType,
+): Promise<{ assigned: string[]; failed: string[] }> {
+    const roleIds = [...(APPLICATION_APPROVAL_ROLE_IDS[type] || [])];
+    if (!roleIds.length) return { assigned: [], failed: [] };
+    const member = await interaction.guild?.members.fetch(userId).catch(() => null);
+    if (!member) return { assigned: [], failed: roleIds };
+
+    const assigned: string[] = [];
+    const failed: string[] = [];
+    for (const roleId of roleIds) {
+        if (member.roles.cache.has(roleId)) {
+            assigned.push(roleId);
+            continue;
+        }
+        try {
+            await member.roles.add(roleId, `${APPLICATION_QUESTIONS[type].label} approved by ${interaction.user.id}`);
+            assigned.push(roleId);
+        } catch {
+            failed.push(roleId);
+        }
+    }
+    return { assigned, failed };
+}
+
 function updatedReviewComponents(
     interaction: ButtonInteraction,
     approved: boolean,
@@ -404,6 +462,9 @@ export async function handleApplicationButton(interaction: ButtonInteraction): P
 
         await interaction.message.edit({ components: updated.components as never });
         const type = rawType as ActiveApplicationType;
+        const roleResult = approved
+            ? await assignApplicationRoles(interaction, userId, type)
+            : { assigned: [], failed: [] };
         let notified = false;
         try {
             const applicant = await interaction.client.users.fetch(userId);
@@ -419,7 +480,9 @@ export async function handleApplicationButton(interaction: ButtonInteraction): P
         }
         await interaction.editReply(
             `✅ Application ${approved ? 'approved' : 'denied'}.`
-            + `${notified ? ' The applicant was notified by DM.' : ' The applicant could not be reached by DM.'}`,
+            + `${notified ? ' The applicant was notified by DM.' : ' The applicant could not be reached by DM.'}`
+            + `${roleResult.assigned.length ? ` Assigned ${roleResult.assigned.map(roleId => `<@&${roleId}>`).join(', ')}.` : ''}`
+            + `${roleResult.failed.length ? ` Warning: I could not assign ${roleResult.failed.map(roleId => `<@&${roleId}>`).join(', ')}; check my Manage Roles permission and role position.` : ''}`,
         );
         return true;
     } finally {
@@ -430,13 +493,6 @@ export async function handleApplicationButton(interaction: ButtonInteraction): P
 export async function handleApplicationSelect(interaction: StringSelectMenuInteraction): Promise<boolean> {
     if (interaction.customId !== 'applications:type') return false;
     const selected = interaction.values[0];
-    if (selected === 'media' || selected === 'ban_appeal') {
-        await interaction.reply({
-            content: 'That application is listed for the next setup phase, but its questions are not available yet.',
-            flags: MessageFlags.Ephemeral,
-        });
-        return true;
-    }
     if (!(selected in APPLICATION_QUESTIONS)) {
         await interaction.reply({ content: 'That application is unavailable.', flags: MessageFlags.Ephemeral });
         return true;

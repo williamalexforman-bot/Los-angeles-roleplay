@@ -573,18 +573,15 @@ const ticketPanelCommand = {
         .setDMPermission(false)
         .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-        if (!interaction.channel?.isSendable()) {
-            await interaction.editReply('This channel cannot receive the ticket panel.');
-            return;
-        }
-        await interaction.channel.send({
+        // Return the panel as the interaction response itself. This avoids a
+        // second channel.send request being rejected even though Discord
+        // allowed the slash command interaction in that channel.
+        await interaction.reply({
             components: [buildTicketLauncher()],
             files: artwork(),
             flags: MessageFlags.IsComponentsV2,
             allowedMentions: { parse: [] },
         });
-        await interaction.editReply('✅ The V2 Assistance ticket panel has been posted.');
     },
 };
 

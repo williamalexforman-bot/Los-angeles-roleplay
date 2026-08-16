@@ -18,6 +18,7 @@ import {
 import { handleSessionButton } from '../src/commands/session';
 import { handleTicketModal, handleTicketSelect } from '../src/commands/tickets';
 import {
+    APPLICATION_APPROVAL_ROLE_IDS,
     handleApplicationButton,
     handleApplicationDmMessage,
     handleApplicationSelect,
@@ -822,12 +823,7 @@ for (const required of [
 
     let ticketPanelPayload: any = null;
     await commandNamed('ticket-panel').execute({
-        channel: {
-            isSendable: () => true,
-            send: async (payload: any) => { ticketPanelPayload = payload; },
-        },
-        deferReply: async () => undefined,
-        editReply: async () => undefined,
+        reply: async (payload: any) => { ticketPanelPayload = payload; },
     } as never);
     assert.equal(ticketPanelPayload?.flags, 32_768, '/ticket-panel must post a Components V2 emblem');
     const ticketLauncher = ticketPanelPayload.components[0].toJSON();
@@ -914,6 +910,13 @@ for (const required of [
     const applicationsBanners = applicationsPanel.components.filter((component: { type: number }) => component.type === 12);
     assert.equal(applicationsBanners[0]?.items?.[0]?.media?.url, 'attachment://applications-banner.png');
     assert.equal(applicationsBanners[1]?.items?.[0]?.media?.url, 'attachment://underbanner.webp');
+    assert.deepEqual(APPLICATION_APPROVAL_ROLE_IDS.ingame, ['1524013351850737835']);
+    assert.deepEqual(APPLICATION_APPROVAL_ROLE_IDS.discord, [
+        '1530363357423468706',
+        '1530363248728084620',
+        '1521593407791825036',
+    ]);
+    assert.deepEqual(APPLICATION_APPROVAL_ROLE_IDS.media, ['1521593407770722497']);
 
     let guidelinesPayload: any = null;
     assert(await handleApplicationButton({
@@ -979,6 +982,51 @@ for (const required of [
     assert.equal(applicationReviewButtons[1]?.custom_id, 'applications:review:deny:1489388257925005777:discord');
     assert(applicantDms.at(-1)?.includes('DO NOT ASK'));
 
+    const completeApplication = async (type: 'media' | 'ban_appeal', questionCount: number, userId: string) => {
+        const dms: string[] = [];
+        const user = {
+            id: userId,
+            bot: false,
+            send: async (content: string) => { dms.push(content); },
+        };
+        await handleApplicationSelect({
+            customId: 'applications:type',
+            values: [type],
+            guildId: '789699000047370261',
+            user,
+            deferReply: async () => undefined,
+            editReply: async () => undefined,
+        } as never);
+        assert(dms[0]?.includes(`Question 1 of ${questionCount}`));
+        for (let index = 0; index < questionCount; index += 1) {
+            await handleApplicationDmMessage({
+                author: user,
+                guildId: null,
+                content: `${type} answer ${index + 1}`,
+                attachments: new Collection<string, any>(),
+                client: {
+                    channels: {
+                        fetch: async (channelId: string) => {
+                            applicationReviewChannelId = channelId;
+                            return {
+                                isSendable: () => true,
+                                send: async (payload: any) => { applicationReviewSends.push(payload); },
+                            };
+                        },
+                    },
+                },
+            } as never);
+        }
+        return dms;
+    };
+    const mediaApplicationDms = await completeApplication('media', 7, '1489388257925005888');
+    const banAppealDms = await completeApplication('ban_appeal', 3, '1489388257925005999');
+    assert(mediaApplicationDms.at(-1)?.includes('Media Team Application'));
+    assert(banAppealDms.at(-1)?.includes('In-Game Ban Appeal'));
+    assert.equal(applicationReviewSends.length, 3, 'Discord, Media, and Ban Appeal submissions must all reach review');
+    assert.equal(applicationReviewSends[1].flags, 32_768);
+    assert.equal(applicationReviewSends[2].flags, 32_768);
+
     const unauthorizedApplicationReplies: any[] = [];
     assert(await handleApplicationButton({
         customId: 'applications:review:approve:1489388257925005777:discord',
@@ -992,10 +1040,18 @@ for (const required of [
     let updatedApplicationReview: any = null;
     const applicationReviewResults: string[] = [];
     const applicationResultDms: any[] = [];
+    const grantedApplicationRoles: string[] = [];
+    const approvedApplicantMember = {
+        roles: {
+            cache: new Map<string, unknown>(),
+            add: async (roleId: string) => { grantedApplicationRoles.push(roleId); },
+        },
+    };
     assert(await handleApplicationButton({
         customId: 'applications:review:approve:1489388257925005777:discord',
         user: { id: 'authorized-reviewer' },
         member: { roles: ['1538351617840254998'] },
+        guild: { members: { fetch: async () => approvedApplicantMember } },
         message: {
             id: 'application-review-message-1',
             components: applicationReviewSends[0].components,
@@ -1022,6 +1078,11 @@ for (const required of [
     assert(updatedApplicationButtons.every((button: { disabled?: boolean }) => button.disabled));
     assert.equal(applicationResultDms[0]?.flags, 32_768, 'application results must be sent as V2 emblems');
     assert(applicationReviewResults.some(result => result.includes('approved')));
+    assert.deepEqual(grantedApplicationRoles, [
+        '1530363357423468706',
+        '1530363248728084620',
+        '1521593407791825036',
+    ], 'approving a Discord application must grant all three configured roles');
 
     let appealModal: any = null;
     const appealStartHandled = await handleInfractionAppealButton({
