@@ -1,8 +1,9 @@
-import { loadPersistentSecret } from './persistentSecretStore';
+import { loadPersistentSecret, savePersistentSecret } from './persistentSecretStore';
 
 const DOCK_DISCORD_TO_ROBLOX_ENDPOINT = 'https://api.docksys.xyz/api/v1/public/discord-to-roblox';
 const ROBLOX_USER_ENDPOINT = 'https://users.roblox.com/v1/users';
 const DEFAULT_TIMEOUT_MS = 3_000;
+let environmentKeyPersistenceAttempted = false;
 
 type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
 type UnknownRecord = Record<string, unknown>;
@@ -98,9 +99,16 @@ async function fetchRobloxProfile(
 }
 
 async function configuredDockApiKey(explicit?: string): Promise<string> {
-    const direct = (explicit ?? process.env.DOCK_API_KEY ?? '').trim();
-    if (direct) return direct;
-    if (explicit !== undefined) return '';
+    if (explicit !== undefined) return explicit.trim();
+
+    const environmentKey = (process.env.DOCK_API_KEY || '').trim();
+    if (environmentKey) {
+        if (!environmentKeyPersistenceAttempted) {
+            environmentKeyPersistenceAttempted = true;
+            void savePersistentSecret('DOCK_API_KEY', environmentKey).catch(() => false);
+        }
+        return environmentKey;
+    }
 
     const persisted = (await loadPersistentSecret('DOCK_API_KEY').catch(() => null))?.trim() || '';
     if (persisted) process.env.DOCK_API_KEY = persisted;
