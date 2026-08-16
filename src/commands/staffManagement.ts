@@ -28,6 +28,7 @@ import {
     type Message,
     type SendableChannels,
     type ThreadChannel,
+    type User,
 } from 'discord.js';
 import { INFRACTION_AUTHORIZED_ROLE_ID, PROMOTION_AUTHORIZED_ROLE_ID } from '../config/constants';
 import { markSlashCommandFailed } from '../utils/commandAudit';
@@ -373,6 +374,36 @@ async function getSendableChannel(
 ): Promise<SendableChannels | null> {
     const channel = await interaction.client.channels.fetch(channelId).catch(() => null);
     return channel?.isSendable() ? channel : null;
+}
+
+/**
+ * Updates a deferred slash-command receipt and falls back to a separate
+ * ephemeral follow-up if Discord rejects the original interaction edit. A
+ * public staff action must never leave its issuer stuck on "thinking" after
+ * the announcement was successfully created.
+ */
+async function deliverCommandReceipt(
+    interaction: ChatInputCommandInteraction,
+    content: string,
+): Promise<boolean> {
+    try {
+        await interaction.editReply(content);
+        return true;
+    } catch (editError) {
+        logger.warn(`[Staff Management] Could not edit the deferred command receipt: ${editError instanceof Error ? editError.message : 'Unknown error'}`);
+    }
+
+    try {
+        await interaction.followUp({
+            content,
+            flags: MessageFlags.Ephemeral,
+            allowedMentions: { parse: [] },
+        });
+        return true;
+    } catch (followUpError) {
+        logger.warn(`[Staff Management] Could not send the fallback command receipt: ${followUpError instanceof Error ? followUpError.message : 'Unknown error'}`);
+        return false;
+    }
 }
 
 function discordTimestamp(date: Date = new Date()): string {
@@ -800,6 +831,13 @@ function promotionCommand() {
                     allowedMentions: { parse: [], users: [member.id] },
                 });
 
+                // Confirm the public V2 post immediately. A closed or slow DM
+                // must not leave the command interaction spinning forever.
+                await deliverCommandReceipt(
+                    interaction,
+                    `✅ The Components V2 promotion for ${member.username} was published successfully: ${promotionMessage.url}`,
+                );
+
                 // Mirror the V2 announcement in the promoted member's DMs and
                 // include a direct link back to its promotions-channel post.
                 let memberNotified = true;
@@ -813,8 +851,9 @@ function promotionCommand() {
                     logger.warn(`Could not send promotion DM to ${member.tag} (${member.id}).`);
                 });
 
-                await interaction.editReply(
-                    `The promotion for ${member.username} has been published successfully.`
+                await deliverCommandReceipt(
+                    interaction,
+                    `✅ The Components V2 promotion for ${member.username} was published successfully: ${promotionMessage.url}`
                     + `${memberNotified ? ' They were also notified by DM.' : ' Warning: their DM could not be delivered.'}`,
                 );
             } catch (error) {
@@ -961,11 +1000,18 @@ function infractionCommand() {
                 // The public message is now final on its first send and already
                 // contains the Appeal button. Cache both stable lookup keys
                 // immediately so even a fast click can resolve the case.
+                const infractionUrl = thread?.url || detailMessage.url;
                 inMemoryInfractions.set(record.caseNumber, record);
                 inMemoryInfractions.set(record.threadId, record);
-                issuedCase = { caseNumber, url: detailMessage.url, appealable: record.appealable };
+                issuedCase = { caseNumber, url: infractionUrl, appealable: record.appealable };
 
-                const infractionUrl = thread?.url || detailMessage.url;
+                // Acknowledge as soon as the public case exists. DM delivery,
+                // database persistence, and thread notices are best-effort and
+                // can be slow, but the issuer should immediately see success.
+                await deliverCommandReceipt(
+                    interaction,
+                    `✅ ${caseNumber} has been issued successfully: ${infractionUrl}\nFinishing the member notification and case save…`,
+                );
 
                 let memberNotified = false;
                 if (notifyMember) {
@@ -1005,8 +1051,9 @@ function infractionCommand() {
                     });
                 }
 
-                await interaction.editReply(
-                    `✅ ${caseNumber} has been issued successfully: ${detailMessage.url}`
+                await deliverCommandReceipt(
+                    interaction,
+                    `✅ ${caseNumber} has been issued successfully: ${infractionUrl}`
                     + `${record.appealable ? '\nThe Appeal Infraction button is active on the case and in the member notification.' : '\nThis case was marked as not appealable.'}`
                     + `${thread ? '' : '\nWarning: Discord did not allow an evidence thread, so the case was kept in the infraction channel.'}`
                     + `${notifyMember ? memberNotified ? '\nThe member was notified by DM.' : '\nWarning: the member DM could not be delivered.' : '\nThe member DM was skipped.'}`
@@ -1018,11 +1065,12 @@ function infractionCommand() {
                     // The case itself already exists. This is most commonly a
                     // post-issue Discord edit failure, not a failed issuance.
                     logger.error(`[Staff Management] Post-issue work failed for ${issuedCase.caseNumber}; reporting the issued case as successful.`);
-                    await interaction.editReply(
+                    await deliverCommandReceipt(
+                        interaction,
                         `✅ ${issuedCase.caseNumber} has been issued successfully: ${issuedCase.url}`
                         + `${issuedCase.appealable ? '\nThe case is appealable. If its appeal button is not visible yet, please try the case link again in a moment.' : '\nThis case was marked as not appealable.'}`
                         + '\nWarning: a follow-up step failed; staff should review the case panel.',
-                    ).catch(() => null);
+                    );
                     return;
                 }
                 markSlashCommandFailed(interaction, error);
@@ -1034,6 +1082,111 @@ function infractionCommand() {
             }
         },
     };
+}
+
+export interface AutomaticInfractionDetails {
+    reason: string;
+    ruleBroken: string;
+    evidence?: string;
+    internalNotes?: string;
+}
+
+/** Issues the same durable V2 infraction used by /infraction for automated systems. */
+export async function issueAutomaticInfraction(
+    client: Client,
+    guildId: string,
+    member: User,
+    details: AutomaticInfractionDetails,
+): Promise<{ caseNumber: string; url: string }> {
+    const issuerId = client.user?.id;
+    if (!issuerId) throw new Error('The Discord client is not ready to issue an automatic infraction.');
+
+    const fetchedParent = await client.channels.fetch(INFRACTION_PARENT_CHANNEL_ID).catch(() => null);
+    if (!fetchedParent || fetchedParent.type !== ChannelType.GuildText || !fetchedParent.isSendable()) {
+        throw new Error('The configured infraction parent channel is unavailable.');
+    }
+    const infractionParent = fetchedParent as TextChannel;
+    const caseNumber = await nextInfractionCaseNumber(guildId);
+    const now = new Date().toISOString();
+    const record: InfractionRecord = {
+        caseNumber,
+        guildId,
+        memberId: member.id,
+        memberUsername: member.username,
+        issuedById: issuerId,
+        action: 'Warning',
+        reason: details.reason,
+        ruleBroken: details.ruleBroken,
+        evidence: details.evidence || 'Automatically generated from the weekly shift quota record.',
+        internalNotes: details.internalNotes || 'Automatically issued by the weekly shift quota scheduler.',
+        notifyMember: true,
+        appealable: true,
+        expiration: 'No expiration set.',
+        status: 'Active',
+        parentChannelId: infractionParent.id,
+        headerMessageId: '',
+        threadId: '',
+        detailMessageId: '',
+        createdAt: now,
+        updatedAt: now,
+        history: [],
+    };
+    addHistory(record, 'Created Automatically', issuerId, `Warning issued to ${member.username} for an incomplete weekly shift quota.`);
+
+    const detailMessage = await infractionParent.send({
+        components: [buildInfractionPanel(record, record.caseNumber)],
+        files: infractionArtworkAttachments(),
+        flags: MessageFlags.IsComponentsV2,
+        allowedMentions: { parse: [], users: [member.id] },
+    });
+    record.headerMessageId = detailMessage.id;
+    record.detailMessageId = detailMessage.id;
+
+    let thread: ThreadChannel | null = null;
+    try {
+        thread = await createInfractionThread(
+            detailMessage,
+            `${caseNumber} | ${sanitizeThreadSegment(member.username)} | Warning`.slice(0, 100),
+            `${caseNumber} automatically issued for missed shift quota`,
+        );
+        record.threadId = thread.id;
+    } catch (error) {
+        record.threadId = detailMessage.id;
+        addHistory(record, 'Evidence Thread Unavailable', issuerId, 'Discord did not allow an evidence thread for this automatic case.');
+        logger.warn(`[Shift Quota] ${caseNumber} was issued without an evidence thread: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+
+    inMemoryInfractions.set(record.caseNumber, record);
+    inMemoryInfractions.set(record.threadId, record);
+
+    let memberNotified = true;
+    await member.send({
+        components: [buildInfractionPanel(record, record.caseNumber)],
+        files: infractionArtworkAttachments(),
+        flags: MessageFlags.IsComponentsV2,
+        allowedMentions: { parse: [] },
+    }).catch(() => {
+        memberNotified = false;
+    });
+    addHistory(
+        record,
+        memberNotified ? 'Member Notified' : 'Notification Failed',
+        issuerId,
+        memberNotified
+            ? 'The member was notified by direct message.'
+            : 'The member could not be reached by direct message.',
+    );
+
+    const persisted = await persistRecord(record);
+    const eventChannel = thread || infractionParent;
+    if (!memberNotified) {
+        await eventChannel.send('The member could not be notified by direct message.').catch(() => undefined);
+    }
+    if (!persisted) {
+        await eventChannel.send('Database persistence is currently unavailable. The automatic case remains active in this process only.').catch(() => undefined);
+    }
+
+    return { caseNumber, url: thread?.url || detailMessage.url };
 }
 
 async function isAuthorized(

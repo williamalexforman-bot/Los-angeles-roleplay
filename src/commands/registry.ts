@@ -20,6 +20,7 @@ import { sessionCommands } from './session';
 import { ticketCommands } from './tickets';
 import { applicationsPanelCommand } from './applications';
 import { roleCommand } from './role';
+import { shiftCommand } from './shift';
 
 export interface CommandDefinition {
     data: {
@@ -30,8 +31,7 @@ export interface CommandDefinition {
 }
 
 const retainedStaffCommands = staffCommands.filter(command =>
-    ['application', 'training'].includes(command.data.name)
-    && !['infraction', 'promotion'].includes(command.data.name),
+    ['application', 'training'].includes(command.data.name),
 );
 const retainedMiscCommands = miscCommands.filter(command =>
     !['movie-feedback', 'staff-feedback', 'partnership', 'staff-complaint'].includes(command.data.name)
@@ -59,6 +59,7 @@ export const commandDefinitions: CommandDefinition[] = [
     ...ticketCommands,
     applicationsPanelCommand,
     roleCommand,
+    shiftCommand,
     { data: cmdsCommandData, execute: executeCmds as (interaction: ChatInputCommandInteraction) => Promise<unknown> },
 ] as CommandDefinition[];
 

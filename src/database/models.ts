@@ -238,6 +238,50 @@ const applicationSessionSchema = new Schema<ApplicationSessionRecord>({
     promptPending: { type: Boolean, required: true, default: false },
 });
 
+export interface ShiftProfileRecord {
+    guildId: string;
+    userId: string;
+    username: string;
+    activeStartedAt?: Date;
+    breakStartedAt?: Date;
+    weeklySeconds: Record<string, number>;
+    completionDmWeeks: string[];
+    quotaInfractionWeeks: string[];
+    updatedAt: Date;
+}
+
+const shiftProfileSchema = new Schema<ShiftProfileRecord>({
+    guildId: { type: String, required: true, index: true },
+    userId: { type: String, required: true, index: true },
+    username: { type: String, required: true },
+    activeStartedAt: Date,
+    breakStartedAt: Date,
+    weeklySeconds: { type: Schema.Types.Mixed, default: {} },
+    completionDmWeeks: { type: [String], default: [] },
+    quotaInfractionWeeks: { type: [String], default: [] },
+    updatedAt: { type: Date, default: Date.now },
+});
+shiftProfileSchema.index({ guildId: 1, userId: 1 }, { unique: true });
+
+export interface ShiftQuotaEvaluationRecord {
+    guildId: string;
+    weekKey: string;
+    status: 'Processing' | 'Completed';
+    lockedUntil?: Date;
+    startedAt: Date;
+    completedAt?: Date;
+}
+
+const shiftQuotaEvaluationSchema = new Schema<ShiftQuotaEvaluationRecord>({
+    guildId: { type: String, required: true, index: true },
+    weekKey: { type: String, required: true },
+    status: { type: String, enum: ['Processing', 'Completed'], required: true },
+    lockedUntil: Date,
+    startedAt: { type: Date, default: Date.now },
+    completedAt: Date,
+});
+shiftQuotaEvaluationSchema.index({ guildId: 1, weekKey: 1 }, { unique: true });
+
 const User = model('User', userSchema);
 const Log = model('Log', logSchema);
 const Counter = model('Counter', counterSchema);
@@ -249,5 +293,21 @@ const ActivityCheck = model<ActivityCheckRecord>('ActivityCheck', activityCheckS
 const BanAppeal = model<BanAppealRecord>('BanAppeal', banAppealSchema);
 const InfractionAppeal = model<InfractionAppealRecord>('InfractionAppeal', infractionAppealSchema);
 const ApplicationSession = model<ApplicationSessionRecord>('ApplicationSession', applicationSessionSchema);
+const ShiftProfile = model<ShiftProfileRecord>('ShiftProfile', shiftProfileSchema);
+const ShiftQuotaEvaluation = model<ShiftQuotaEvaluationRecord>('ShiftQuotaEvaluation', shiftQuotaEvaluationSchema);
 
-export { User, Log, Counter, Infraction, ErlcState, ProhibitedWord, AuditEvent, ActivityCheck, BanAppeal, InfractionAppeal, ApplicationSession };
+export {
+    User,
+    Log,
+    Counter,
+    Infraction,
+    ErlcState,
+    ProhibitedWord,
+    AuditEvent,
+    ActivityCheck,
+    BanAppeal,
+    InfractionAppeal,
+    ApplicationSession,
+    ShiftProfile,
+    ShiftQuotaEvaluation,
+};

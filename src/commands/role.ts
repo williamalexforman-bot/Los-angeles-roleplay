@@ -12,7 +12,8 @@ const MASS_ROLE_CONCURRENCY = 5;
 
 function canRunRoleCommand(interaction: ChatInputCommandInteraction): boolean {
     return interaction.guild?.ownerId === interaction.user.id
-        || Boolean(interaction.memberPermissions?.has(PermissionFlagsBits.Administrator));
+        || Boolean(interaction.memberPermissions?.has(PermissionFlagsBits.Administrator))
+        || Boolean(interaction.memberPermissions?.has(PermissionFlagsBits.ManageRoles));
 }
 
 async function selectedEditableRole(interaction: ChatInputCommandInteraction): Promise<Role | null> {
@@ -37,7 +38,7 @@ export const roleCommand = {
         .setName('role')
         .setDescription('Add a role to one member or every server member')
         .setDMPermission(false)
-        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+        .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
         .addSubcommand(subcommand => subcommand
             .setName('add')
             .setDescription('Add a role to one member')
@@ -63,7 +64,7 @@ export const roleCommand = {
             return;
         }
         if (!canRunRoleCommand(interaction)) {
-            await interaction.reply({ content: 'Only server administrators can use this command.', flags: MessageFlags.Ephemeral });
+            await interaction.reply({ content: 'You need the Manage Roles permission to use this command.', flags: MessageFlags.Ephemeral });
             return;
         }
 

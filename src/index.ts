@@ -29,6 +29,7 @@ import { setDiscordClientForDm } from './commands/punishment';
 import { sendPunishmentDm, handleAppealDmMessage, setBanAppealClient } from './commands/banAppeal';
 import { setInfractionAppealClient } from './commands/infractionAppeal';
 import { handleApplicationDmMessage } from './commands/applications';
+import { stopShiftQuotaScheduler } from './commands/shift';
 
 // Crash-proof error handling — keeps the process alive on errors and prevents premature exit
 process.on('unhandledRejection', (reason: unknown) => {
@@ -449,6 +450,7 @@ async function bootstrap(): Promise<void> {
 async function shutdown(signal: string): Promise<void> {
     logger.info(`Received ${signal}; shutting down.`);
     if (erlcMonitor) try { erlcMonitor.stop(); } catch { /* ignore */ }
+    stopShiftQuotaScheduler();
     client.destroy();
     const activeServer = webhookServer;
     webhookServer = null;

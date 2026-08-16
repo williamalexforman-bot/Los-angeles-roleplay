@@ -3,6 +3,7 @@ import { commandDefinitions } from '../commands/registry';
 import { loadProhibitedWordOverrides } from '../commands/prohibitedWords';
 import { logger } from '../utils/logger';
 import { getDiscordBotToken } from '../config/env';
+import { startShiftQuotaScheduler } from '../commands/shift';
 
 // Custom status refresh — updates "Watching [member count] members" every 5 minutes.
 const MEMBER_COUNT_REFRESH_MS = 5 * 60 * 1000;
@@ -104,4 +105,5 @@ try {
     memberCountPresenceTimer = setInterval(() => {
         void updateMemberCountPresence(client);
     }, MEMBER_COUNT_REFRESH_MS);
+    startShiftQuotaScheduler(client);
 };

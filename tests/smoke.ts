@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import { ChannelType, Collection, PermissionFlagsBits, TextChannel } from 'discord.js';
 import { commandDefinitions } from '../src/commands/registry';
+import { staffCommands } from '../src/commands/staff';
 import { detectProhibitedWords, detectRaidThreat, handleMessageModeration } from '../src/events/messageModeration';
 import {
     configureInfractionPersistence,
     handleStaffManagementButton,
     hasRequiredRole,
+    issueAutomaticInfraction,
     type InfractionRecord,
 } from '../src/commands/staffManagement';
 import { INFRACTION_AUTHORIZED_ROLE_ID, PROMOTION_AUTHORIZED_ROLE_ID } from '../src/config/constants';
@@ -30,6 +32,18 @@ import {
 } from '../src/commands/applications';
 import { handleLoaButton } from '../src/commands/loa';
 import { interactionCreate } from '../src/handlers/interactionCreate';
+import {
+    ACTIVE_SHIFT_ROLE_ID,
+    clearShiftMemory,
+    isShiftInfractionExempt,
+    SHIFT_BREAK_ROLE_ID,
+    SHIFT_INFRACTION_EXEMPT_ROLE_IDS,
+    SHIFT_QUOTA_BY_ROLE_ID,
+    runDueShiftQuotaEvaluation,
+    shiftQuotaBoundary,
+    shiftQuotaSecondsForRoleIds,
+    shiftQuotaWeekKey,
+} from '../src/commands/shift';
 import { sanitizedCommandOptions } from '../src/utils/commandAudit';
 import { fetchErlcServer, type ErlcServerSnapshot } from '../src/services/erlcService';
 import {
@@ -41,6 +55,11 @@ import {
 } from '../src/monitors/erlcMonitor';
 
 async function run(): Promise<void> {
+    assert.deepEqual(
+        staffCommands.map(command => command.data.name),
+        ['application', 'training'],
+        'legacy staff commands must not expose old embed-based infraction or promotion paths',
+    );
     assert.equal(hasRequiredRole({ roles: { cache: new Map([['1523121675007426692', { id: '1523121675007426692' }]]) } } as any, '1523121675007426692'), true, 'the infraction role should grant infraction access');
     assert.equal(hasRequiredRole({ roles: { cache: new Map([['other-role', { id: 'other-role' }]]) } } as any, '1523121675007426692'), false, 'other roles should not grant infraction access');
 
@@ -51,7 +70,7 @@ for (const required of [
         'promotion', 'infraction', 'view-infractions', 'session-start', 'session-vote', 'session-end',
         'session-boost', 'session-full', 'prohibited-word', 'say', 'loa', 'activitycheck',
         'request-training', 'roleplay-log', 'rename', 'ticket', 'ticket-panel', 'ticketpanel', 'close', 'closerequest',
-        'applications-panel', 'unclaim', 'role',
+        'applications-panel', 'unclaim', 'role', 'shift',
     ]) {
         assert(names.includes(required), `missing /${required}`);
     }
@@ -94,8 +113,8 @@ for (const required of [
     assert.deepEqual(roleSchema.options.map(option => option.name), ['add', 'all']);
     assert.deepEqual(roleSchema.options.find(option => option.name === 'add')?.options?.map(option => option.name), ['member', 'role']);
     assert.deepEqual(roleSchema.options.find(option => option.name === 'all')?.options?.map(option => option.name), ['role']);
-    assert(BigInt(roleSchema.default_member_permissions || '0') & PermissionFlagsBits.Administrator,
-        '/role must be restricted to administrators');
+    assert(BigInt(roleSchema.default_member_permissions || '0') & PermissionFlagsBits.ManageRoles,
+        '/role must require Manage Roles');
 
     const assignableRole = { id: 'assignable-role', name: 'Community Member', managed: false, editable: true };
     const individualRoleAdds: string[] = [];
@@ -147,7 +166,8 @@ for (const required of [
             roles: { cache: new Map(), add: async () => { throw new Error('bots must be skipped'); } },
         }],
     ]);
-    await commandNamed('role').execute({
+    await interactionCreate({
+        commandName: 'role',
         guildId: 'role-guild',
         guild: {
             ownerId: 'server-owner',
@@ -157,14 +177,228 @@ for (const required of [
         user: { id: 'role-admin' },
         memberPermissions: { has: () => true },
         options: { getSubcommand: () => 'all', getRole: () => assignableRole },
+        isButton: () => false,
+        isModalSubmit: () => false,
+        isStringSelectMenu: () => false,
+        isChatInputCommand: () => true,
+        isRepliable: () => true,
         deferReply: async () => undefined,
         editReply: async (payload: any) => { massRoleReply = payload; },
+        reply: async (payload: any) => { massRoleReply = payload; },
     } as never);
     assert.deepEqual(massRoleAdds, ['human-needs-role']);
     const massRoleText = String(massRoleReply?.content || massRoleReply);
     assert(massRoleText.includes('Assigned:** 1'));
     assert(massRoleText.includes('Already had role:** 1'));
     assert(massRoleText.includes('Bots skipped:** 1'));
+    assert(!massRoleText.includes('not currently available'), '/role all must route to its handler');
+
+    const shiftSchema = commandNamed('shift').data.toJSON() as {
+        options: Array<{ name: string; options?: Array<{ name: string }> }>;
+    };
+    assert.deepEqual(shiftSchema.options.map(option => option.name), ['start', 'break', 'leaderboard', 'manage', 'end']);
+    assert.deepEqual(
+        shiftSchema.options.find(option => option.name === 'manage')?.options?.map(option => option.name),
+        ['action', 'member', 'reason', 'minutes'],
+    );
+    assert.equal(SHIFT_QUOTA_BY_ROLE_ID['1521593407795888336'], 7_200);
+    assert.equal(SHIFT_QUOTA_BY_ROLE_ID['1521593407816990819'], 5_400);
+    assert.equal(SHIFT_QUOTA_BY_ROLE_ID['1521593407833640981'], 4_500);
+    assert.equal(SHIFT_QUOTA_BY_ROLE_ID['1523111129696702584'], 3_600);
+    assert.equal(SHIFT_QUOTA_BY_ROLE_ID['1521593407833640986'], 2_700);
+    assert.equal(SHIFT_QUOTA_BY_ROLE_ID['1521598108226818288'], 1_800);
+    assert.deepEqual(
+        SHIFT_INFRACTION_EXEMPT_ROLE_IDS,
+        ['1521593407850680401', '1521593407795888329'],
+    );
+    assert(isShiftInfractionExempt(['1521593407850680401']));
+    assert(isShiftInfractionExempt(['1521593407795888329']));
+    assert(!isShiftInfractionExempt(['1521593407795888336']));
+    assert.equal(
+        shiftQuotaSecondsForRoleIds(['1523111129696702584', '1521593407795888336']),
+        7_200,
+        'members with multiple quota roles must receive the highest requirement',
+    );
+    assert.equal(shiftQuotaBoundary(new Date('2026-01-09T15:00:00.000Z')).toISOString(), '2026-01-09T15:00:00.000Z');
+    assert.equal(shiftQuotaBoundary(new Date('2026-08-14T14:00:00.000Z')).toISOString(), '2026-08-14T14:00:00.000Z');
+    assert.equal(shiftQuotaWeekKey(new Date('2026-08-14T13:59:59.000Z')), '2026-08-07');
+
+    clearShiftMemory();
+    const shiftMemberRole = { id: '1521593407795888336' };
+    const shiftTargetDms: any[] = [];
+    const shiftTarget = {
+        id: 'shift-target',
+        username: 'ShiftTarget',
+        send: async (payload: any) => { shiftTargetDms.push(payload); },
+    };
+    const shiftRoleEvents: string[] = [];
+    const shiftRoleCache = new Map([[shiftMemberRole.id, shiftMemberRole]]);
+    const shiftGuildMember = {
+        id: shiftTarget.id,
+        user: shiftTarget,
+        roles: {
+            cache: shiftRoleCache,
+            add: async (roleId: string) => {
+                shiftRoleEvents.push(`add:${roleId}`);
+                shiftRoleCache.set(roleId, { id: roleId });
+            },
+            remove: async (roleId: string) => {
+                shiftRoleEvents.push(`remove:${roleId}`);
+                shiftRoleCache.delete(roleId);
+            },
+        },
+        displayName: 'ShiftTarget',
+    };
+    const shiftMemberCollection = new Collection<string, any>([[shiftTarget.id, shiftGuildMember]]);
+    const shiftGuild = {
+        ownerId: 'shift-manager',
+        members: {
+            cache: shiftMemberCollection,
+            fetch: async (memberId?: string) => memberId ? shiftGuildMember : shiftMemberCollection,
+        },
+    };
+    const shiftStartReplies: string[] = [];
+    await interactionCreate({
+        commandName: 'shift',
+        guildId: 'shift-guild',
+        guild: shiftGuild,
+        member: shiftGuildMember,
+        user: shiftTarget,
+        options: { getSubcommand: () => 'start' },
+        isButton: () => false,
+        isModalSubmit: () => false,
+        isStringSelectMenu: () => false,
+        isChatInputCommand: () => true,
+        isRepliable: () => true,
+        deferReply: async () => undefined,
+        editReply: async (payload: string) => { shiftStartReplies.push(payload); },
+        reply: async (payload: string) => { shiftStartReplies.push(payload); },
+    } as never);
+    assert(shiftStartReplies.some(reply => reply.includes('weekly quota is **2h**')));
+    assert(shiftRoleCache.has(ACTIVE_SHIFT_ROLE_ID), '/shift start must add the active-shift role');
+    assert(!shiftRoleCache.has(SHIFT_BREAK_ROLE_ID));
+
+    const shiftBreakReplies: string[] = [];
+    await commandNamed('shift').execute({
+        guildId: 'shift-guild',
+        guild: shiftGuild,
+        member: shiftGuildMember,
+        user: shiftTarget,
+        options: { getSubcommand: () => 'break' },
+        deferReply: async () => undefined,
+        editReply: async (payload: string) => { shiftBreakReplies.push(payload); },
+    } as never);
+    assert(shiftBreakReplies.some(reply => reply.includes('shift is paused')));
+    assert(!shiftRoleCache.has(ACTIVE_SHIFT_ROLE_ID), 'starting a break must remove the active-shift role');
+    assert(shiftRoleCache.has(SHIFT_BREAK_ROLE_ID), 'starting a break must add the shift-break role');
+
+    await commandNamed('shift').execute({
+        guildId: 'shift-guild',
+        guild: shiftGuild,
+        member: shiftGuildMember,
+        user: shiftTarget,
+        options: { getSubcommand: () => 'break' },
+        deferReply: async () => undefined,
+        editReply: async (payload: string) => { shiftBreakReplies.push(payload); },
+    } as never);
+    assert(shiftBreakReplies.some(reply => reply.includes('shift resumed')));
+    assert(shiftRoleCache.has(ACTIVE_SHIFT_ROLE_ID), 'resuming must restore the active-shift role');
+    assert(!shiftRoleCache.has(SHIFT_BREAK_ROLE_ID), 'resuming must remove the shift-break role');
+
+    const shiftManageReplies: string[] = [];
+    await commandNamed('shift').execute({
+        guildId: 'shift-guild',
+        guild: shiftGuild,
+        member: { roles: { cache: new Map() } },
+        memberPermissions: { has: () => true },
+        user: { id: 'shift-manager', username: 'ShiftManager' },
+        options: {
+            getSubcommand: () => 'manage',
+            getString: (name: string) => name === 'action' ? 'add-time' : 'Quota test adjustment',
+            getUser: () => shiftTarget,
+            getInteger: () => 120,
+        },
+        deferReply: async () => undefined,
+        editReply: async (payload: string) => { shiftManageReplies.push(payload); },
+    } as never);
+    assert(shiftManageReplies.some(reply => reply.includes('Weekly total:** 2h / 2h')));
+    assert.equal(shiftTargetDms.length, 1, 'completing quota through shift management must send the member a DM');
+    assert.equal(shiftTargetDms[0].flags, 32_768, 'the shift quota completion DM must use Components V2');
+
+    let shiftLeaderboardPayload: any = null;
+    await commandNamed('shift').execute({
+        guildId: 'shift-guild',
+        guild: shiftGuild,
+        user: shiftTarget,
+        options: { getSubcommand: () => 'leaderboard' },
+        deferReply: async () => undefined,
+        editReply: async (payload: any) => { shiftLeaderboardPayload = payload; },
+    } as never);
+    const shiftLeaderboardEmbed = shiftLeaderboardPayload.embeds[0].toJSON();
+    assert.equal(shiftLeaderboardEmbed.title, '⏱️ Weekly Shift Leaderboard');
+    assert(shiftLeaderboardEmbed.description.includes(`<@${shiftTarget.id}>`));
+    assert(shiftLeaderboardEmbed.description.includes('**2h** / 2h'));
+
+    const shiftEndReplies: string[] = [];
+    await commandNamed('shift').execute({
+        guildId: 'shift-guild',
+        guild: shiftGuild,
+        member: shiftGuildMember,
+        user: shiftTarget,
+        options: { getSubcommand: () => 'end' },
+        deferReply: async () => undefined,
+        editReply: async (payload: string) => { shiftEndReplies.push(payload); },
+    } as never);
+    assert(shiftEndReplies.some(reply => reply.includes('Your shift ended')));
+    assert(shiftEndReplies.some(reply => reply.includes('Quota status:** ✅ Completed')));
+    assert.equal(shiftTargetDms.length, 1, 'ending later must not duplicate an already delivered quota-completion DM');
+    assert(!shiftRoleCache.has(ACTIVE_SHIFT_ROLE_ID), '/shift end must remove the active-shift role');
+    assert(!shiftRoleCache.has(SHIFT_BREAK_ROLE_ID), '/shift end must remove the break role');
+    assert(shiftRoleEvents.includes(`add:${ACTIVE_SHIFT_ROLE_ID}`));
+    assert(shiftRoleEvents.includes(`add:${SHIFT_BREAK_ROLE_ID}`));
+
+    clearShiftMemory();
+    const originalGuildId = process.env.GUILD_ID;
+    process.env.GUILD_ID = 'quota-scheduler-guild';
+    let quotaMemberFetches = 0;
+    let exemptInfractionChannelFetches = 0;
+    const exemptQuotaMember = {
+        id: 'quota-exempt-member',
+        user: {
+            id: 'quota-exempt-member',
+            username: 'QuotaExempt',
+            bot: false,
+            send: async () => undefined,
+        },
+        roles: {
+            cache: new Map([
+                ['1521593407795888336', { id: '1521593407795888336' }],
+                ['1521593407850680401', { id: '1521593407850680401' }],
+            ]),
+        },
+    };
+    const quotaMembers = new Collection<string, any>([[exemptQuotaMember.id, exemptQuotaMember]]);
+    const quotaSchedulerClient = {
+        user: { id: 'quota-bot' },
+        channels: {
+            fetch: async () => {
+                exemptInfractionChannelFetches += 1;
+                throw new Error('an exempt member must never reach automatic infraction creation');
+            },
+        },
+        guilds: {
+            cache: new Map([['quota-scheduler-guild', {
+                members: { fetch: async () => { quotaMemberFetches += 1; return quotaMembers; } },
+            }]]),
+        },
+    } as never;
+    await runDueShiftQuotaEvaluation(quotaSchedulerClient, new Date('2026-08-17T16:00:00.000Z'));
+    await runDueShiftQuotaEvaluation(quotaSchedulerClient, new Date('2026-08-21T14:00:01.000Z'));
+    await runDueShiftQuotaEvaluation(quotaSchedulerClient, new Date('2026-08-21T14:01:00.000Z'));
+    assert.equal(quotaMemberFetches, 1, 'the same Friday quota window must never be evaluated twice');
+    assert.equal(exemptInfractionChannelFetches, 0, 'quota-exempt roles must never reach automatic infraction creation');
+    if (originalGuildId === undefined) delete process.env.GUILD_ID;
+    else process.env.GUILD_ID = originalGuildId;
 
     const partnershipSchema = commandNamed('partnership').data.toJSON() as {
         options: Array<{ name: string; options?: Array<{ name: string }> }>;
@@ -510,6 +744,7 @@ for (const required of [
 
     const promotionSends: any[] = [];
     const promotionDms: any[] = [];
+    const promotionReplies: string[] = [];
     let promotionDestinationId = '';
     const promotedMember = {
         id: '1489388257925005508',
@@ -522,7 +757,7 @@ for (const required of [
     const selectedRole = { id: '1523122834161926238', name: 'Senior Staff', toString: () => '<@&1523122834161926238>' };
     const promotionInteraction = {
         deferReply: async () => undefined,
-        editReply: async () => undefined,
+        editReply: async (payload: string) => { promotionReplies.push(payload); },
         user: { id: '1523122912201277590' },
         channelId: 'outside-promotions-channel',
         channel: {
@@ -576,6 +811,8 @@ for (const required of [
     assert(promotionText.includes(`<@&${selectedRole.id}>`), 'promotion post must display the selected new role');
     assert.equal(promotionDms.length, 1, 'the promoted member must receive a DM');
     assert.equal(promotionDms[0].flags, 32_768, 'the promotion DM must retain the V2 artwork panel');
+    assert.equal(promotionReplies.length, 2, 'promotion must acknowledge immediately and then report final DM status');
+    assert(promotionReplies.every(reply => reply.includes('Components V2 promotion')));
     const promotionDmPanel = promotionDms[0].components[0].toJSON();
     const viewPromotionButton = promotionDmPanel.components
         .find((component: { type: number }) => component.type === 1)?.components?.[0];
@@ -767,6 +1004,8 @@ for (const required of [
     const infractionDmBanners = infractionDmPanel.components.filter((component: { type: number }) => component.type === 12);
     assert.equal(infractionDmBanners[0]?.items?.[0]?.media?.url, 'attachment://infraction-banner.png');
     assert.equal(infractionDmBanners[1]?.items?.[0]?.media?.url, 'attachment://underbanner.webp');
+    assert.equal(infractionReplies.length, 2, 'infraction must acknowledge immediately and then report final case status');
+    assert(String(infractionReplies[0]).includes('Finishing the member notification and case save'));
     assert(infractionReplies.some(reply => String(reply).includes('INF-0001 has been issued successfully')));
 
     let fallbackInfraction: InfractionRecord | null = null;
@@ -825,6 +1064,49 @@ for (const required of [
     assert.equal(fallbackAppealButton?.custom_id, 'infraction-appeal:start:INF-0002');
     assert(fallbackReplies.some(reply => reply.includes('INF-0002 has been issued successfully')));
     assert(!fallbackReplies.some(reply => reply.includes('Unable to create')));
+
+    let automaticInfraction: InfractionRecord | null = null;
+    configureInfractionPersistence({
+        nextCaseNumber: async () => 3,
+        saveInfraction: async record => { automaticInfraction = record; },
+        getInfractionByThreadId: async () => automaticInfraction,
+    });
+    const automaticPanels: any[] = [];
+    const automaticDms: any[] = [];
+    const automaticThread = {
+        id: 'automatic-infraction-thread',
+        url: 'https://discord.com/channels/guild/automatic-infraction-thread',
+        send: async () => undefined,
+    };
+    const automaticParent = {
+        id: '1526044664975851642',
+        type: ChannelType.GuildText,
+        isSendable: () => true,
+        send: async (payload: any) => {
+            automaticPanels.push(payload);
+            return {
+                id: 'automatic-infraction-message',
+                url: 'https://discord.com/channels/guild/automatic-infraction-message',
+                startThread: async () => automaticThread,
+            };
+        },
+    };
+    const automaticResult = await issueAutomaticInfraction({
+        user: { id: 'shift-quota-bot' },
+        channels: { fetch: async () => automaticParent },
+    } as never, '789699000047370261', {
+        id: 'automatic-member',
+        username: 'AutomaticMember',
+        send: async (payload: any) => { automaticDms.push(payload); },
+    } as never, {
+        reason: 'Weekly shift quota was not completed.',
+        ruleBroken: 'Weekly Shift Quota',
+    });
+    assert.equal(automaticResult.caseNumber, 'INF-0003');
+    assert.equal(automaticPanels[0].flags, 32_768, 'automatic quota infractions must use the same V2 case emblem');
+    assert.equal(automaticDms[0].flags, 32_768, 'automatic quota infractions must DM the member with the V2 emblem');
+    assert.equal((automaticInfraction as InfractionRecord | null)?.action, 'Warning');
+    assert.equal((automaticInfraction as InfractionRecord | null)?.threadId, automaticThread.id);
 
     let viewInfractionsPayload: any = null;
     let viewInfractionsDeferred = false;

@@ -23,6 +23,8 @@ import {
     postTicketPanel,
 } from '../commands/tickets';
 import { handleApplicationButton, handleApplicationModal, handleApplicationSelect } from '../commands/applications';
+import { roleCommand } from '../commands/role';
+import { shiftCommand } from '../commands/shift';
 // economy module removed
 import { INFRACTION_AUTHORIZED_ROLE_ID, PROMOTION_AUTHORIZED_ROLE_ID } from '../config/constants';
 import { logger } from '../utils/logger';
@@ -119,6 +121,16 @@ async function handleChatCommand(interaction: ChatInputCommandInteraction): Prom
         // ticketpanel or ticket-panel while commands refresh after a deploy.
         if (isTicketPanelCommandName(interaction.commandName)) {
             await postTicketPanel(interaction);
+            return;
+        }
+        // Keep /role add and /role all callable even while Discord refreshes
+        // the guild command registration after a deployment.
+        if (interaction.commandName === 'role') {
+            await roleCommand.execute(interaction);
+            return;
+        }
+        if (interaction.commandName === 'shift') {
+            await shiftCommand.execute(interaction);
             return;
         }
         const handler = commandHandlers.get(interaction.commandName);
