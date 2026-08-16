@@ -96,6 +96,22 @@ for (const required of [
     const complaintRating = complaintSchema.options.find(option => option.name === 'rating');
     assert(complaintRating?.required && complaintRating.min_value === 1 && complaintRating.max_value === 5);
 
+    let partnershipLauncher: any = null;
+    await commandNamed('partnership').execute({
+        channel: {
+            isSendable: () => true,
+            send: async (payload: any) => { partnershipLauncher = payload; },
+        },
+        deferReply: async () => undefined,
+        editReply: async () => undefined,
+    } as never);
+    assert.equal(partnershipLauncher?.flags, 32_768, 'the partnership launcher must use Components V2');
+    assert.equal(partnershipLauncher?.embeds, undefined, 'the partnership launcher must not use a legacy embed');
+    const partnershipLauncherPanel = partnershipLauncher.components[0].toJSON();
+    const partnershipLauncherMedia = partnershipLauncherPanel.components.filter((component: { type: number }) => component.type === 12);
+    assert.equal(partnershipLauncherMedia.length, 1, 'the partnership launcher must not have a top banner');
+    assert.equal(partnershipLauncherMedia[0]?.items?.[0]?.media?.url, 'attachment://underbanner.webp');
+
     let partnershipModal: any = null;
     const partnershipButtonHandled = await handleCommunityButton({
         customId: 'partnership:open',
@@ -106,6 +122,16 @@ for (const required of [
 
     let partnershipSubmission: any = null;
     const partnershipReplies: string[] = [];
+    const fullPartnershipAd = [
+        'A professional ER:LC community for creative designers.',
+        '',
+        '**What we offer**',
+        '- Detailed roleplay scenes',
+        '- Community events',
+        '- A welcoming creative team',
+        '',
+        'This final line must remain present when the partnership is approved.',
+    ].join('\n').padEnd(4_000, '•');
     const partnershipModalHandled = await handleCommunityModal({
         customId: 'partnership:request-modal',
         client: {
@@ -122,7 +148,7 @@ for (const required of [
                 server_name: 'Pacific Design Group',
                 representative: 'Representative#1234',
                 invite_link: 'https://discord.gg/pacific-design',
-                server_ad: 'A professional ER:LC community for creative designers.',
+                server_ad: fullPartnershipAd,
             } as Record<string, string>)[name],
         },
         user: { id: 'partnership-user', tag: 'Representative#1234' },
@@ -130,8 +156,68 @@ for (const required of [
         editReply: async (content: string) => { partnershipReplies.push(content); },
     } as never);
     assert(partnershipModalHandled);
-    assert.equal(partnershipSubmission?.embeds?.[0]?.data?.title, '🤝 Partnership Request');
+    assert.equal(partnershipSubmission?.flags, 32_768, 'partnership review requests must use Components V2');
+    assert.equal(partnershipSubmission?.embeds, undefined, 'partnership review requests must not use legacy embeds');
+    const partnershipRequestPanel = partnershipSubmission.components[0].toJSON();
+    const partnershipRequestMedia = partnershipRequestPanel.components.filter((component: { type: number }) => component.type === 12);
+    assert.equal(partnershipRequestMedia.length, 1, 'partnership review requests must not have a top banner');
+    assert.equal(partnershipRequestMedia[0]?.items?.[0]?.media?.url, 'attachment://underbanner.webp');
+    assert(partnershipRequestPanel.components.some((component: { content?: string }) => component.content === fullPartnershipAd),
+        'the full submitted advertisement must be retained in its own V2 text component');
     assert(partnershipReplies.some(reply => reply.includes('submitted for review')));
+
+    let reviewedPartnership: any = null;
+    let approvedPartnership: any = null;
+    const assignedPartnershipRoles: string[] = [];
+    const partnershipApprovalReplies: string[] = [];
+    const partnershipSourceMessage = {
+        components: partnershipSubmission.components,
+        embeds: [],
+        attachments: new Collection([['partnership-underbanner', { id: 'partnership-underbanner', name: 'underbanner.webp' }]]),
+        edit: async (payload: any) => { reviewedPartnership = payload; },
+    };
+    assert(await handleCommunityButton({
+        customId: 'partnership:approve:partnership-user',
+        guildId: 'partnership-guild',
+        memberPermissions: { has: () => true },
+        member: { roles: [] },
+        user: { id: 'partnership-reviewer', tag: 'Reviewer#1234' },
+        guild: {
+            members: {
+                fetch: async () => ({ roles: { add: async (role: { id: string }) => { assignedPartnershipRoles.push(role.id); } } }),
+            },
+            roles: { fetch: async (roleId: string) => ({ id: roleId }) },
+        },
+        message: partnershipSourceMessage,
+        client: {
+            channels: {
+                fetch: async () => ({
+                    isSendable: () => true,
+                    send: async (payload: any) => { approvedPartnership = payload; },
+                }),
+            },
+        },
+        deferReply: async () => undefined,
+        editReply: async (content: string) => { partnershipApprovalReplies.push(content); },
+    } as never));
+    assert.equal(reviewedPartnership?.flags, 32_768, 'reviewing a partnership must preserve its V2 emblem');
+    const reviewedPartnershipPanel = reviewedPartnership.components[0];
+    const reviewedPartnershipText = reviewedPartnershipPanel.components
+        .filter((component: { type: number }) => component.type === 10)
+        .map((component: { content?: string }) => component.content || '')
+        .join('\n');
+    assert(reviewedPartnershipText.includes('`Approved`'));
+    assert(reviewedPartnershipText.includes(fullPartnershipAd), 'approving must not remove any of the submitted advertisement');
+    assert.equal(approvedPartnership?.flags, 32_768, 'approved partnerships must be published as Components V2');
+    assert.equal(approvedPartnership?.embeds, undefined, 'approved partnerships must not fall back to a legacy embed');
+    const approvedPartnershipPanel = approvedPartnership.components[0].toJSON();
+    assert(approvedPartnershipPanel.components.some((component: { content?: string }) => component.content === fullPartnershipAd),
+        'the approval channel must receive the complete advertisement verbatim');
+    const approvedPartnershipMedia = approvedPartnershipPanel.components.filter((component: { type: number }) => component.type === 12);
+    assert.equal(approvedPartnershipMedia.length, 1, 'approved partnership emblems must not have a top banner');
+    assert.equal(approvedPartnershipMedia[0]?.items?.[0]?.media?.url, 'attachment://underbanner.webp');
+    assert.equal(assignedPartnershipRoles.length, 1, 'approval must assign the configured partnership role');
+    assert(partnershipApprovalReplies.some(reply => reply.includes('approved')));
 
     let complaintSubmission: any = null;
     const complaintReplies: string[] = [];

@@ -1,19 +1,28 @@
+import { resolve } from 'path';
 import {
     ActionRowBuilder,
+    AttachmentBuilder,
     ButtonBuilder,
     ButtonInteraction,
     ButtonStyle,
     ChatInputCommandInteraction,
     Client,
     ColorResolvable,
+    ContainerBuilder,
     EmbedBuilder,
+    MediaGalleryBuilder,
+    MediaGalleryItemBuilder,
     MessageFlags,
     ModalBuilder,
     ModalSubmitInteraction,
     PermissionFlagsBits,
+    SeparatorBuilder,
+    SeparatorSpacingSize,
     SlashCommandBuilder,
+    TextDisplayBuilder,
     TextInputBuilder,
     TextInputStyle,
+    type Message,
     type SendableChannels,
 } from 'discord.js';
 import { markSlashCommandFailed } from '../utils/commandAudit';
@@ -32,6 +41,8 @@ const PRIVATE_AUDIT_CHANNEL_ID =
     process.env.DISCORD_COMMAND_LOG_CHANNEL_ID ||
     '1528917592604020917';
 const PARTNERSHIP_APPROVAL_CHANNEL_ID = process.env.PARTNERSHIP_APPROVAL_CHANNEL_ID || '1526042350802043022';
+const PARTNERSHIP_UNDERBANNER_NAME = 'underbanner.webp';
+const PARTNERSHIP_UNDERBANNER_PATH = resolve(__dirname, '..', '..', 'assets', PARTNERSHIP_UNDERBANNER_NAME);
 
 function brandedEmbed(title?: string, description?: string, color: ColorResolvable = BRAND_COLOR, includeLogo = true): EmbedBuilder {
     const embed = new EmbedBuilder()
@@ -42,10 +53,6 @@ function brandedEmbed(title?: string, description?: string, color: ColorResolvab
     if (title) embed.setTitle(title);
     if (description) embed.setDescription(description);
     return embed;
-}
-
-function partnershipEmbed(title?: string, description?: string, color: ColorResolvable = BRAND_COLOR): EmbedBuilder {
-    return brandedEmbed(title, description, color, false);
 }
 
 function logoAttachment() {
@@ -290,8 +297,29 @@ const PARTNERSHIP_PANEL_TEXT = [
     'Please wait as we review your request.',
 ].join('\n');
 
-function partnershipPanelEmbed(): EmbedBuilder {
-    return partnershipEmbed('🤝 Partnership Request', PARTNERSHIP_PANEL_TEXT, 0x3b82f6);
+function partnershipSeparator(): SeparatorBuilder {
+    return new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small);
+}
+
+function partnershipUnderbanner(): MediaGalleryBuilder {
+    return new MediaGalleryBuilder().addItems(
+        new MediaGalleryItemBuilder().setURL(`attachment://${PARTNERSHIP_UNDERBANNER_NAME}`),
+    );
+}
+
+function partnershipUnderbannerAttachment(): AttachmentBuilder {
+    return new AttachmentBuilder(PARTNERSHIP_UNDERBANNER_PATH, { name: PARTNERSHIP_UNDERBANNER_NAME });
+}
+
+function buildPartnershipLauncherPanel(): ContainerBuilder {
+    return new ContainerBuilder()
+        .setAccentColor(0x3b82f6)
+        .addTextDisplayComponents(
+            new TextDisplayBuilder().setContent(`## 🤝 Partnership Request\n${PARTNERSHIP_PANEL_TEXT}`),
+        )
+        .addActionRowComponents(...partnershipPanelComponents())
+        .addSeparatorComponents(partnershipSeparator())
+        .addMediaGalleryComponents(partnershipUnderbanner());
 }
 
 function partnershipPanelComponents(disabled = false): ActionRowBuilder<ButtonBuilder>[] {
@@ -362,6 +390,137 @@ function partnershipReviewComponents(submitterId: string, disabled = false): Act
     ];
 }
 
+interface PartnershipRequestData {
+    serverName: string;
+    representative: string;
+    inviteLink: string;
+    serverAd: string;
+    submitterId: string;
+    submitterTag?: string;
+}
+
+function partnershipDetails(
+    data: PartnershipRequestData,
+    status: 'Pending Review' | 'Approved' | 'Denied',
+    reviewerId?: string,
+): string {
+    return [
+        `## ${status === 'Approved' ? '✅ Partnership Approved' : status === 'Denied' ? '❌ Partnership Denied' : '🤝 Partnership Request'}`,
+        `> **Server Name:** ${data.serverName}`,
+        `> **Representative:** ${data.representative}`,
+        `> **Invite Link:** [Join Server](${data.inviteLink})`,
+        `> **Submitted By:** <@${data.submitterId}>${data.submitterTag ? ` • ${data.submitterTag}` : ''}`,
+        `> **Status:** \`${status}\`${reviewerId ? ` • Reviewed by <@${reviewerId}>` : ''}`,
+    ].join('\n');
+}
+
+function buildPartnershipRequestPanel(data: PartnershipRequestData): ContainerBuilder {
+    return new ContainerBuilder()
+        .setAccentColor(0x3b82f6)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(partnershipDetails(data, 'Pending Review')))
+        .addSeparatorComponents(partnershipSeparator())
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent('## 📢 Full Advertisement'))
+        // The advertisement has its own component so all 4,000 modal
+        // characters are retained instead of being shortened for metadata.
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(data.serverAd))
+        .addActionRowComponents(...partnershipReviewComponents(data.submitterId))
+        .addSeparatorComponents(partnershipSeparator())
+        .addMediaGalleryComponents(partnershipUnderbanner());
+}
+
+function buildApprovedPartnershipPanel(data: PartnershipRequestData, reviewerId: string): ContainerBuilder {
+    return new ContainerBuilder()
+        .setAccentColor(0x22c55e)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(partnershipDetails(data, 'Approved', reviewerId)))
+        .addSeparatorComponents(partnershipSeparator())
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent('## 📢 Full Advertisement'))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(data.serverAd))
+        .addSeparatorComponents(partnershipSeparator())
+        .addMediaGalleryComponents(partnershipUnderbanner());
+}
+
+type PartnershipComponentNode = {
+    components?: PartnershipComponentNode[];
+    content?: string;
+    custom_id?: string;
+    disabled?: boolean;
+    style?: number;
+};
+
+function partnershipComponentText(message: Message): string[] {
+    const text: string[] = [];
+    const visit = (node: PartnershipComponentNode): void => {
+        if (typeof node.content === 'string') text.push(node.content);
+        for (const child of node.components || []) visit(child);
+    };
+    for (const component of message.components) visit(component.toJSON() as PartnershipComponentNode);
+    return text;
+}
+
+function detailValue(details: string, label: string): string {
+    const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return details.match(new RegExp(`^> \\*\\*${escaped}:\\*\\* (.+)$`, 'm'))?.[1]?.trim() || '';
+}
+
+function partnershipDataFromMessage(message: Message, submitterId: string): PartnershipRequestData | null {
+    const text = partnershipComponentText(message);
+    const details = text.find(content => content.includes('**Server Name:**'));
+    const adHeading = text.findIndex(content => content === '## 📢 Full Advertisement');
+    if (details && adHeading >= 0 && text[adHeading + 1]) {
+        const inviteValue = detailValue(details, 'Invite Link');
+        const inviteLink = inviteValue.match(/\((https:\/\/[^)]+)\)/)?.[1] || inviteValue;
+        const data = {
+            serverName: detailValue(details, 'Server Name'),
+            representative: detailValue(details, 'Representative'),
+            inviteLink,
+            serverAd: text[adHeading + 1],
+            submitterId,
+        };
+        if (data.serverName && data.representative && partnershipInviteIsValid(data.inviteLink)) return data;
+    }
+
+    // Requests submitted before the V2 rollout remain reviewable. Their ad
+    // may already have been shortened by the legacy embed and cannot be
+    // reconstructed beyond what Discord stored.
+    const legacy = message.embeds[0];
+    if (!legacy) return null;
+    const field = (name: string) => legacy.fields.find(candidate => candidate.name === name)?.value || '';
+    const inviteValue = field('Invite Link');
+    const inviteLink = inviteValue.match(/\((https:\/\/[^)]+)\)/)?.[1] || inviteValue;
+    const serverAd = (legacy.description || '').replace(/^📢 \*\*Advertisement\*\*\n\n/, '');
+    return {
+        serverName: field('Server Name') || 'Unknown',
+        representative: field('Representative') || 'Unknown',
+        inviteLink,
+        serverAd: serverAd || 'Advertisement unavailable for this legacy request.',
+        submitterId,
+    };
+}
+
+function reviewedPartnershipComponents(message: Message, approved: boolean, reviewerId: string): unknown[] {
+    const components = message.components.map(component => component.toJSON()) as PartnershipComponentNode[];
+    const status = approved ? 'Approved' : 'Denied';
+    const visit = (node: PartnershipComponentNode): void => {
+        if (typeof node.content === 'string' && node.content.includes('> **Status:**')) {
+            node.content = node.content.replace(
+                /> \*\*Status:\*\*[^\n]*/,
+                `> **Status:** \`${status}\` • Reviewed by <@${reviewerId}>`,
+            );
+            if (node.content.startsWith('## ')) {
+                node.content = node.content.replace(/^## .+/, `## ${approved ? '✅ Partnership Approved' : '❌ Partnership Denied'}`);
+            }
+        }
+        if (node.custom_id?.startsWith('partnership:approve:') || node.custom_id?.startsWith('partnership:deny:')) {
+            const selected = node.custom_id.startsWith(approved ? 'partnership:approve:' : 'partnership:deny:');
+            node.disabled = true;
+            node.style = selected ? (approved ? ButtonStyle.Success : ButtonStyle.Danger) : ButtonStyle.Secondary;
+        }
+        for (const child of node.components || []) visit(child);
+    };
+    components.forEach(visit);
+    return components;
+}
+
 function isPartnershipStaff(interaction: ButtonInteraction): boolean {
     if (!interaction.guildId) return false;
     if (interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)
@@ -407,8 +566,9 @@ const partnershipCommand = {
             return;
         }
         await destination.send({
-            embeds: [partnershipPanelEmbed()],
-            components: partnershipPanelComponents(),
+            components: [buildPartnershipLauncherPanel()],
+            files: [partnershipUnderbannerAttachment()],
+            flags: MessageFlags.IsComponentsV2,
             allowedMentions: { parse: [] },
         });
         await interaction.editReply('The partnership request panel has been posted in this channel.');
@@ -482,44 +642,70 @@ export async function handleCommunityButton(interaction: ButtonInteraction): Pro
     const [action, submitterId] = interaction.customId.split(':').slice(1);
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const sourceMessage = interaction.message;
-    const currentEmbed = sourceMessage.embeds[0] ? EmbedBuilder.from(sourceMessage.embeds[0]) : brandedEmbed('🤝 Partnership Request');
+    const requestData = partnershipDataFromMessage(sourceMessage, submitterId);
+    if (!requestData) {
+        await interaction.editReply('I could not read the full partnership request. Please ask the member to submit it again.');
+        return true;
+    }
+    const isV2Request = sourceMessage.components.some(component => component.toJSON().type === 17);
     if (action === 'approve') {
+        const approvalChannel = await getSendableChannel(interaction, PARTNERSHIP_APPROVAL_CHANNEL_ID);
+        if (!approvalChannel) {
+            await interaction.editReply('The approved-partnership channel is unavailable, so this request was not approved. Please check the channel configuration and try again.');
+            return true;
+        }
+        try {
+            await approvalChannel.send({
+                components: [buildApprovedPartnershipPanel(requestData, interaction.user.id)],
+                files: [partnershipUnderbannerAttachment()],
+                flags: MessageFlags.IsComponentsV2,
+                allowedMentions: { parse: [], users: [submitterId, interaction.user.id] },
+            });
+        } catch {
+            await interaction.editReply('I could not publish the complete advertisement, so this request was not approved. Check my permissions in the approved-partnership channel and try again.');
+            return true;
+        }
+
         let roleMessage = 'The partnership was approved.';
         if (PARTNERSHIP_ROLE_ID && interaction.guild) {
             const member = await interaction.guild.members.fetch(submitterId).catch(() => null);
             const role = await interaction.guild.roles.fetch(PARTNERSHIP_ROLE_ID).catch(() => null);
-            if (member && role) await member.roles.add(role, `Partnership approved by ${interaction.user.tag}`);
-            else roleMessage = 'The partnership was approved, but the configured partnership role could not be assigned.';
+            if (member && role) {
+                const assigned = await member.roles.add(role, `Partnership approved by ${interaction.user.tag}`)
+                    .then(() => true)
+                    .catch(() => false);
+                if (!assigned) roleMessage = 'The partnership was approved and published, but the configured partnership role could not be assigned.';
+            } else roleMessage = 'The partnership was approved and published, but the configured partnership role could not be assigned.';
         } else if (!PARTNERSHIP_ROLE_ID) {
-            roleMessage = 'The partnership was approved, but PARTNERSHIP_ROLE_ID is not configured yet.';
+            roleMessage = 'The partnership was approved and published, but PARTNERSHIP_ROLE_ID is not configured yet.';
         }
-        currentEmbed.setColor(0x22c55e).setFooter({ text: `✅ Approved by ${interaction.user.tag} • ${BRAND_FOOTER}` });
-        await sourceMessage.edit({ embeds: [currentEmbed], components: partnershipReviewComponents(submitterId, true) });
-
-        const approvalChannel = await getSendableChannel(interaction, PARTNERSHIP_APPROVAL_CHANNEL_ID);
-        if (approvalChannel) {
-            // Send the full partnership embed to the approval channel
-            const approvalEmbed = partnershipEmbed('✅ Partnership Approved')
-                .addFields(
-                    { name: 'Server Name', value: currentEmbed.data.fields?.find(f => f.name === 'Server Name')?.value || 'Unknown', inline: true },
-                    { name: 'Representative', value: currentEmbed.data.fields?.find(f => f.name === 'Representative')?.value || 'Unknown', inline: true },
-                    { name: 'Invite Link', value: currentEmbed.data.fields?.find(f => f.name === 'Invite Link')?.value || 'Unknown', inline: true },
-                    { name: 'Approved By', value: `<@${interaction.user.id}>`, inline: true },
-                    { name: 'Submitted By', value: `<@${submitterId}>`, inline: true },
-                )
-                .setColor(0x22c55e);
-            await approvalChannel.send({
-                embeds: [approvalEmbed],
-                allowedMentions: { parse: ['users'] },
+        if (isV2Request) {
+            await sourceMessage.edit({
+                components: reviewedPartnershipComponents(sourceMessage, true, interaction.user.id) as never,
+                flags: MessageFlags.IsComponentsV2,
+                attachments: Array.from(sourceMessage.attachments.values()),
             });
+        } else {
+            const currentEmbed = EmbedBuilder.from(sourceMessage.embeds[0]);
+            currentEmbed.setColor(0x22c55e).setFooter({ text: `✅ Approved by ${interaction.user.tag} • ${BRAND_FOOTER}` });
+            await sourceMessage.edit({ embeds: [currentEmbed], components: partnershipReviewComponents(submitterId, true) });
         }
 
         await interaction.editReply(roleMessage);
         return true;
     }
 
-    currentEmbed.setColor(0xef4444).setFooter({ text: `❌ Denied by ${interaction.user.tag} • ${BRAND_FOOTER}` });
-    await sourceMessage.edit({ embeds: [currentEmbed], components: partnershipReviewComponents(submitterId, true) });
+    if (isV2Request) {
+        await sourceMessage.edit({
+            components: reviewedPartnershipComponents(sourceMessage, false, interaction.user.id) as never,
+            flags: MessageFlags.IsComponentsV2,
+            attachments: Array.from(sourceMessage.attachments.values()),
+        });
+    } else {
+        const currentEmbed = EmbedBuilder.from(sourceMessage.embeds[0]);
+        currentEmbed.setColor(0xef4444).setFooter({ text: `❌ Denied by ${interaction.user.tag} • ${BRAND_FOOTER}` });
+        await sourceMessage.edit({ embeds: [currentEmbed], components: partnershipReviewComponents(submitterId, true) });
+    }
     await interaction.editReply('The partnership request was denied.');
     return true;
 }
@@ -542,19 +728,18 @@ export async function handleCommunityModal(interaction: ModalSubmitInteraction):
             return true;
         }
 
-        // Include the full ad inside the embed description (Discord supports up to 4096 chars)
-        const adTruncated = serverAd.length > 4000 ? serverAd.slice(0, 3997) + '...' : serverAd;
-        const requestEmbed = partnershipEmbed('🤝 Partnership Request', `📢 **Advertisement**\n\n${adTruncated}`, 0x3b82f6)
-            .addFields(
-                { name: 'Server Name', value: serverName, inline: true },
-                { name: 'Representative', value: representative, inline: true },
-                { name: 'Invite Link', value: `[Join Server](${inviteLink})`, inline: true },
-                { name: 'Submitted By', value: `<@${interaction.user.id}> • ${interaction.user.tag}`, inline: false },
-            );
+        const requestData: PartnershipRequestData = {
+            serverName,
+            representative,
+            inviteLink,
+            serverAd,
+            submitterId: interaction.user.id,
+            submitterTag: interaction.user.tag,
+        };
         await destination.send({
-            embeds: [requestEmbed],
-            files: [logoAttachment()],
-            components: partnershipReviewComponents(interaction.user.id),
+            components: [buildPartnershipRequestPanel(requestData)],
+            files: [partnershipUnderbannerAttachment()],
+            flags: MessageFlags.IsComponentsV2,
             allowedMentions: { parse: [] },
         });
         await interaction.editReply('Your partnership request was submitted for review.');
