@@ -16,6 +16,7 @@ import { handleBanAppealButton, handleBanAppealModal } from '../commands/banAppe
 import { handleInfractionAppealButton, handleInfractionAppealModal } from '../commands/infractionAppeal';
 import { handleSessionButton } from '../commands/session';
 import { handleEnhancedSessionButton, handleEnhancedSessionCommand } from '../commands/sessionEnhancements';
+import { handlePaidAdButton, handlePaidAdModal, handlePaidAdSelect } from '../commands/paidAds';
 import {
     handleTicketButton,
     handleTicketModal,
@@ -71,8 +72,6 @@ async function hasManagementCommandPermission(interaction: ChatInputCommandInter
                 : [];
     if (requiredRoles.length === 0) return false;
     if (requiredRoles.some(roleId => roles.has(roleId))) return true;
-    // The interaction payload may contain partial member data without roles.
-    // Fall back to a fresh member fetch so role-gated commands authorize correctly.
     try {
         const guild = interaction.guild;
         if (!guild) return false;
@@ -118,18 +117,11 @@ async function reportInteractionError(interaction: Interaction, error: unknown):
 
 async function handleChatCommand(interaction: ChatInputCommandInteraction): Promise<void> {
     try {
-        // Ticket panels are routed directly instead of depending on the
-        // registry map. This also handles stale Discord registrations using
-        // ticketpanel or ticket-panel while commands refresh after a deploy.
         if (isTicketPanelCommandName(interaction.commandName)) {
             await postTicketPanel(interaction);
             return;
         }
-        // Enhanced session routing adds persistent voter lists, voter pings on
-        // session start, and a full channel cleanup on session end.
         if (await handleEnhancedSessionCommand(interaction)) return;
-        // Keep /role add and /role all callable even while Discord refreshes
-        // the guild command registration after a deployment.
         if (interaction.commandName === 'role') {
             await roleCommand.execute(interaction);
             return;
@@ -183,6 +175,7 @@ async function handleChatCommand(interaction: ChatInputCommandInteraction): Prom
 export const interactionCreate = async (interaction: Interaction): Promise<void> => {
     try {
         if (interaction.isButton()) {
+            if (await handlePaidAdButton(interaction)) return;
             if (await handleTicketButton(interaction)) return;
             if (await handleApplicationButton(interaction)) return;
             if (await handleActivityCheckButton(interaction)) return;
@@ -197,6 +190,7 @@ export const interactionCreate = async (interaction: Interaction): Promise<void>
         }
 
         if (interaction.isModalSubmit()) {
+            if (await handlePaidAdModal(interaction)) return;
             if (await handleApplicationModal(interaction)) return;
             if (await handleTicketModal(interaction)) return;
             if (await handleTrainingModal(interaction)) return;
@@ -209,6 +203,7 @@ export const interactionCreate = async (interaction: Interaction): Promise<void>
         }
 
         if (interaction.isStringSelectMenu()) {
+            if (await handlePaidAdSelect(interaction)) return;
             if (await handleTicketSelect(interaction)) return;
             if (await handleApplicationSelect(interaction)) return;
             return;
