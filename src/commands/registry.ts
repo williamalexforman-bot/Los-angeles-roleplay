@@ -25,7 +25,9 @@ import { marketplacePanelCommand } from './marketplace';
 import { erlcUtilityCommands } from './erlcUtilities';
 import { dockConfigCommand } from './dockConfig';
 import { paidAdCommands } from './paidAds';
+import { advancedInstantPostCommand } from './advancedPaidAds';
 import { accountInfoCommands } from './accountInfo';
+import { suggestionCommands } from './suggestions';
 
 export interface CommandDefinition {
     data: {
@@ -42,6 +44,7 @@ const retainedMiscCommands = miscCommands.filter(command =>
     !['movie-feedback', 'staff-feedback', 'partnership', 'staff-complaint'].includes(command.data.name)
     && command.data.name !== 'training-result',
 );
+const retainedPaidAdCommands = paidAdCommands.filter(command => command.data.name !== 'instant-post');
 
 export const commandDefinitions: CommandDefinition[] = [
     ...moderationCommands,
@@ -69,8 +72,10 @@ export const commandDefinitions: CommandDefinition[] = [
     marketplacePanelCommand,
     ...erlcUtilityCommands,
     dockConfigCommand,
-    ...paidAdCommands,
+    ...retainedPaidAdCommands,
+    advancedInstantPostCommand,
     ...accountInfoCommands,
+    ...suggestionCommands,
     { data: cmdsCommandData, execute: executeCmds as (interaction: ChatInputCommandInteraction) => Promise<unknown> },
 ] as CommandDefinition[];
 
