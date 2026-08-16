@@ -32,6 +32,7 @@ const COMMANDS: CommandEntry[] = [
     { name: '/shift end', description: 'End your shift and update weekly quota time', category: 'Staff Management' },
     { name: '/shift leaderboard', description: 'View the current weekly shift leaderboard', category: 'Staff Management' },
     { name: '/shift manage', description: 'Adjust or force-end a staff member\'s shift', category: 'Staff Management' },
+    { name: '/view quota', description: 'Privately view your weekly quota progress and shift status', category: 'Staff Management' },
     { name: '/admin staff-list', description: 'Display a list of all staff members', category: 'Admin' },
     { name: '/say', description: 'Make the bot say a message in a specified channel', category: 'Admin' },
     { name: '/prohibited-word', description: 'Manage prohibited words (add/remove/list) for auto-moderation', category: 'Admin' },

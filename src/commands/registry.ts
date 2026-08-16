@@ -20,7 +20,7 @@ import { sessionCommands } from './session';
 import { ticketCommands } from './tickets';
 import { applicationsPanelCommand } from './applications';
 import { roleCommand } from './role';
-import { shiftCommand } from './shift';
+import { shiftCommand, viewCommand } from './shift';
 
 export interface CommandDefinition {
     data: {
@@ -60,6 +60,7 @@ export const commandDefinitions: CommandDefinition[] = [
     applicationsPanelCommand,
     roleCommand,
     shiftCommand,
+    viewCommand,
     { data: cmdsCommandData, execute: executeCmds as (interaction: ChatInputCommandInteraction) => Promise<unknown> },
 ] as CommandDefinition[];
 

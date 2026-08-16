@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { ChannelType, Collection, PermissionFlagsBits, TextChannel } from 'discord.js';
+import { ChannelType, Collection, MessageFlags, PermissionFlagsBits, TextChannel } from 'discord.js';
 import { commandDefinitions } from '../src/commands/registry';
 import { staffCommands } from '../src/commands/staff';
 import { detectProhibitedWords, detectRaidThreat, handleMessageModeration } from '../src/events/messageModeration';
@@ -71,7 +71,7 @@ for (const required of [
         'promotion', 'infraction', 'view-infractions', 'session-start', 'session-vote', 'session-end',
         'session-boost', 'session-full', 'prohibited-word', 'say', 'loa', 'activitycheck',
         'request-training', 'roleplay-log', 'rename', 'ticket', 'ticket-panel', 'ticketpanel', 'close', 'closerequest',
-        'applications-panel', 'unclaim', 'role', 'shift',
+        'applications-panel', 'unclaim', 'role', 'shift', 'view',
     ]) {
         assert(names.includes(required), `missing /${required}`);
     }
@@ -202,6 +202,10 @@ for (const required of [
         shiftSchema.options.find(option => option.name === 'manage')?.options?.map(option => option.name),
         ['action', 'member', 'reason', 'minutes'],
     );
+    const viewSchema = commandNamed('view').data.toJSON() as {
+        options: Array<{ name: string }>;
+    };
+    assert.deepEqual(viewSchema.options.map(option => option.name), ['quota']);
     assert.equal(SHIFT_QUOTA_BY_ROLE_ID['1521593407795888336'], 7_200);
     assert.equal(SHIFT_QUOTA_BY_ROLE_ID['1521593407816990819'], 5_400);
     assert.equal(SHIFT_QUOTA_BY_ROLE_ID['1521593407833640981'], 4_500);
@@ -269,7 +273,8 @@ for (const required of [
         reply: async () => undefined,
         ...payload,
     } as never);
-    const shiftStartReplies: string[] = [];
+    const shiftStartDefers: any[] = [];
+    const shiftStartReplies: any[] = [];
     await interactionCreate({
         commandName: 'shift',
         guildId: 'shift-guild',
@@ -282,13 +287,42 @@ for (const required of [
         isStringSelectMenu: () => false,
         isChatInputCommand: () => true,
         isRepliable: () => true,
-        deferReply: async () => undefined,
-        editReply: async (payload: string) => { shiftStartReplies.push(payload); },
-        reply: async (payload: string) => { shiftStartReplies.push(payload); },
+        deferReply: async (payload: any) => { shiftStartDefers.push(payload); },
+        editReply: async (payload: any) => { shiftStartReplies.push(payload); },
+        reply: async (payload: any) => { shiftStartReplies.push(payload); },
     } as never);
-    assert(shiftStartReplies.some(reply => reply.includes('weekly quota is **2h**')));
+    assert.equal(shiftStartDefers[0]?.flags, MessageFlags.Ephemeral, '/shift start must be visible only to its user');
+    assert.equal(shiftStartReplies[0]?.flags, MessageFlags.IsComponentsV2, '/shift start must use a Components V2 emblem');
+    assert.equal(shiftStartReplies[0]?.files?.length, 1, '/shift start must include the branded underbanner');
+    assert(JSON.stringify(shiftStartReplies[0]).includes('weekly quota is **2h**'));
     assert(shiftRoleCache.has(ACTIVE_SHIFT_ROLE_ID), '/shift start must add the active-shift role');
     assert(!shiftRoleCache.has(SHIFT_BREAK_ROLE_ID));
+
+    let viewQuotaDefer: any = null;
+    let viewQuotaPayload: any = null;
+    await interactionCreate({
+        commandName: 'view',
+        guildId: 'shift-guild',
+        guild: shiftGuild,
+        member: shiftGuildMember,
+        user: shiftTarget,
+        options: { getSubcommand: () => 'quota' },
+        isButton: () => false,
+        isModalSubmit: () => false,
+        isStringSelectMenu: () => false,
+        isChatInputCommand: () => true,
+        isRepliable: () => true,
+        deferReply: async (payload: any) => { viewQuotaDefer = payload; },
+        editReply: async (payload: any) => { viewQuotaPayload = payload; },
+        reply: async () => undefined,
+    } as never);
+    assert.equal(viewQuotaDefer?.flags, MessageFlags.Ephemeral, '/view quota must be private');
+    assert.equal(viewQuotaPayload?.flags, MessageFlags.IsComponentsV2, '/view quota must use a Components V2 emblem');
+    const viewQuotaText = JSON.stringify(viewQuotaPayload);
+    assert(viewQuotaText.includes('Your Weekly Shift Quota'));
+    assert(viewQuotaText.includes('**Required:** 2h'));
+    assert(viewQuotaText.includes('**Current Shift:** 🟢 Shift active'));
+    assert(!viewQuotaText.includes('not currently available'), '/view quota must route to its handler');
 
     const shiftBreakReplies: string[] = [];
     await routeShift({
@@ -403,6 +437,36 @@ for (const required of [
     assert(!shiftRoleCache.has(SHIFT_BREAK_ROLE_ID), '/shift end must remove the break role');
     assert(shiftRoleEvents.includes(`add:${ACTIVE_SHIFT_ROLE_ID}`));
     assert(shiftRoleEvents.includes(`add:${SHIFT_BREAK_ROLE_ID}`));
+
+    // A restart or database interruption can clear local timer memory while
+    // Discord still holds the active-shift role. Ending must recover instead
+    // of incorrectly reporting that no shift exists.
+    const restartStartReplies: any[] = [];
+    await routeShift({
+        guildId: 'shift-guild',
+        guild: shiftGuild,
+        member: shiftGuildMember,
+        user: shiftTarget,
+        options: { getSubcommand: () => 'start' },
+        deferReply: async () => undefined,
+        editReply: async (payload: any) => { restartStartReplies.push(payload); },
+    });
+    assert.equal(restartStartReplies[0]?.flags, MessageFlags.IsComponentsV2);
+    assert(shiftRoleCache.has(ACTIVE_SHIFT_ROLE_ID));
+    clearShiftMemory();
+    const recoveredShiftEndReplies: string[] = [];
+    await routeShift({
+        guildId: 'shift-guild',
+        guild: shiftGuild,
+        member: shiftGuildMember,
+        user: shiftTarget,
+        options: { getSubcommand: () => 'end' },
+        deferReply: async () => undefined,
+        editReply: async (payload: string) => { recoveredShiftEndReplies.push(payload); },
+    });
+    assert(recoveredShiftEndReplies.some(reply => reply.includes('Your shift ended')));
+    assert(recoveredShiftEndReplies.some(reply => reply.includes('recovered from your Discord shift-state role')));
+    assert(!shiftRoleCache.has(ACTIVE_SHIFT_ROLE_ID), 'recovered /shift end must remove the active-shift role');
 
     clearShiftMemory();
     const originalGuildId = process.env.GUILD_ID;

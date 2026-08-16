@@ -1,10 +1,15 @@
 import {
+    AttachmentBuilder,
     ChatInputCommandInteraction,
     Client,
     ContainerBuilder,
     EmbedBuilder,
     GuildMember,
+    MediaGalleryBuilder,
+    MediaGalleryItemBuilder,
     MessageFlags,
+    SeparatorBuilder,
+    SeparatorSpacingSize,
     SlashCommandBuilder,
     TextDisplayBuilder,
     type User,
@@ -13,10 +18,12 @@ import { isDatabaseAvailable } from '../database/connection';
 import { ShiftProfile as ShiftProfileModel, ShiftQuotaEvaluation } from '../database/models';
 import { issueAutomaticInfraction } from './staffManagement';
 import { logger } from '../utils/logger';
+import { BOTTOM_UNDERBANNER, SESSION_UNDERBANNER_PATH } from '../utils/embeds';
 
 const EASTERN_TIME_ZONE = 'America/New_York';
 const SCHEDULER_INTERVAL_MS = 60_000;
 const EVALUATION_LEASE_MS = 15 * 60_000;
+const MAX_RECOVERED_ACTIVE_SHIFT_MS = 24 * 60 * 60_000;
 const ACTIVATION_KEY = '__activation__';
 export const ACTIVE_SHIFT_ROLE_ID = '1521593407825248360';
 export const SHIFT_BREAK_ROLE_ID = '1521593407825248358';
@@ -220,16 +227,19 @@ function newProfile(guildId: string, userId: string, username: string): ShiftPro
 async function loadProfile(guildId: string, userId: string, username: string): Promise<ShiftProfile> {
     const key = profileKey(guildId, userId);
     const cached = memoryProfiles.get(key);
-    if (cached) {
-        cached.username = username;
-        return cached;
-    }
-
+    // Always refresh from durable storage first. A different bot process may
+    // have started, paused, or ended this member's shift since this process
+    // cached the profile. If this process has a newer copy because its latest
+    // database write failed, preserve that newer timer instead.
     if (isDatabaseAvailable()) {
         try {
             const stored = await ShiftProfileModel.findOne({ guildId, userId }).lean().exec();
             if (stored) {
                 const profile = profileFromRecord(stored as unknown as Record<string, unknown>);
+                if (cached && cached.updatedAt.getTime() > profile.updatedAt.getTime()) {
+                    cached.username = username;
+                    return cached;
+                }
                 profile.username = username;
                 memoryProfiles.set(key, profile);
                 return profile;
@@ -237,6 +247,11 @@ async function loadProfile(guildId: string, userId: string, username: string): P
         } catch (error) {
             logger.warn(`[Shift] Could not load ${userId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
+    }
+
+    if (cached) {
+        cached.username = username;
+        return cached;
     }
 
     const profile = newProfile(guildId, userId, username);
@@ -380,6 +395,73 @@ function refreshProfileQuotaSnapshot(
     profile.infractionExempt = isShiftInfractionExempt(roleIds);
 }
 
+type RecoveredShiftState = 'active' | 'break' | null;
+
+/**
+ * Discord's shift-state roles are the shared fallback when a restart or a
+ * temporary database outage loses this process's timer state. Existing stored
+ * timestamps remain authoritative; role recovery is used only when both are
+ * missing.
+ */
+function recoverShiftStateFromRoles(
+    profile: ShiftProfile,
+    member: GuildMember | ChatInputCommandInteraction['member'],
+    now: Date,
+): RecoveredShiftState {
+    if (profile.activeStartedAt || profile.breakStartedAt) return null;
+    const roleIds = new Set(memberRoleIds(member));
+    const onBreak = roleIds.has(SHIFT_BREAK_ROLE_ID);
+    const active = roleIds.has(ACTIVE_SHIFT_ROLE_ID);
+    if (!onBreak && !active) return null;
+
+    // updatedAt is normally the exact time the lost state was last saved. Only
+    // trust a recent value; an old/stale Discord role must never manufacture a
+    // full day of quota credit.
+    const candidate = profile.updatedAt instanceof Date && Number.isFinite(profile.updatedAt.getTime())
+        ? profile.updatedAt.getTime()
+        : now.getTime();
+    const earliestTrusted = Math.max(
+        shiftQuotaBoundary(now).getTime(),
+        now.getTime() - MAX_RECOVERED_ACTIVE_SHIFT_MS,
+    );
+    const recoveredAt = new Date(candidate >= earliestTrusted && candidate <= now.getTime() ? candidate : now);
+    if (onBreak) profile.breakStartedAt = recoveredAt;
+    else profile.activeStartedAt = recoveredAt;
+    return onBreak ? 'break' : 'active';
+}
+
+function shiftPanel(title: string, lines: readonly string[], color: number): ContainerBuilder {
+    return new ContainerBuilder()
+        .setAccentColor(color)
+        .addTextDisplayComponents(
+            new TextDisplayBuilder().setContent(`## ${title}\n${lines.join('\n')}`),
+        )
+        .addSeparatorComponents(
+            new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small),
+        )
+        .addMediaGalleryComponents(
+            new MediaGalleryBuilder().addItems(
+                new MediaGalleryItemBuilder().setURL(BOTTOM_UNDERBANNER),
+            ),
+        );
+}
+
+function shiftUnderbannerAttachment(): AttachmentBuilder {
+    return new AttachmentBuilder(SESSION_UNDERBANNER_PATH, { name: 'underbanner.webp' });
+}
+
+async function editPrivateShiftPanel(
+    interaction: ChatInputCommandInteraction,
+    panel: ContainerBuilder,
+): Promise<void> {
+    await interaction.editReply({
+        components: [panel],
+        files: [shiftUnderbannerAttachment()],
+        flags: MessageFlags.IsComponentsV2,
+        allowedMentions: { parse: [] },
+    });
+}
+
 type ShiftRoleState = 'active' | 'break' | 'ended';
 
 async function setMemberShiftRoleState(member: GuildMember, state: ShiftRoleState, actorId: string): Promise<boolean> {
@@ -467,33 +549,36 @@ async function executeShiftStart(interaction: ChatInputCommandInteraction): Prom
     const now = new Date();
     await withProfileLock(interaction.guildId, interaction.user.id, async () => {
         const profile = await loadProfile(interaction.guildId!, interaction.user.id, interaction.user.username);
+        const member = await currentGuildMember(interaction);
+        const recoveredState = recoverShiftStateFromRoles(profile, member || interaction.member, now);
         if (profile.activeStartedAt || profile.breakStartedAt) {
             const stateStartedAt = profile.activeStartedAt || profile.breakStartedAt!;
-            const member = await currentGuildMember(interaction);
             const rolesUpdated = member
                 ? await setMemberShiftRoleState(member, profile.breakStartedAt ? 'break' : 'active', interaction.user.id)
                 : false;
-            await interaction.editReply(
-                `You already have a ${profile.breakStartedAt ? 'paused shift' : 'shift'} started <t:${Math.floor(stateStartedAt.getTime() / 1000)}:R>.`
-                + `${rolesUpdated ? ' Your shift-state role is synchronized.' : ' Warning: I could not synchronize your shift-state role.'}`,
-            );
+            refreshProfileQuotaSnapshot(profile, member || interaction.member);
+            if (recoveredState) await saveProfile(profile);
+            await editPrivateShiftPanel(interaction, shiftPanel('Shift Already Active', [
+                `You already have a ${profile.breakStartedAt ? 'paused shift' : 'shift'} started <t:${Math.floor(stateStartedAt.getTime() / 1000)}:R>.`,
+                recoveredState ? 'Your timer was recovered from your Discord shift-state role.' : '',
+                rolesUpdated ? 'Your shift-state role is synchronized.' : 'Warning: I could not synchronize your shift-state role.',
+            ].filter(Boolean), 0xf59e0b));
             return;
         }
         profile.activeStartedAt = now;
         profile.breakStartedAt = null;
-        const member = await currentGuildMember(interaction);
         refreshProfileQuotaSnapshot(profile, member || interaction.member);
         const rolesUpdated = member
             ? await setMemberShiftRoleState(member, 'active', interaction.user.id)
             : false;
         await saveProfile(profile);
         const quota = profile.quotaSeconds;
-        await interaction.editReply([
+        await editPrivateShiftPanel(interaction, shiftPanel('Shift Started', [
             `✅ Your shift started at <t:${Math.floor(now.getTime() / 1000)}:F>.`,
             quota ? `Your weekly quota is **${formatDuration(quota)}**.` : 'You do not currently have a configured quota role.',
             'Use `/shift end` when you finish.',
             rolesUpdated ? `You received the <@&${ACTIVE_SHIFT_ROLE_ID}> role.` : 'Warning: I could not update your active-shift role. Staff time is still being tracked.',
-        ].join('\n'));
+        ], 0x22c55e));
     });
 }
 
@@ -507,6 +592,11 @@ async function executeShiftBreak(interaction: ChatInputCommandInteraction): Prom
         const profile = await loadProfile(interaction.guildId!, interaction.user.id, interaction.user.username);
         const member = await currentGuildMember(interaction);
         refreshProfileQuotaSnapshot(profile, member || interaction.member);
+        const recoveredState = recoverShiftStateFromRoles(profile, member || interaction.member, now);
+        if (recoveredState) {
+            await saveProfile(profile);
+            logger.info(`[Shift] Recovered ${recoveredState} state for ${interaction.user.id} before break toggle.`);
+        }
         if (!profile.activeStartedAt && !profile.breakStartedAt) {
             await interaction.editReply('You do not have an active or paused shift. Use `/shift start` first.');
             return;
@@ -554,6 +644,8 @@ async function executeShiftEnd(interaction: ChatInputCommandInteraction): Promis
     const now = new Date();
     await withProfileLock(interaction.guildId, interaction.user.id, async () => {
         const profile = await loadProfile(interaction.guildId!, interaction.user.id, interaction.user.username);
+        const member = await currentGuildMember(interaction);
+        const recoveredState = recoverShiftStateFromRoles(profile, member || interaction.member, now);
         if (!profile.activeStartedAt && !profile.breakStartedAt) {
             await interaction.editReply('You do not have an active shift. Use `/shift start` first.');
             return;
@@ -566,7 +658,6 @@ async function executeShiftEnd(interaction: ChatInputCommandInteraction): Promis
         profile.breakStartedAt = null;
         const weekKey = shiftQuotaWeekKey(now);
         const total = profile.weeklySeconds[weekKey] || 0;
-        const member = await currentGuildMember(interaction);
         refreshProfileQuotaSnapshot(profile, member || interaction.member);
         const rolesUpdated = member
             ? await setMemberShiftRoleState(member, 'ended', interaction.user.id)
@@ -578,6 +669,7 @@ async function executeShiftEnd(interaction: ChatInputCommandInteraction): Promis
         const completionDmDelivered = profile.completionDmWeeks.includes(weekKey);
         await interaction.editReply([
             `✅ Your shift ended${endedFromBreak ? ' from break' : ''}. **Final active segment:** ${formatDuration(credited)}.`,
+            recoveredState ? 'Your missing timer state was recovered from your Discord shift-state role.' : '',
             `**Weekly total:** ${formatDuration(total)}${quota ? ` / ${formatDuration(quota)}` : ''}`,
             quotaCompleted
                 ? completionDmDelivered
@@ -585,7 +677,50 @@ async function executeShiftEnd(interaction: ChatInputCommandInteraction): Promis
                     : '**Quota status:** ✅ Completed — warning: your DM could not be delivered.'
                 : '**Quota status:** In progress.',
             rolesUpdated ? 'Your active-shift and break roles were removed.' : 'Warning: I could not remove one or more shift-state roles.',
-        ].join('\n'));
+        ].filter(Boolean).join('\n'));
+    });
+}
+
+async function executeQuotaView(interaction: ChatInputCommandInteraction): Promise<void> {
+    if (!interaction.guildId) {
+        await interaction.editReply('This command can only be used in a server.');
+        return;
+    }
+    const now = new Date();
+    await withProfileLock(interaction.guildId, interaction.user.id, async () => {
+        const profile = await loadProfile(interaction.guildId!, interaction.user.id, interaction.user.username);
+        const member = await currentGuildMember(interaction);
+        refreshProfileQuotaSnapshot(profile, member || interaction.member);
+        const recoveredState = recoverShiftStateFromRoles(profile, member || interaction.member, now);
+        if (recoveredState) await saveProfile(profile);
+
+        const weekKey = shiftQuotaWeekKey(now);
+        const quota = profile.quotaSeconds;
+        const total = totalAt(profile, weekKey, now);
+        const remaining = quota ? Math.max(0, quota - total) : null;
+        const state = profile.breakStartedAt
+            ? '⏸️ On break'
+            : profile.activeStartedAt
+                ? '🟢 Shift active'
+                : '⚪ Not on shift';
+        const status = !quota
+            ? 'No quota role configured'
+            : total >= quota
+                ? '✅ Completed'
+                : '⏳ In progress';
+        const nextBoundary = nextShiftQuotaBoundary(now);
+        await saveProfile(profile);
+        await editPrivateShiftPanel(interaction, shiftPanel('Your Weekly Shift Quota', [
+            `**Required:** ${quota ? formatDuration(quota) : 'No configured quota'}`,
+            `**Completed:** ${formatDuration(total)}`,
+            `**Remaining:** ${remaining === null ? 'Not applicable' : formatDuration(remaining)}`,
+            `**Quota Status:** ${status}`,
+            `**Current Shift:** ${state}`,
+            profile.infractionExempt ? '**Infraction Status:** 🛡️ Exempt' : '',
+            '',
+            `**Week Beginning:** ${weekKey}`,
+            `**Resets:** <t:${Math.floor(nextBoundary.getTime() / 1000)}:F> (Friday at 10:00 AM Eastern)`,
+        ].filter(line => line !== '' || quota !== null), quota && total >= quota ? 0x22c55e : 0x3b82f6));
     });
 }
 
@@ -793,6 +928,28 @@ export const shiftCommand = {
         } catch (error) {
             logger.error(`[Shift] Command failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
             await interaction.editReply('Unable to complete that shift command right now. Please try again.').catch(() => undefined);
+        }
+    },
+};
+
+export const viewCommand = {
+    data: new SlashCommandBuilder()
+        .setName('view')
+        .setDescription('View your staff records')
+        .setDMPermission(false)
+        .addSubcommand(subcommand => subcommand
+            .setName('quota')
+            .setDescription('View your weekly shift quota progress')),
+
+    async execute(interaction: ChatInputCommandInteraction): Promise<void> {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        try {
+            const subcommand = interaction.options.getSubcommand(true);
+            if (subcommand === 'quota') await executeQuotaView(interaction);
+            else await interaction.editReply('That view command is unavailable.');
+        } catch (error) {
+            logger.error(`[View Quota] Command failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            await interaction.editReply('Unable to load your quota right now. Please try again.').catch(() => undefined);
         }
     },
 };

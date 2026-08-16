@@ -24,7 +24,7 @@ import {
 } from '../commands/tickets';
 import { handleApplicationButton, handleApplicationModal, handleApplicationSelect } from '../commands/applications';
 import { roleCommand } from '../commands/role';
-import { shiftCommand } from '../commands/shift';
+import { shiftCommand, viewCommand } from '../commands/shift';
 // economy module removed
 import { INFRACTION_AUTHORIZED_ROLE_ID, PROMOTION_AUTHORIZED_ROLE_ID } from '../config/constants';
 import { logger } from '../utils/logger';
@@ -131,6 +131,10 @@ async function handleChatCommand(interaction: ChatInputCommandInteraction): Prom
         }
         if (interaction.commandName === 'shift') {
             await shiftCommand.execute(interaction);
+            return;
+        }
+        if (interaction.commandName === 'view') {
+            await viewCommand.execute(interaction);
             return;
         }
         const handler = commandHandlers.get(interaction.commandName);
