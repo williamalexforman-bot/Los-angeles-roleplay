@@ -1,3 +1,5 @@
+import { loadPersistentSecret } from './persistentSecretStore';
+
 const DOCK_DISCORD_TO_ROBLOX_ENDPOINT = 'https://api.docksys.xyz/api/v1/public/discord-to-roblox';
 const ROBLOX_USER_ENDPOINT = 'https://users.roblox.com/v1/users';
 const DEFAULT_TIMEOUT_MS = 3_000;
@@ -95,16 +97,27 @@ async function fetchRobloxProfile(
     }
 }
 
+async function configuredDockApiKey(explicit?: string): Promise<string> {
+    const direct = (explicit ?? process.env.DOCK_API_KEY ?? '').trim();
+    if (direct) return direct;
+    if (explicit !== undefined) return '';
+
+    const persisted = (await loadPersistentSecret('DOCK_API_KEY').catch(() => null))?.trim() || '';
+    if (persisted) process.env.DOCK_API_KEY = persisted;
+    return persisted;
+}
+
 /**
  * Uses Dock as the authoritative Discord -> Roblox mapping for this guild.
- * The API key is read from DOCK_API_KEY and is never logged or committed.
+ * The key is read from the environment first, then restored from encrypted
+ * MongoDB persistence when the host has replaced its local filesystem.
  */
 export async function resolveDockRobloxProfile(
     guildId: string,
     discordUserId: string,
     options: DockLookupOptions = {},
 ): Promise<DockLookupResult> {
-    const apiKey = (options.apiKey ?? process.env.DOCK_API_KEY ?? '').trim();
+    const apiKey = await configuredDockApiKey(options.apiKey);
     if (!apiKey) {
         return failure('not_configured', 'Dock verification is not configured on this bot.');
     }
