@@ -24,6 +24,7 @@ import { shiftCommand, viewCommand } from './shift';
 import { marketplacePanelCommand } from './marketplace';
 import { erlcUtilityCommands } from './erlcUtilities';
 import { dockConfigCommand } from './dockConfig';
+import { paidAdCommands } from './paidAds';
 
 export interface CommandDefinition {
     data: {
@@ -67,6 +68,7 @@ export const commandDefinitions: CommandDefinition[] = [
     marketplacePanelCommand,
     ...erlcUtilityCommands,
     dockConfigCommand,
+    ...paidAdCommands,
     { data: cmdsCommandData, execute: executeCmds as (interaction: ChatInputCommandInteraction) => Promise<unknown> },
 ] as CommandDefinition[];
 
