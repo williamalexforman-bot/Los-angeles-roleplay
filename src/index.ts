@@ -6,6 +6,7 @@ import {
     Events,
     GatewayIntentBits,
     GuildMember,
+    Partials,
     PermissionFlagsBits,
 } from 'discord.js';
 import type { Server } from 'http';
@@ -26,6 +27,7 @@ import { getDiscordBotToken } from './config/env';
 import { setDiscordClientForDm } from './commands/punishment';
 import { sendPunishmentDm, handleAppealDmMessage, setBanAppealClient } from './commands/banAppeal';
 import { setInfractionAppealClient } from './commands/infractionAppeal';
+import { handleApplicationDmMessage } from './commands/applications';
 
 // Crash-proof error handling — keeps the process alive on errors and prevents premature exit
 process.on('unhandledRejection', (reason: unknown) => {
@@ -72,21 +74,24 @@ async function recoverDiscordClient(bot: Client, token: string, privileged: bool
 }
 
 function createConfiguredClient(privilegedIntents: boolean): Client {
-    const intents = [GatewayIntentBits.Guilds];
+    // Direct-message events are required for the one-question-at-a-time
+    // application and appeal flows and are safe to enable in both modes.
+    const intents = [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.DirectMessages,
+        GatewayIntentBits.DirectMessageReactions,
+    ];
     if (privilegedIntents) {
         intents.push(
             GatewayIntentBits.GuildMembers,
             GatewayIntentBits.GuildMessages,
             GatewayIntentBits.MessageContent,
             GatewayIntentBits.GuildBans,
-            // Required to receive DMs for the ban appeal conversation flow.
-            GatewayIntentBits.DirectMessages,
-            GatewayIntentBits.DirectMessageReactions,
         );
     } else {
         logger.warn('Running without privileged intents; message moderation and member events are disabled until enabled in the Discord Developer Portal.');
     }
-    const bot = new Client({ intents });
+    const bot = new Client({ intents, partials: [Partials.Channel] });
     bot.on('interactionCreate', interactionCreate);
 
     // Auto-reconnect when Discord disconnects (e.g., network interruption, gateway reconnect)
@@ -330,6 +335,7 @@ function createConfiguredClient(privilegedIntents: boolean): Client {
         });
 
         bot.on('messageCreate', async message => {
+            if (await handleApplicationDmMessage(message)) return;
             // Handle ban appeal DM conversations first (DMs have no guild).
             if (await handleAppealDmMessage(message)) return;
             await handleMessageModeration(message);

@@ -15,6 +15,8 @@ import { handleLoaButton, handleLoaModal } from '../commands/loa';
 import { handleBanAppealButton, handleBanAppealModal } from '../commands/banAppeal';
 import { handleInfractionAppealButton, handleInfractionAppealModal } from '../commands/infractionAppeal';
 import { handleSessionButton } from '../commands/session';
+import { handleTicketButton, handleTicketModal, handleTicketSelect } from '../commands/tickets';
+import { handleApplicationButton, handleApplicationSelect } from '../commands/applications';
 // economy module removed
 import { INFRACTION_AUTHORIZED_ROLE_ID, PROMOTION_AUTHORIZED_ROLE_ID } from '../config/constants';
 import { logger } from '../utils/logger';
@@ -137,6 +139,8 @@ async function handleChatCommand(interaction: ChatInputCommandInteraction): Prom
 export const interactionCreate = async (interaction: Interaction): Promise<void> => {
     try {
         if (interaction.isButton()) {
+            if (await handleTicketButton(interaction)) return;
+            if (await handleApplicationButton(interaction)) return;
             if (await handleActivityCheckButton(interaction)) return;
             if (await handleCommunityButton(interaction)) return;
             if (await handleStaffManagementButton(interaction)) return;
@@ -148,12 +152,19 @@ export const interactionCreate = async (interaction: Interaction): Promise<void>
         }
 
         if (interaction.isModalSubmit()) {
+            if (await handleTicketModal(interaction)) return;
             if (await handleTrainingModal(interaction)) return;
             if (await handleCommunityModal(interaction)) return;
             if (await handleStaffManagementModal(interaction)) return;
             if (await handleLoaModal(interaction)) return;
             if (await handleBanAppealModal(interaction)) return;
             if (await handleInfractionAppealModal(interaction)) return;
+            return;
+        }
+
+        if (interaction.isStringSelectMenu()) {
+            if (await handleTicketSelect(interaction)) return;
+            if (await handleApplicationSelect(interaction)) return;
             return;
         }
 

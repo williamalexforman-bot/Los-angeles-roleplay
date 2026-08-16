@@ -32,6 +32,8 @@ export interface ViewInfractionRecord {
     createdAt: Date;
     issuedById: string;
     threadId: string;
+    parentChannelId: string;
+    detailMessageId: string;
     appealable?: boolean;
     source: 'database' | 'memory';
 }
@@ -51,9 +53,28 @@ function normalize(record: Record<string, unknown>, source: 'database' | 'memory
         createdAt,
         issuedById: String(record.issuedById || ''),
         threadId: String(record.threadId || ''),
+        parentChannelId: String(record.parentChannelId || ''),
+        detailMessageId: String(record.detailMessageId || ''),
         appealable: record.appealable === undefined ? true : Boolean(record.appealable),
         source,
     };
+}
+
+function infractionIdentity(record: ViewInfractionRecord): string {
+    const caseNumber = record.caseNumber.trim().toUpperCase();
+    if (caseNumber && caseNumber !== 'UNKNOWN') return `case:${caseNumber}`;
+    if (record.threadId) return `thread:${record.threadId}`;
+    return `message:${record.parentChannelId}:${record.detailMessageId}`;
+}
+
+function infractionLink(record: ViewInfractionRecord, guildId: string): string {
+    if (record.parentChannelId && record.detailMessageId) {
+        return `[🔗 Open Infraction](https://discord.com/channels/${guildId}/${record.parentChannelId}/${record.detailMessageId})`;
+    }
+    if (record.threadId && !record.threadId.startsWith('punishment-')) {
+        return `[🔗 Open Infraction](https://discord.com/channels/${guildId}/${record.threadId})`;
+    }
+    return 'No channel saved';
 }
 
 function media(name: string): MediaGalleryBuilder {
@@ -96,9 +117,7 @@ function buildViewInfractionsPanel(
             const date = Math.floor(record.createdAt.getTime() / 1000);
             const statusEmoji = record.status === 'Active' ? '🟡' : '✅';
             const appeal = record.appealable === false ? '❌ Not appealable' : '⚖️ Appealable';
-            const link = record.threadId && !record.threadId.startsWith('punishment-')
-                ? `[🔗 Open Infraction Channel](https://discord.com/channels/${guildId}/${record.threadId})`
-                : 'No channel saved';
+            const link = infractionLink(record, guildId);
             summary.push(
                 `${statusEmoji} **${compact(record.caseNumber, 40)} — ${compact(record.action, 80)}**`,
                 `> ${appeal} • ${link} • <t:${date}:d>`,
@@ -149,6 +168,10 @@ export const viewInfractionsCommand = {
                 return;
             }
 
+            // Acknowledge immediately so a slow/reconnecting database cannot
+            // make Discord expire the slash command before results are ready.
+            await interaction.deferReply();
+
             const requestedUser = interaction.options.getUser('user') ?? interaction.user;
             const combined = new Map<string, ViewInfractionRecord>();
 
@@ -164,8 +187,7 @@ export const viewInfractionsCommand = {
                         .exec() as unknown as Record<string, unknown>[];
                     for (const r of dbRecords) {
                         const n = normalize(r, 'database');
-                        if (n.threadId) combined.set(n.threadId, n);
-                        else if (n.caseNumber) combined.set(`db-${n.caseNumber}`, n);
+                        combined.set(infractionIdentity(n), n);
                     }
                 } catch {
                     // fall through to in-memory
@@ -178,8 +200,9 @@ export const viewInfractionsCommand = {
                 const memoryRecords = getAllInfractions().filter(r => r.memberId === requestedUser.id);
                 for (const r of memoryRecords) {
                     const n = normalize(r as unknown as Record<string, unknown>, 'memory');
-                    if (n.threadId) combined.set(n.threadId, n);
-                    else if (n.caseNumber) combined.set(`mem-${n.caseNumber}`, n);
+                    // The current in-memory state replaces the matching
+                    // database case without adding a duplicate to the count.
+                    combined.set(infractionIdentity(n), n);
                 }
             } catch {
                 // ignore
@@ -189,11 +212,7 @@ export const viewInfractionsCommand = {
                 (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
             );
 
-            // Send the result as the original interaction response. A follow-up
-            // sent after an ephemeral defer can be treated as that original
-            // webhook response by Discord, so deleting the loading response can
-            // also delete the visible V2 panel.
-            await interaction.reply({
+            await interaction.editReply({
                 components: [buildViewInfractionsPanel(
                     requestedUser.username,
                     requestedUser.id,
@@ -208,7 +227,9 @@ export const viewInfractionsCommand = {
             console.error('[ViewInfractions] Command failed.', error);
             markSlashCommandFailed(interaction, error);
             const content = 'Unable to retrieve that infraction record right now. Please try again later.';
-            if (interaction.replied || interaction.deferred) {
+            if (interaction.deferred) {
+                await interaction.editReply({ content, components: [], embeds: [], files: [] }).catch(() => undefined);
+            } else if (interaction.replied) {
                 await interaction.followUp({ content, flags: MessageFlags.Ephemeral }).catch(() => undefined);
             } else {
                 await interaction.reply({ content, flags: MessageFlags.Ephemeral }).catch(() => undefined);

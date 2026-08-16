@@ -558,12 +558,7 @@ function buildPromotionPanel(details: PromotionPanelDetails): ContainerBuilder {
 function infractionControlRows(
     record: InfractionRecord,
     appealKey: string,
-    sourceUrl?: string,
-    managementThreadId?: string,
 ): ActionRowBuilder<ButtonBuilder>[] {
-    const inactive = record.status !== 'Active';
-    const closed = record.status === 'Closed';
-
     const appealRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
         record.appealable
             ? new ButtonBuilder()
@@ -576,75 +571,28 @@ function infractionControlRows(
                 .setStyle(ButtonStyle.Secondary)
                 .setDisabled(true),
     );
-    if (!sourceUrl) return [appealRow];
-
-    const linkRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder()
-            .setLabel(managementThreadId ? 'Open Evidence Thread' : 'Open Infraction Message')
-            .setStyle(ButtonStyle.Link)
-            .setURL(sourceUrl),
-    );
-    if (!managementThreadId) return [appealRow, linkRow];
-
-    const controlId = (action: string) => `infraction:${action}:${managementThreadId}`;
-    const primaryRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder().setCustomId(controlId('edit')).setLabel('Edit').setStyle(ButtonStyle.Primary).setDisabled(inactive),
-        new ButtonBuilder()
-            .setCustomId(controlId('add-evidence'))
-            .setLabel('Add Evidence')
-            .setStyle(ButtonStyle.Secondary)
-            .setDisabled(inactive),
-        new ButtonBuilder()
-            .setCustomId(controlId('add-note'))
-            .setLabel('Add Note')
-            .setStyle(ButtonStyle.Secondary)
-            .setDisabled(inactive),
-        new ButtonBuilder().setCustomId(controlId('void')).setLabel('Void').setStyle(ButtonStyle.Danger).setDisabled(inactive),
-        new ButtonBuilder().setCustomId(controlId('history')).setLabel('View History').setStyle(ButtonStyle.Secondary),
-    );
-
-    linkRow.addComponents(
-        new ButtonBuilder()
-            .setCustomId(controlId('close'))
-            .setLabel('Close Thread')
-            .setStyle(ButtonStyle.Danger)
-            .setDisabled(closed),
-    );
-
-    return [appealRow, primaryRow, linkRow];
+    return [appealRow];
 }
 
 /**
  * Builds the whole public case card as a Components V2 container. This is
  * what lets the supplied header appear first and the supplied under-banner
- * appear last in the same blue-sided panel, with the display-only punishment
- * badge aligned beside the case details.
+ * appear last in the same blue-sided panel. The only control on an appealable
+ * infraction is the Appeal button requested by the server workflow.
  */
 function buildInfractionPanel(
     record: InfractionRecord,
     appealKey: string = record.caseNumber,
-    sourceUrl?: string,
-    managementThreadId?: string,
 ): ContainerBuilder {
-    const punishmentBadge = new ButtonBuilder()
-        .setCustomId(`infraction:punishment-display:${managementThreadId || appealKey}`)
-        .setLabel(punishmentBadgeLabel(record))
-        .setStyle(ButtonStyle.Primary)
-        .setDisabled(true);
-
     const panel = new ContainerBuilder()
         .setAccentColor(BRAND_COLOR)
         .addMediaGalleryComponents(infractionBanner(INFRACTION_BANNER_NAME))
         .addSeparatorComponents(panelSeparator())
-        .addSectionComponents(
-            new SectionBuilder()
-                .addTextDisplayComponents(
-                    new TextDisplayBuilder().setContent(infractionSummary(record)),
-                )
-                .setButtonAccessory(punishmentBadge),
+        .addTextDisplayComponents(
+            new TextDisplayBuilder().setContent(infractionSummary(record)),
         );
 
-    for (const row of infractionControlRows(record, appealKey, sourceUrl, managementThreadId)) {
+    for (const row of infractionControlRows(record, appealKey)) {
         panel.addActionRowComponents(row);
     }
 
@@ -663,13 +611,34 @@ async function updateInfractionDetailMessage(thread: ThreadChannel, record: Infr
     if (!message) message = await thread.messages.fetch(record.detailMessageId).catch(() => null);
     if (!message) return;
     await message.edit({
-        components: [buildInfractionPanel(record, record.caseNumber, thread.url, record.threadId)],
+        components: [buildInfractionPanel(record, record.caseNumber)],
         flags: MessageFlags.IsComponentsV2,
         // Discord requires existing attachment IDs when a Components V2 panel
         // is edited. Retaining them keeps both supplied banners visible after
         // staff edit, void, or close a case.
         attachments: retainedMessageAttachments(message),
     });
+}
+
+async function createInfractionThread(
+    parent: TextChannel,
+    name: string,
+    reason: string,
+): Promise<ThreadChannel> {
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+        try {
+            return await parent.threads.create({
+                name,
+                autoArchiveDuration: ThreadAutoArchiveDuration.OneDay,
+                reason,
+            });
+        } catch (error) {
+            lastError = error;
+            if (attempt < 3) await new Promise(resolveTimeout => setTimeout(resolveTimeout, 350 * attempt));
+        }
+    }
+    throw lastError;
 }
 
 async function resolveInfractionThread(
@@ -960,11 +929,11 @@ function infractionCommand() {
                 // panel and its Appeal button from the parent channel.
                 let thread: ThreadChannel | null = null;
                 try {
-                    thread = await infractionParent.threads.create({
-                        name: `${caseNumber} | ${sanitizeThreadSegment(member.username)} | ${action}`.slice(0, 100),
-                        autoArchiveDuration: ThreadAutoArchiveDuration.OneDay,
-                        reason: `${caseNumber} issued by ${interaction.user.id}`,
-                    });
+                    thread = await createInfractionThread(
+                        infractionParent,
+                        `${caseNumber} | ${sanitizeThreadSegment(member.username)} | ${action}`.slice(0, 100),
+                        `${caseNumber} issued by ${interaction.user.id}`,
+                    );
                     record.threadId = thread.id;
                 } catch (error) {
                     addHistory(
@@ -982,8 +951,6 @@ function infractionCommand() {
                         components: [buildInfractionPanel(
                             record,
                             record.caseNumber,
-                            thread?.url,
-                            thread?.id,
                         )],
                         files: infractionArtworkAttachments(),
                         flags: MessageFlags.IsComponentsV2,
@@ -1009,36 +976,13 @@ function infractionCommand() {
                 const infractionUrl = thread?.url || detailMessage.url;
 
                 let memberNotified = false;
-                const notificationEmbed = brandedEmbed(`Staff Infraction | ${caseNumber}`)
-                    .setDescription('The high ranking team at Los Angeles Roleplay has issued you an infraction.')
-                    .addFields(
-                        { name: 'Action', value: action, inline: true },
-                        { name: 'Reason', value: reason },
-                        { name: 'Rule Broken', value: ruleBroken },
-                        { name: 'Expiration', value: expiration },
-                        { name: thread ? 'Evidence Thread' : 'Infraction Message', value: infractionUrl },
-                    );
                 if (notifyMember) {
                     try {
-                        const notificationButtons = new ActionRowBuilder<ButtonBuilder>().addComponents(
-                            new ButtonBuilder()
-                                .setLabel('Open Infraction Channel')
-                                .setStyle(ButtonStyle.Link)
-                                .setURL(infractionUrl),
-                        );
-                        if (record.appealable) {
-                            notificationButtons.addComponents(
-                                new ButtonBuilder()
-                                    .setCustomId(`infraction-appeal:start:${record.caseNumber}`)
-                                    .setLabel('Appeal Infraction')
-                                    .setStyle(ButtonStyle.Primary)
-                                    .setEmoji('⚖️'),
-                            );
-                        }
                         await member.send({
-                            embeds: [notificationEmbed],
-                            components: [notificationButtons],
-                            files: [logoAttachment()],
+                            components: [buildInfractionPanel(record, record.caseNumber)],
+                            files: infractionArtworkAttachments(),
+                            flags: MessageFlags.IsComponentsV2,
+                            allowedMentions: { parse: [] },
                         });
                         memberNotified = true;
                     } catch {

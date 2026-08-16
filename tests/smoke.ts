@@ -16,6 +16,12 @@ import {
     setInfractionAppealClient,
 } from '../src/commands/infractionAppeal';
 import { handleSessionButton } from '../src/commands/session';
+import { handleTicketModal, handleTicketSelect } from '../src/commands/tickets';
+import {
+    handleApplicationButton,
+    handleApplicationDmMessage,
+    handleApplicationSelect,
+} from '../src/commands/applications';
 import { handleLoaButton } from '../src/commands/loa';
 import { interactionCreate } from '../src/handlers/interactionCreate';
 import { sanitizedCommandOptions } from '../src/utils/commandAudit';
@@ -38,7 +44,8 @@ for (const required of [
         'movie-feedback', 'staff-feedback', 'partnership', 'staff-complaint', 'training-results',
         'promotion', 'infraction', 'view-infractions', 'session-start', 'session-vote', 'session-end',
         'session-boost', 'session-full', 'prohibited-word', 'say', 'loa', 'activitycheck',
-        'request-training', 'roleplay-log', 'rename',
+        'request-training', 'roleplay-log', 'rename', 'ticket-panel', 'close', 'closerequest',
+        'applications-panel',
     ]) {
         assert(names.includes(required), `missing /${required}`);
     }
@@ -568,20 +575,31 @@ for (const required of [
     assert.equal(initialAppealButton?.custom_id, 'infraction-appeal:start:INF-0001', 'the first case message must already contain its Appeal button');
     assert.equal(infractionDetailEdit, null, 'the V2 case message must not be edited after its first send');
     const infractionPanel = initialInfractionPanel;
-    const punishmentBadge = infractionPanel?.components?.find((component: { type: number }) => component.type === 9)?.accessory;
     const appealButton = infractionPanel?.components
         ?.find((component: { type: number; components?: Array<{ custom_id?: string }> }) => component.type === 1
             && component.components?.[0]?.custom_id?.startsWith('infraction-appeal:start:'))
         ?.components?.[0];
-    assert.equal(punishmentBadge?.label, 'Staff Warning #1');
-    assert.equal(punishmentBadge?.disabled, true, 'the punishment badge is visual-only');
+    assert.equal(
+        infractionPanel.components.filter((component: { type: number }) => component.type === 1).length,
+        1,
+        'the infraction panel must expose only the appeal control row',
+    );
+    assert.equal(
+        infractionPanel.components.some((component: { type: number }) => component.type === 9),
+        false,
+        'the old punishment-button menu must not be included',
+    );
     assert.equal(appealButton?.custom_id, 'infraction-appeal:start:INF-0001');
     assert.notEqual(appealButton?.disabled, true, 'appealable cases must expose a working appeal button');
     assert.equal(infractionDms.length, 1, 'the infracted member must receive a DM by default');
-    const infractionDmButtons = infractionDms[0].components[0].toJSON().components;
-    assert.equal(infractionDmButtons[0]?.label, 'Open Infraction Channel');
-    assert.equal(infractionDmButtons[0]?.url, infractionThread.url);
-    assert.equal(infractionDmButtons[1]?.custom_id, 'infraction-appeal:start:INF-0001');
+    assert.equal(infractionDms[0].flags, 32_768, 'the infraction DM must use the same V2 emblem');
+    const infractionDmPanel = infractionDms[0].components[0].toJSON();
+    const infractionDmRows = infractionDmPanel.components.filter((component: { type: number }) => component.type === 1);
+    assert.equal(infractionDmRows.length, 1, 'the DM emblem must contain only one action row');
+    assert.equal(infractionDmRows[0]?.components?.[0]?.custom_id, 'infraction-appeal:start:INF-0001');
+    const infractionDmBanners = infractionDmPanel.components.filter((component: { type: number }) => component.type === 12);
+    assert.equal(infractionDmBanners[0]?.items?.[0]?.media?.url, 'attachment://infraction-banner.png');
+    assert.equal(infractionDmBanners[1]?.items?.[0]?.media?.url, 'attachment://underbanner.webp');
     assert(infractionReplies.some(reply => String(reply).includes('INF-0001 has been issued successfully')));
 
     let fallbackInfraction: InfractionRecord | null = null;
@@ -646,17 +664,19 @@ for (const required of [
     assert(!fallbackReplies.some(reply => reply.includes('Unable to create')));
 
     let viewInfractionsPayload: any = null;
-    let viewInfractionsLoadingDeleted = false;
+    let viewInfractionsDeferred = false;
     await commandNamed('view-infractions').execute({
         guildId: '789699000047370261',
         user: infractionTarget,
         options: { getUser: () => infractionTarget },
         deferred: false,
         replied: false,
-        reply: async (payload: any) => { viewInfractionsPayload = payload; },
+        deferReply: async () => { viewInfractionsDeferred = true; },
+        editReply: async (payload: any) => { viewInfractionsPayload = payload; },
+        reply: async () => { throw new Error('server views must defer before querying'); },
         followUp: async () => { throw new Error('successful view must not use a follow-up'); },
-        deleteReply: async () => { viewInfractionsLoadingDeleted = true; },
     } as never);
+    assert(viewInfractionsDeferred, '/view-infractions must acknowledge before querying storage');
     assert.equal(viewInfractionsPayload?.flags, 32_768, '/view-infractions must use Components V2');
     const viewInfractionsPanel = viewInfractionsPayload.components[0].toJSON();
     const viewInfractionBanners = viewInfractionsPanel.components.filter((component: { type: number }) => component.type === 12);
@@ -667,8 +687,8 @@ for (const required of [
         .map((component: { content?: string }) => component.content || '')
         .join('\n');
     assert(viewInfractionText.includes('INF-0001'));
-    assert(viewInfractionText.includes('Open Infraction Channel'));
-    assert(!viewInfractionsLoadingDeleted, 'the public V2 panel must never be deleted as loading-response cleanup');
+    assert(viewInfractionText.includes('Open Infraction'));
+    assert(viewInfractionText.includes('**Total:** `1`'), 'the panel must show the exact unique infraction count');
 
     const sessionBannerNames = new Map([
         ['session-start', 'session-start-banner.png'],
@@ -760,6 +780,17 @@ for (const required of [
 
     let sessionVoteEdit: any = null;
     const sessionVoteReplies: string[] = [];
+    const liveSessionVotePanel = JSON.parse(JSON.stringify(sessionVotePayload.components[0].toJSON()));
+    const replaceVoteMediaUrls = (node: any): void => {
+        if (node.media?.url === 'attachment://session-vote-banner.png') {
+            node.media.url = 'https://cdn.discordapp.com/attachments/channel/session-vote-banner.png';
+        } else if (node.media?.url === 'attachment://underbanner.webp') {
+            node.media.url = 'https://cdn.discordapp.com/attachments/channel/underbanner.webp';
+        }
+        for (const item of node.items || []) replaceVoteMediaUrls(item);
+        for (const component of node.components || []) replaceVoteMediaUrls(component);
+    };
+    replaceVoteMediaUrls(liveSessionVotePanel);
     await handleSessionButton({
         customId: 'session:vote:cast:5',
         guildId: '789699000047370261',
@@ -768,18 +799,229 @@ for (const required of [
         message: {
             id: 'session-vote-message',
             editable: true,
-            attachments: new Map([
-                ['session-vote-banner', { id: 'session-vote-banner' }],
-                ['underbanner', { id: 'underbanner' }],
-            ]),
-            components: sessionVotePayload.components,
+            attachments: new Map(),
+            components: [{ toJSON: () => liveSessionVotePanel }],
             edit: async (payload: any) => { sessionVoteEdit = payload; },
         },
         deferReply: async () => undefined,
         editReply: async (content: string) => { sessionVoteReplies.push(content); },
     } as never);
-    assert.equal(sessionVoteEdit?.attachments?.length, 2, 'vote updates must retain both V2 banner attachments');
+    assert.equal(sessionVoteEdit?.attachments, undefined, 'vote updates must not re-upload or clear the original media');
+    const editedVotePanel = sessionVoteEdit.components[0];
+    assert.equal(
+        editedVotePanel.components[0]?.items?.[0]?.media?.url,
+        'https://cdn.discordapp.com/attachments/channel/session-vote-banner.png',
+        'vote updates must preserve the live Discord CDN banner URL',
+    );
+    assert.equal(
+        editedVotePanel.components.at(-1)?.items?.[0]?.media?.url,
+        'https://cdn.discordapp.com/attachments/channel/underbanner.webp',
+        'vote updates must preserve the live Discord CDN underbanner URL',
+    );
     assert(sessionVoteReplies.some(reply => reply.includes('1/5')));
+
+    let ticketPanelPayload: any = null;
+    await commandNamed('ticket-panel').execute({
+        channel: {
+            isSendable: () => true,
+            send: async (payload: any) => { ticketPanelPayload = payload; },
+        },
+        deferReply: async () => undefined,
+        editReply: async () => undefined,
+    } as never);
+    assert.equal(ticketPanelPayload?.flags, 32_768, '/ticket-panel must post a Components V2 emblem');
+    const ticketLauncher = ticketPanelPayload.components[0].toJSON();
+    const ticketLauncherBanners = ticketLauncher.components.filter((component: { type: number }) => component.type === 12);
+    assert.equal(ticketLauncherBanners[0]?.items?.[0]?.media?.url, 'attachment://assistance-banner.png');
+    assert.equal(ticketLauncherBanners[1]?.items?.[0]?.media?.url, 'attachment://underbanner.webp');
+    const ticketLauncherSelect = ticketLauncher.components
+        .find((component: { type: number; components?: Array<{ custom_id?: string }> }) => component.type === 1
+            && component.components?.[0]?.custom_id === 'ticket:create-select')
+        ?.components?.[0];
+    assert.deepEqual(
+        ticketLauncherSelect?.options?.map((option: { value: string }) => option.value),
+        ['general', 'internal', 'management', 'highrank'],
+    );
+
+    let generalTicketModal: any = null;
+    assert(await handleTicketSelect({
+        customId: 'ticket:create-select',
+        values: ['general'],
+        showModal: async (modal: any) => { generalTicketModal = modal; },
+    } as never));
+    assert.equal(generalTicketModal?.toJSON().custom_id, 'ticket:create-modal:general');
+    assert.equal(generalTicketModal?.toJSON().components[0]?.components?.[0]?.custom_id, 'reason');
+
+    let ticketCreateOptions: any = null;
+    let openTicketPayload: any = null;
+    const createdTicketChannel = {
+        id: 'ticket-channel-1',
+        send: async (payload: any) => { openTicketPayload = payload; },
+        delete: async () => undefined,
+    };
+    const ticketGuild = {
+        channels: {
+            cache: new Collection<string, any>(),
+            create: async (options: any) => {
+                ticketCreateOptions = options;
+                return createdTicketChannel;
+            },
+        },
+        roles: { everyone: { id: 'everyone-role' } },
+        members: { fetch: async () => ({ joinedTimestamp: 1_700_000_000_000 }) },
+        emojis: { fetch: async () => new Collection<string, any>() },
+    };
+    const ticketCreationReplies: string[] = [];
+    assert(await handleTicketModal({
+        customId: 'ticket:create-modal:general',
+        guild: ticketGuild,
+        client: { user: { id: 'ticket-bot' } },
+        user: {
+            id: '1489388257925005511',
+            username: 'TicketUser',
+            tag: 'TicketUser#0001',
+            createdTimestamp: 1_600_000_000_000,
+        },
+        fields: { getTextInputValue: () => 'I need help with the server.' },
+        deferReply: async () => undefined,
+        editReply: async (content: string) => { ticketCreationReplies.push(content); },
+    } as never));
+    assert.equal(ticketCreateOptions.parent, '1526254341646712883');
+    assert.equal(openTicketPayload.flags, 32_768, 'new tickets must open with a V2 Assistance emblem');
+    const openTicketPanel = openTicketPayload.components[0].toJSON();
+    const openTicketBanners = openTicketPanel.components.filter((component: { type: number }) => component.type === 12);
+    assert.equal(openTicketBanners[0]?.items?.[0]?.media?.url, 'attachment://assistance-banner.png');
+    assert.equal(openTicketBanners[1]?.items?.[0]?.media?.url, 'attachment://underbanner.webp');
+    const openTicketButtons = openTicketPanel.components
+        .filter((component: { type: number }) => component.type === 1)
+        .flatMap((component: { components?: Array<{ custom_id?: string }> }) => component.components || [])
+        .map((button: { custom_id?: string }) => button.custom_id);
+    assert.deepEqual(openTicketButtons, ['ticket:claim', 'ticket:close', 'ticket:close-request']);
+    assert(ticketCreationReplies.some(reply => reply.includes('ticket-channel-1')));
+
+    let applicationsPanelPayload: any = null;
+    await commandNamed('applications-panel').execute({
+        guild: null,
+        channel: {
+            isSendable: () => true,
+            send: async (payload: any) => { applicationsPanelPayload = payload; },
+        },
+        deferReply: async () => undefined,
+        editReply: async () => undefined,
+    } as never);
+    assert.equal(applicationsPanelPayload?.flags, 32_768, '/applications-panel must use Components V2');
+    const applicationsPanel = applicationsPanelPayload.components[0].toJSON();
+    const applicationsBanners = applicationsPanel.components.filter((component: { type: number }) => component.type === 12);
+    assert.equal(applicationsBanners[0]?.items?.[0]?.media?.url, 'attachment://applications-banner.png');
+    assert.equal(applicationsBanners[1]?.items?.[0]?.media?.url, 'attachment://underbanner.webp');
+
+    let guidelinesPayload: any = null;
+    assert(await handleApplicationButton({
+        customId: 'applications:guidelines',
+        reply: async (payload: any) => { guidelinesPayload = payload; },
+    } as never));
+    assert.equal(guidelinesPayload.flags, 32_768 | 64, 'application guidelines must be private and V2');
+    const guidelinesPanel = guidelinesPayload.components[0].toJSON();
+    const guidelinesBanners = guidelinesPanel.components.filter((component: { type: number }) => component.type === 12);
+    assert.equal(guidelinesBanners[0]?.items?.[0]?.media?.url, 'attachment://applications-banner.png');
+    assert.equal(guidelinesBanners[1]?.items?.[0]?.media?.url, 'attachment://underbanner.webp');
+
+    const applicantDms: string[] = [];
+    const applicationReviewSends: any[] = [];
+    let applicationReviewChannelId = '';
+    const applicant = {
+        id: '1489388257925005777',
+        bot: false,
+        send: async (content: string) => { applicantDms.push(content); },
+    };
+    const applicationStartReplies: string[] = [];
+    assert(await handleApplicationSelect({
+        customId: 'applications:type',
+        values: ['discord'],
+        guildId: '789699000047370261',
+        user: applicant,
+        deferReply: async () => undefined,
+        editReply: async (content: string) => { applicationStartReplies.push(content); },
+    } as never));
+    assert(applicantDms[0]?.includes('Question 1 of 8'));
+    assert(applicationStartReplies.some(reply => reply.includes('Check your DMs')));
+    for (let index = 0; index < 8; index += 1) {
+        assert(await handleApplicationDmMessage({
+            author: applicant,
+            guildId: null,
+            content: `Application answer ${index + 1}`,
+            attachments: new Collection<string, any>(),
+            client: {
+                channels: {
+                    fetch: async (channelId: string) => {
+                        applicationReviewChannelId = channelId;
+                        return ({
+                        isSendable: () => true,
+                        send: async (payload: any) => { applicationReviewSends.push(payload); },
+                        });
+                    },
+                },
+            },
+        } as never));
+    }
+    assert.equal(applicationReviewChannelId, '1538352573248176229', 'all applications must go to the configured review channel');
+    assert.equal(applicationReviewSends.length, 1, 'the completed DM application must be submitted once');
+    assert.equal(applicationReviewSends[0].flags, 32_768);
+    const applicationReviewPanel = applicationReviewSends[0].components[0].toJSON();
+    const reviewBanners = applicationReviewPanel.components.filter((component: { type: number }) => component.type === 12);
+    assert.equal(reviewBanners[0]?.items?.[0]?.media?.url, 'attachment://applications-banner.png');
+    assert.equal(reviewBanners[1]?.items?.[0]?.media?.url, 'attachment://underbanner.webp');
+    const applicationReviewButtons = applicationReviewPanel.components
+        .find((component: { type: number; components?: Array<{ custom_id?: string }> }) => component.type === 1
+            && component.components?.some(button => button.custom_id?.startsWith('applications:review:')))
+        ?.components || [];
+    assert.equal(applicationReviewButtons[0]?.custom_id, 'applications:review:approve:1489388257925005777:discord');
+    assert.equal(applicationReviewButtons[1]?.custom_id, 'applications:review:deny:1489388257925005777:discord');
+    assert(applicantDms.at(-1)?.includes('DO NOT ASK'));
+
+    const unauthorizedApplicationReplies: any[] = [];
+    assert(await handleApplicationButton({
+        customId: 'applications:review:approve:1489388257925005777:discord',
+        user: { id: 'unauthorized-reviewer' },
+        member: { roles: [] },
+        guild: { members: { fetch: async () => ({ roles: { cache: new Map() } }) } },
+        reply: async (payload: any) => { unauthorizedApplicationReplies.push(payload); },
+    } as never));
+    assert(unauthorizedApplicationReplies[0]?.content.includes('1538351617840254998'));
+
+    let updatedApplicationReview: any = null;
+    const applicationReviewResults: string[] = [];
+    const applicationResultDms: any[] = [];
+    assert(await handleApplicationButton({
+        customId: 'applications:review:approve:1489388257925005777:discord',
+        user: { id: 'authorized-reviewer' },
+        member: { roles: ['1538351617840254998'] },
+        message: {
+            id: 'application-review-message-1',
+            components: applicationReviewSends[0].components,
+            edit: async (payload: any) => { updatedApplicationReview = payload; },
+        },
+        client: {
+            users: {
+                fetch: async () => ({ send: async (payload: any) => { applicationResultDms.push(payload); } }),
+            },
+        },
+        deferReply: async () => undefined,
+        editReply: async (content: string) => { applicationReviewResults.push(content); },
+    } as never));
+    const updatedApplicationContainer = updatedApplicationReview.components[0];
+    const updatedApplicationText = updatedApplicationContainer.components
+        .map((component: { content?: string }) => component.content || '')
+        .join('\n');
+    assert(updatedApplicationText.includes('`Approved`'));
+    const updatedApplicationButtons = updatedApplicationContainer.components
+        .find((component: { type?: number; components?: Array<{ custom_id?: string; disabled?: boolean }> }) =>
+            component.type === 1 && component.components?.some(button => button.custom_id?.startsWith('applications:review:')),
+        )?.components || [];
+    assert.equal(updatedApplicationButtons.length, 2);
+    assert(updatedApplicationButtons.every((button: { disabled?: boolean }) => button.disabled));
+    assert.equal(applicationResultDms[0]?.flags, 32_768, 'application results must be sent as V2 emblems');
+    assert(applicationReviewResults.some(result => result.includes('approved')));
 
     let appealModal: any = null;
     const appealStartHandled = await handleInfractionAppealButton({

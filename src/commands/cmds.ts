@@ -34,6 +34,7 @@ const COMMANDS: CommandEntry[] = [
     { name: '/promotion issue', description: 'Issue and publish a staff promotion', category: 'Staff Management' },
     { name: '/training-results', description: 'Publish a completed staff training result with scores', category: 'Staff Management' },
     { name: '/application', description: 'Start or review a staff application', category: 'Staff Management' },
+    { name: '/applications-panel', description: 'Post the V2 application panel and DM questionnaires', category: 'Staff Management' },
     { name: '/training', description: 'Manage a training request for a user', category: 'Staff Management' },
     { name: '/training-result', description: 'Post an authorized legacy/manual training result', category: 'Staff Management' },
 
@@ -55,6 +56,9 @@ const COMMANDS: CommandEntry[] = [
     { name: '/request-training', description: 'Request a training session (Training Dept only)', category: 'Utility' },
     { name: '/view-infractions', description: 'View your own infraction count and history', category: 'Utility' },
     { name: '/rename', description: 'Rename a channel (emoji allowed)', category: 'Utility' },
+    { name: '/ticket-panel', description: 'Post the V2 support-ticket panel', category: 'Utility' },
+    { name: '/close', description: 'Close the current support ticket and save its transcript', category: 'Utility' },
+    { name: '/closerequest', description: 'Ask the ticket opener to approve closing a support ticket', category: 'Utility' },
 ];
 
 const CATEGORY_ORDER = ['Moderation', 'Admin', 'Staff Management', 'Community', 'Game', 'Utility'];

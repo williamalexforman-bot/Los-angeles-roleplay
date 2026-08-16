@@ -222,7 +222,59 @@ type ComponentLike = {
     custom_id?: string;
     label?: string;
     content?: string;
+    items?: readonly ComponentLike[];
+    media?: { url?: string };
+    type?: number;
+    toJSON?: () => ComponentLike;
 };
+
+function componentJson(component: ComponentLike): ComponentLike {
+    const json = typeof component.toJSON === 'function'
+        ? component.toJSON()
+        : component.data || component;
+    return JSON.parse(JSON.stringify(json)) as ComponentLike;
+}
+
+function mediaUrls(nodes: readonly ComponentLike[]): string[] {
+    const urls: string[] = [];
+    const visit = (node: ComponentLike): void => {
+        const data = node.data || node;
+        if (data.media?.url) urls.push(data.media.url);
+        for (const item of data.items || []) visit(item);
+        for (const child of data.components || []) visit(child);
+    };
+    for (const node of nodes) visit(node);
+    return urls;
+}
+
+/** Preserve Discord's CDN gallery URLs when changing a live V2 vote panel. */
+function updatedVotePanel(
+    interaction: ButtonInteraction,
+    vote: SessionVote,
+    currentVotes: number,
+    completed: boolean,
+) {
+    const existingUrls = mediaUrls(
+        (interaction.message.components as unknown as ComponentLike[]).map(componentJson),
+    );
+    const panel = buildSessionVotePanel(
+        vote.startedById,
+        vote.requiredVotes,
+        currentVotes,
+        completed,
+    ).toJSON() as ComponentLike;
+    let mediaIndex = 0;
+    const visit = (node: ComponentLike): void => {
+        if (node.media?.url) {
+            const existingUrl = existingUrls[mediaIndex++];
+            if (existingUrl) node.media.url = existingUrl;
+        }
+        for (const item of node.items || []) visit(item);
+        for (const child of node.components || []) visit(child);
+    };
+    visit(panel);
+    return panel;
+}
 
 /** Reads a posted V2 vote panel so a restart does not make its button dead. */
 function recoverVoteFromMessage(interaction: ButtonInteraction): SessionVote | null {
@@ -336,8 +388,7 @@ export async function handleSessionButton(interaction: ButtonInteraction): Promi
 
             if (vote.usesPanel) {
                 await interaction.message.edit({
-                    components: [buildSessionVotePanel(vote.startedById, vote.requiredVotes, nextVoteCount, completed)],
-                    attachments: Array.from(interaction.message.attachments.values()),
+                    components: [updatedVotePanel(interaction, vote, nextVoteCount, completed) as never],
                 });
             } else {
                 // Compatibility for an announcement posted before the panel
