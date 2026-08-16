@@ -12,13 +12,12 @@ import {
     SlashCommandBuilder,
     TextDisplayBuilder,
 } from 'discord.js';
+import { runErlcCommand } from '../services/erlcCommandService';
 import { fetchErlcServer, type ErlcCommandLog, type ErlcJoinLog } from '../services/erlcService';
 import { BOTTOM_UNDERBANNER, SESSION_UNDERBANNER_PATH } from '../utils/embeds';
 import { logger } from '../utils/logger';
 
-const ERLC_COMMAND_ENDPOINT = 'https://api.erlc.gg/v1/server/command';
 const PANEL_COLOR = 0x247bf1;
-const COMMAND_TIMEOUT_MS = 6_000;
 
 function underbanner(): MediaGalleryBuilder {
     return new MediaGalleryBuilder().addItems(
@@ -191,7 +190,7 @@ const erlcCommandCommand = {
         .setDMPermission(false)
         .addStringOption(option => option
             .setName('command')
-            .setDescription('Command to run, for example :weather 12')
+            .setDescription('Command to run, for example :h Server message')
             .setRequired(true)
             .setMinLength(2)
             .setMaxLength(200)),
@@ -206,53 +205,29 @@ const erlcCommandCommand = {
             return;
         }
 
-        const serverKey = (process.env.ERLC_SERVER_KEY || '').trim();
-        if (!serverKey) {
-            await editV2(interaction, panel('⚠️ ER:LC Command Unavailable', [
-                'The ER:LC server key is not configured on this bot.',
-            ], 0xf59e0b));
+        const entered = interaction.options.getString('command', true).trim();
+        const command = entered.startsWith(':') ? entered : `:${entered}`;
+        const result = await runErlcCommand(command);
+
+        if (!result.ok) {
+            logger.warn(`[ERLC Command] Command failed for Discord user ${interaction.user.id}; status=${result.status ?? 'none'} code=${result.code ?? 'none'}.`);
+            const details = [
+                `**Command:** \`${command.replace(/`/g, 'ˋ')}\``,
+                `**Reason:** ${result.message}`,
+                result.code !== null ? `**ER:LC Error Code:** \`${result.code}\`` : '',
+                result.status !== null ? `**HTTP Status:** \`${result.status}\`` : '',
+                result.retryAfterMs !== null ? `**Retry After:** ${Math.ceil(result.retryAfterMs / 1_000)} second(s)` : '',
+            ].filter(Boolean);
+            await editV2(interaction, panel('❌ ER:LC Command Failed', details, 0xef4444));
             return;
         }
 
-        const entered = interaction.options.getString('command', true).trim();
-        const command = entered.startsWith(':') ? entered : `:${entered}`;
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), COMMAND_TIMEOUT_MS);
-
-        try {
-            const response = await fetch(ERLC_COMMAND_ENDPOINT, {
-                method: 'POST',
-                headers: {
-                    Accept: 'application/json',
-                    'Content-Type': 'application/json',
-                    'server-key': serverKey,
-                },
-                body: JSON.stringify({ command }),
-                signal: controller.signal,
-            });
-
-            if (!response.ok) {
-                logger.warn(`[ERLC Command] HTTP ${response.status} for Discord user ${interaction.user.id}.`);
-                await editV2(interaction, panel('❌ ER:LC Command Failed', [
-                    `The command \`${command.replace(/`/g, 'ˋ')}\` could not be executed.`,
-                    `**API Status:** ${response.status}`,
-                ], 0xef4444));
-                return;
-            }
-
-            logger.info(`[ERLC Command] ${interaction.user.id} executed ${command.split(/\s+/, 1)[0]}.`);
-            await editV2(interaction, panel('✅ ER:LC Command Executed', [
-                `**Command:** \`${command.replace(/`/g, 'ˋ')}\``,
-                `**Executed By:** <@${interaction.user.id}>`,
-                'The command was sent to the live ER:LC server successfully.',
-            ], 0x22c55e));
-        } catch {
-            await editV2(interaction, panel('❌ ER:LC Command Failed', [
-                'The ER:LC command endpoint could not be reached. Please try again.',
-            ], 0xef4444));
-        } finally {
-            clearTimeout(timer);
-        }
+        logger.info(`[ERLC Command] ${interaction.user.id} executed ${command.split(/\s+/, 1)[0]}.`);
+        await editV2(interaction, panel('✅ ER:LC Command Executed', [
+            `**Command:** \`${command.replace(/`/g, 'ˋ')}\``,
+            `**Executed By:** <@${interaction.user.id}>`,
+            `**ER:LC Response:** ${result.message}`,
+        ], 0x22c55e));
     },
 };
 
