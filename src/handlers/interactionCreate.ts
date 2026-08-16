@@ -19,7 +19,11 @@ import { handleEnhancedSessionButton, handleEnhancedSessionCommand } from '../co
 import { handlePaidAdButton, handlePaidAdModal, handlePaidAdSelect } from '../commands/paidAds';
 import { handleAdvancedPaidAdSelect, normalizePaidAdSchedule } from '../commands/advancedPaidAds';
 import { handleSuggestionButton } from '../commands/suggestions';
-import { handleEmergencyDispatchButton, handleEmergencyDispatchModal } from '../events/emergencyDispatch';
+import {
+    handleEmergencyDispatchV2Button,
+    handleEmergencyDispatchV2Modal,
+    handleEmergencyDispatchV2UserSelect,
+} from '../events/emergencyDispatchV2';
 import {
     handleTicketButton,
     handleTicketModal,
@@ -178,7 +182,7 @@ async function handleChatCommand(interaction: ChatInputCommandInteraction): Prom
 export const interactionCreate = async (interaction: Interaction): Promise<void> => {
     try {
         if (interaction.isButton()) {
-            if (await handleEmergencyDispatchButton(interaction)) return;
+            if (await handleEmergencyDispatchV2Button(interaction)) return;
             if (await handleSuggestionButton(interaction)) return;
             if (await handlePaidAdButton(interaction)) return;
             if (await handleTicketButton(interaction)) return;
@@ -195,7 +199,7 @@ export const interactionCreate = async (interaction: Interaction): Promise<void>
         }
 
         if (interaction.isModalSubmit()) {
-            if (await handleEmergencyDispatchModal(interaction)) return;
+            if (await handleEmergencyDispatchV2Modal(interaction)) return;
             if (await handlePaidAdModal(interaction)) {
                 await normalizePaidAdSchedule(interaction.client).catch(error => {
                     logger.warn(`[PaidAdV2] Could not normalize after setup: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -210,6 +214,11 @@ export const interactionCreate = async (interaction: Interaction): Promise<void>
             if (await handleLoaModal(interaction)) return;
             if (await handleBanAppealModal(interaction)) return;
             if (await handleInfractionAppealModal(interaction)) return;
+            return;
+        }
+
+        if (interaction.isUserSelectMenu()) {
+            if (await handleEmergencyDispatchV2UserSelect(interaction)) return;
             return;
         }
 
