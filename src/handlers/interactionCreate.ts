@@ -25,6 +25,7 @@ import {
 import { handleApplicationButton, handleApplicationModal, handleApplicationSelect } from '../commands/applications';
 import { roleCommand } from '../commands/role';
 import { shiftCommand, viewCommand } from '../commands/shift';
+import { grantShiftGamePermission, verifyShiftGameAccess } from '../services/shiftGameAccess';
 // economy module removed
 import { INFRACTION_AUTHORIZED_ROLE_ID, PROMOTION_AUTHORIZED_ROLE_ID } from '../config/constants';
 import { logger } from '../utils/logger';
@@ -130,6 +131,16 @@ async function handleChatCommand(interaction: ChatInputCommandInteraction): Prom
             return;
         }
         if (interaction.commandName === 'shift') {
+            if (interaction.options.getSubcommand(true) === 'start') {
+                const access = await verifyShiftGameAccess(interaction);
+                if (!access.ok) {
+                    await interaction.reply({ content: access.message, flags: MessageFlags.Ephemeral });
+                    return;
+                }
+                await shiftCommand.execute(interaction);
+                await grantShiftGamePermission(interaction, access);
+                return;
+            }
             await shiftCommand.execute(interaction);
             return;
         }
