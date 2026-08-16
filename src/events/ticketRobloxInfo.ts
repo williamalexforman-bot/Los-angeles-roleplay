@@ -13,6 +13,8 @@ import { logger } from '../utils/logger';
 const registeredClients = new WeakSet<Client>();
 const TICKET_TOPIC_PREFIX = 'larp-ticket:';
 const ROBLOX_LOGO = '<:roblox_logo:1530323847922848044>';
+const PANEL_FIND_ATTEMPTS = 12;
+const PANEL_FIND_DELAY_MS = 500;
 
 interface TicketMetadata {
     ownerId?: string;
@@ -72,8 +74,9 @@ async function findTicketPanelMessage(client: Client, channelId: string, metadat
     const channel = await client.channels.fetch(channelId).catch(() => null);
     if (!channel || channel.type !== ChannelType.GuildText) return null;
 
-    if (metadata.panelMessageId) {
-        const linked = await channel.messages.fetch(metadata.panelMessageId).catch(() => null);
+    const currentMetadata = decodeTicketMetadata(channel.topic) || metadata;
+    if (currentMetadata.panelMessageId) {
+        const linked = await channel.messages.fetch(currentMetadata.panelMessageId).catch(() => null);
         if (linked) return linked;
     }
 
@@ -86,20 +89,28 @@ async function findTicketPanelMessage(client: Client, channelId: string, metadat
     ) || null;
 }
 
+async function waitForTicketPanelMessage(client: Client, channelId: string, metadata: TicketMetadata): Promise<Message | null> {
+    for (let attempt = 0; attempt < PANEL_FIND_ATTEMPTS; attempt += 1) {
+        const message = await findTicketPanelMessage(client, channelId, metadata);
+        if (message) return message;
+        await new Promise(resolve => setTimeout(resolve, PANEL_FIND_DELAY_MS));
+    }
+    return null;
+}
+
 async function insertRobloxInfoIntoTicket(
     client: Client,
     channelId: string,
     guildId: string,
     metadata: TicketMetadata,
 ): Promise<void> {
-    // The ticket creator posts the main panel immediately after creating the
-    // channel. Wait briefly, then edit that same V2 container instead of
-    // sending a second Roblox panel.
-    await new Promise(resolve => setTimeout(resolve, 900));
     if (!metadata.ownerId) return;
 
-    const message = await findTicketPanelMessage(client, channelId, metadata);
-    if (!message) return;
+    const message = await waitForTicketPanelMessage(client, channelId, metadata);
+    if (!message) {
+        logger.warn(`[Tickets] Opening V2 panel was not found for ticket ${channelId}; Roblox info was not merged.`);
+        return;
+    }
 
     const [lookup, discordUser] = await Promise.all([
         resolveDockRobloxProfile(guildId, metadata.ownerId, { timeoutMs: 5_000 }),
@@ -128,7 +139,6 @@ async function insertRobloxInfoIntoTicket(
     const container = roots.find(root => Array.isArray(root.components));
     if (!container?.components) return;
 
-    // Do not duplicate the section if the panel was already enriched.
     const serialized = JSON.stringify(container);
     if (serialized.includes('Roblox Account Information')) return;
 
@@ -138,16 +148,16 @@ async function insertRobloxInfoIntoTicket(
         .setSpacing(SeparatorSpacingSize.Small)
         .toJSON() as unknown as RawComponent;
 
-    // Insert before the ticket action row so Discord + Roblox account info stay
-    // together in the same opening emblem and the controls remain beneath them.
     const actionIndex = container.components.findIndex(component => component.type === 1);
     const insertAt = actionIndex >= 0 ? actionIndex : Math.max(0, container.components.length - 2);
     container.components.splice(insertAt, 0, accountSeparator, accountDisplay);
 
+    // Do not replace or resend attachments here. The original ticket message
+    // already owns the assistance banner and underbanner; omitting attachments
+    // preserves those attachment:// references while we only update V2 content.
     await message.edit({
         components: roots as never,
         flags: MessageFlags.IsComponentsV2,
-        attachments: Array.from(message.attachments.values()),
         allowedMentions: { parse: [] },
     });
 }
