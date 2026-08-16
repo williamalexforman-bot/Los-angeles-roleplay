@@ -20,10 +20,13 @@ import { handleTicketModal, handleTicketSelect } from '../src/commands/tickets';
 import {
     APPLICATION_APPROVAL_ROLE_IDS,
     analyzeApplicationAi,
+    clearApplicationSessionCache,
+    configureApplicationSessionPersistence,
     handleApplicationButton,
     handleApplicationDmMessage,
     handleApplicationModal,
     handleApplicationSelect,
+    type ApplicationSession,
 } from '../src/commands/applications';
 import { handleLoaButton } from '../src/commands/loa';
 import { interactionCreate } from '../src/handlers/interactionCreate';
@@ -1208,6 +1211,154 @@ for (const required of [
         .map((component: { content?: string }) => component.content || '')
         .join('\n');
     assert(flaggedMediaReviewText.includes('Potential AI Use — Manual Review Required'));
+
+    const persistedApplicationSessions = new Map<string, ApplicationSession>();
+    configureApplicationSessionPersistence({
+        loadApplicationSession: async userId => {
+            const session = persistedApplicationSessions.get(userId);
+            return session ? JSON.parse(JSON.stringify(session)) as ApplicationSession : null;
+        },
+        saveApplicationSession: async (userId, session) => {
+            persistedApplicationSessions.set(userId, JSON.parse(JSON.stringify(session)) as ApplicationSession);
+        },
+        deleteApplicationSession: async userId => { persistedApplicationSessions.delete(userId); },
+    });
+    const longApplicationDms: string[] = [];
+    const longApplicationUser = {
+        id: '1489388257925006111',
+        bot: false,
+        send: async (content: string) => { longApplicationDms.push(content); },
+    };
+    await handleApplicationSelect({
+        customId: 'applications:type',
+        values: ['ingame'],
+        guildId: '789699000047370261',
+        user: longApplicationUser,
+        deferReply: async () => undefined,
+        editReply: async () => undefined,
+    } as never);
+    const longApplicationMessage = (answer: string) => ({
+        author: longApplicationUser,
+        guildId: null,
+        content: answer,
+        attachments: new Collection<string, any>(),
+        client: {
+            channels: {
+                fetch: async () => ({
+                    isSendable: () => true,
+                    send: async (payload: any) => { applicationReviewSends.push(payload); },
+                }),
+            },
+        },
+    });
+    for (let index = 0; index < 9; index += 1) {
+        assert(await handleApplicationDmMessage(longApplicationMessage(`In-game answer ${index + 1}`) as never));
+    }
+    assert(longApplicationDms.at(-1)?.includes('Question 10 of 11'));
+    const persistedAtQuestion10 = persistedApplicationSessions.get(longApplicationUser.id);
+    assert(persistedAtQuestion10, 'Question 10 progress must be durably saved');
+    persistedAtQuestion10.startedAt = Date.now() - 48 * 60 * 60 * 1_000;
+    persistedAtQuestion10.lastActivityAt = Date.now();
+    clearApplicationSessionCache();
+    assert(await handleApplicationDmMessage(longApplicationMessage('In-game answer 10') as never));
+    assert(longApplicationDms.at(-1)?.includes('Question 11 of 11'),
+        'an active long application must continue past Question 10 after a process restart');
+    clearApplicationSessionCache();
+    assert(await handleApplicationDmMessage(longApplicationMessage('In-game answer 11') as never));
+    assert(longApplicationDms.at(-1)?.includes('DO NOT ASK'));
+    assert.equal(persistedApplicationSessions.has(longApplicationUser.id), false,
+        'the durable application session must be removed only after successful review submission');
+
+    let failQuestionTwoOnce = true;
+    const interruptedApplicationDms: string[] = [];
+    const interruptedApplicationUser = {
+        id: '1489388257925006166',
+        bot: false,
+        send: async (content: string) => {
+            if (content.includes('Question 2 of 7') && failQuestionTwoOnce) {
+                failQuestionTwoOnce = false;
+                throw new Error('Temporary Discord DM delivery failure');
+            }
+            interruptedApplicationDms.push(content);
+        },
+    };
+    await handleApplicationSelect({
+        customId: 'applications:type',
+        values: ['media'],
+        guildId: '789699000047370261',
+        user: interruptedApplicationUser,
+        deferReply: async () => undefined,
+        editReply: async () => undefined,
+    } as never);
+    const interruptedMessage = (content: string) => ({
+        author: interruptedApplicationUser,
+        guildId: null,
+        content,
+        attachments: new Collection<string, any>(),
+        client: { channels: { fetch: async () => null } },
+    });
+    assert(await handleApplicationDmMessage(interruptedMessage('Media answer 1') as never));
+    assert.equal(persistedApplicationSessions.get(interruptedApplicationUser.id)?.promptPending, true,
+        'a failed next-question DM must be persisted as pending');
+    assert(await handleApplicationDmMessage(interruptedMessage('Please continue my application') as never));
+    assert(interruptedApplicationDms.at(-1)?.includes('Question 2 of 7'),
+        'the next applicant DM must resend a question whose original delivery failed');
+    assert.equal(persistedApplicationSessions.get(interruptedApplicationUser.id)?.answers.length, 1,
+        'a recovery request must not be consumed as an answer to an unseen question');
+    persistedApplicationSessions.delete(interruptedApplicationUser.id);
+    clearApplicationSessionCache();
+
+    // Recover users who were already mid-application before durable session
+    // storage was deployed by reconstructing the bot/user question history.
+    clearApplicationSessionCache();
+    persistedApplicationSessions.clear();
+    const legacyRecoveryDms: string[] = [];
+    const legacyRecoveryUser = {
+        id: '1489388257925006222',
+        bot: false,
+        send: async (content: string) => { legacyRecoveryDms.push(content); },
+    };
+    const legacyHistory = new Collection<string, any>();
+    const historyBase = Date.now() - 20 * 60_000;
+    for (let question = 1; question <= 10; question += 1) {
+        legacyHistory.set(`legacy-prompt-${question}`, {
+            id: `legacy-prompt-${question}`,
+            author: { id: 'application-bot', bot: true },
+            content: `**Question ${question} of 11**\nPrompt ${question}`,
+            attachments: new Collection<string, any>(),
+            createdTimestamp: historyBase + question * 2_000,
+        });
+        if (question < 10) {
+            legacyHistory.set(`legacy-answer-${question}`, {
+                id: `legacy-answer-${question}`,
+                author: legacyRecoveryUser,
+                content: `Recovered answer ${question}`,
+                attachments: new Collection<string, any>(),
+                createdTimestamp: historyBase + question * 2_000 + 1_000,
+            });
+        }
+    }
+    assert(await handleApplicationDmMessage({
+        id: 'legacy-current-answer-10',
+        author: legacyRecoveryUser,
+        guildId: null,
+        content: 'Recovered answer 10',
+        attachments: new Collection<string, any>(),
+        channel: { messages: { fetch: async () => legacyHistory } },
+        client: {
+            user: { id: 'application-bot' },
+            channels: {
+                fetch: async () => ({
+                    isSendable: () => true,
+                    send: async (payload: any) => { applicationReviewSends.push(payload); },
+                }),
+            },
+        },
+    } as never));
+    assert(legacyRecoveryDms.at(-1)?.includes('Question 11 of 11'),
+        'a pre-deployment application must recover from DM history at Question 10');
+    configureApplicationSessionPersistence(null);
+    clearApplicationSessionCache();
 
     const unauthorizedApplicationReplies: any[] = [];
     assert(await handleApplicationButton({

@@ -34,7 +34,9 @@ const APPLICATIONS_BANNER_PATH = resolve(__dirname, '..', '..', 'assets', APPLIC
 const UNDERBANNER_PATH = resolve(__dirname, '..', '..', 'assets', UNDERBANNER_NAME);
 const APPLICATION_REVIEW_CHANNEL_ID = '1538352573248176229';
 const APPLICATION_REVIEWER_ROLE_ID = '1538351617840254998';
-const APPLICATION_SESSION_TTL_MS = 2 * 60 * 60 * 1_000;
+// Applications can be lengthy. Expire only after a full day without an
+// answer, rather than two hours after Question 1 regardless of activity.
+const APPLICATION_SESSION_INACTIVITY_TTL_MS = 24 * 60 * 60 * 1_000;
 
 const APPLICATION_QUESTIONS = {
     media: {
@@ -93,7 +95,7 @@ const APPLICATION_QUESTIONS = {
     },
 } as const;
 
-type ActiveApplicationType = keyof typeof APPLICATION_QUESTIONS;
+export type ActiveApplicationType = keyof typeof APPLICATION_QUESTIONS;
 
 export const APPLICATION_APPROVAL_ROLE_IDS: Readonly<Partial<Record<ActiveApplicationType, readonly string[]>>> = {
     ingame: ['1524013351850737835'],
@@ -101,16 +103,183 @@ export const APPLICATION_APPROVAL_ROLE_IDS: Readonly<Partial<Record<ActiveApplic
     media: ['1521593407770722497'],
 };
 
-interface ApplicationSession {
+export interface ApplicationSession {
     type: ActiveApplicationType;
     guildId: string;
     answers: string[];
     nextQuestion: number;
     startedAt: number;
+    lastActivityAt: number;
+    promptPending: boolean;
+}
+
+export interface ApplicationSessionPersistenceAdapter {
+    loadApplicationSession(userId: string): Promise<ApplicationSession | null>;
+    saveApplicationSession(userId: string, session: ApplicationSession): Promise<void>;
+    deleteApplicationSession(userId: string): Promise<void>;
 }
 
 const activeApplications = new Map<string, ApplicationSession>();
 const applicationReviewLocks = new Set<string>();
+const applicationConversationLocks = new Map<string, Promise<void>>();
+let applicationSessionPersistence: ApplicationSessionPersistenceAdapter | null = null;
+
+export function configureApplicationSessionPersistence(adapter: ApplicationSessionPersistenceAdapter | null): void {
+    applicationSessionPersistence = adapter;
+}
+
+/** Clears only the process cache; durable sessions remain recoverable. */
+export function clearApplicationSessionCache(): void {
+    activeApplications.clear();
+}
+
+function validApplicationSession(session: ApplicationSession | null): session is ApplicationSession {
+    return Boolean(session
+        && session.type in APPLICATION_QUESTIONS
+        && Array.isArray(session.answers)
+        && Number.isInteger(session.nextQuestion)
+        && session.nextQuestion >= 0
+        && Number.isFinite(session.startedAt)
+        && Number.isFinite(session.lastActivityAt)
+        && typeof session.promptPending === 'boolean');
+}
+
+function applicationExpired(session: ApplicationSession): boolean {
+    return Date.now() - session.lastActivityAt >= APPLICATION_SESSION_INACTIVITY_TTL_MS;
+}
+
+async function loadApplicationSession(userId: string): Promise<ApplicationSession | null> {
+    const cached = activeApplications.get(userId);
+    if (cached) return cached;
+    if (!applicationSessionPersistence) return null;
+    try {
+        const restored = await applicationSessionPersistence.loadApplicationSession(userId);
+        if (!validApplicationSession(restored)) return null;
+        activeApplications.set(userId, restored);
+        return restored;
+    } catch (error) {
+        logger.warn(`[Applications] Could not restore the application session for ${userId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        return null;
+    }
+}
+
+async function saveApplicationSession(userId: string, session: ApplicationSession): Promise<void> {
+    activeApplications.set(userId, session);
+    if (!applicationSessionPersistence) return;
+    try {
+        await applicationSessionPersistence.saveApplicationSession(userId, session);
+    } catch (error) {
+        // The in-memory session remains usable if MongoDB is temporarily down.
+        logger.warn(`[Applications] Could not persist progress for ${userId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+}
+
+async function deleteApplicationSession(userId: string): Promise<void> {
+    activeApplications.delete(userId);
+    if (!applicationSessionPersistence) return;
+    try {
+        await applicationSessionPersistence.deleteApplicationSession(userId);
+    } catch (error) {
+        logger.warn(`[Applications] Could not remove the completed session for ${userId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+}
+
+async function withApplicationConversationLock<T>(userId: string, operation: () => Promise<T>): Promise<T> {
+    const previous = applicationConversationLocks.get(userId) || Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>(resolveLock => { release = resolveLock; });
+    const queued = previous.then(() => current);
+    applicationConversationLocks.set(userId, queued);
+    await previous;
+    try {
+        return await operation();
+    } finally {
+        release();
+        if (applicationConversationLocks.get(userId) === queued) applicationConversationLocks.delete(userId);
+    }
+}
+
+function applicationResponse(message: Message): string {
+    const attachmentUrls = Array.from(message.attachments.values()).map(attachment => attachment.url);
+    return [message.content.trim(), ...attachmentUrls].filter(Boolean).join('\n');
+}
+
+function applicationPrompt(content: string): { type: ActiveApplicationType; questionIndex: number } | null {
+    for (const [rawType, setup] of Object.entries(APPLICATION_QUESTIONS)) {
+        for (let questionIndex = 0; questionIndex < setup.questions.length; questionIndex += 1) {
+            if (content.includes(`Question ${questionIndex + 1} of ${setup.questions.length}`)) {
+                return { type: rawType as ActiveApplicationType, questionIndex };
+            }
+        }
+    }
+    return null;
+}
+
+interface RecoveredApplicationSession {
+    session: ApplicationSession;
+    sendNextPromptBeforeAcceptingAnswer: boolean;
+}
+
+/**
+ * Rebuilds an application from the applicant's DM history when a deployment
+ * interrupted a session before database persistence was available.
+ */
+async function recoverApplicationSessionFromDm(message: Message): Promise<RecoveredApplicationSession | null> {
+    const channel = message.channel;
+    if (!channel || !('messages' in channel) || !message.id) return null;
+    const history = await channel.messages.fetch({ limit: 100, before: message.id }).catch(() => null);
+    if (!history?.size) return null;
+    const ordered = [...history.values()].sort((left, right) => left.createdTimestamp - right.createdTimestamp);
+
+    let recoveredType: ActiveApplicationType | null = null;
+    let latestQuestionIndex = -1;
+    let pendingQuestionIndex = -1;
+    let latestPromptAnswered = false;
+    let startedAt = Date.now();
+    let lastActivityAt = Date.now();
+    const answers: string[] = [];
+
+    for (const prior of ordered) {
+        if (prior.author.bot) {
+            const prompt = applicationPrompt(prior.content);
+            if (!prompt) continue;
+            if (recoveredType && (recoveredType !== prompt.type || (prompt.questionIndex === 0 && latestQuestionIndex >= 0))) {
+                // A later application in the same DM supersedes old history.
+                answers.length = 0;
+            }
+            recoveredType = prompt.type;
+            pendingQuestionIndex = prompt.questionIndex;
+            latestQuestionIndex = prompt.questionIndex;
+            latestPromptAnswered = false;
+            if (prompt.questionIndex === 0) startedAt = prior.createdTimestamp || Date.now();
+            continue;
+        }
+        if (prior.author.id !== message.author.id || !recoveredType || pendingQuestionIndex < 0) continue;
+        const response = applicationResponse(prior);
+        if (!response) continue;
+        answers[pendingQuestionIndex] = response;
+        lastActivityAt = prior.createdTimestamp || Date.now();
+        if (pendingQuestionIndex === latestQuestionIndex) latestPromptAnswered = true;
+        pendingQuestionIndex = -1;
+    }
+
+    if (!recoveredType || latestQuestionIndex < 0) return null;
+    const nextQuestion = latestPromptAnswered ? latestQuestionIndex + 1 : latestQuestionIndex;
+    return {
+        session: {
+            type: recoveredType,
+            guildId: process.env.GUILD_ID || '',
+            answers,
+            nextQuestion,
+            startedAt,
+            lastActivityAt,
+            promptPending: latestPromptAnswered
+                && nextQuestion < APPLICATION_QUESTIONS[recoveredType].questions.length,
+        },
+        sendNextPromptBeforeAcceptingAnswer: latestPromptAnswered
+            && nextQuestion < APPLICATION_QUESTIONS[recoveredType].questions.length,
+    };
+}
 
 function artwork(): AttachmentBuilder[] {
     return [
@@ -497,25 +666,28 @@ function fullTranscript(userId: string, session: ApplicationSession): Buffer {
 async function submitApplication(message: Message, session: ApplicationSession): Promise<void> {
     const setup = APPLICATION_QUESTIONS[session.type];
     const reviewChannel = await message.client.channels.fetch(APPLICATION_REVIEW_CHANNEL_ID).catch(() => null);
-    if (reviewChannel?.isSendable()) {
-        const transcript = new AttachmentBuilder(fullTranscript(message.author.id, session), {
-            name: `${session.type}-${message.author.id}-application.txt`,
-        });
-        await reviewChannel.send({
-            components: [buildReviewPanel(message.author.id, session)],
-            files: [...artwork(), transcript],
-            flags: MessageFlags.IsComponentsV2,
-            allowedMentions: { parse: [], users: [message.author.id] },
-        });
-    } else {
-        logger.warn(`[Applications] Review channel ${APPLICATION_REVIEW_CHANNEL_ID} is unavailable.`);
+    if (!reviewChannel?.isSendable()) {
+        throw new Error(`Review channel ${APPLICATION_REVIEW_CHANNEL_ID} is unavailable.`);
     }
+    const transcript = new AttachmentBuilder(fullTranscript(message.author.id, session), {
+        name: `${session.type}-${message.author.id}-application.txt`,
+    });
+    await reviewChannel.send({
+        components: [buildReviewPanel(message.author.id, session)],
+        files: [...artwork(), transcript],
+        flags: MessageFlags.IsComponentsV2,
+        allowedMentions: { parse: [], users: [message.author.id] },
+    });
 
+    // The review copy already exists at this point. A closed DM must not make
+    // the application submit twice on the applicant's next message.
     await message.author.send([
         `✅ Thank you for submitting the **${setup.label}**.`,
         'Your application will be reviewed shortly and the result will be sent to you by DM.',
         '**DO NOT ASK FOR YOUR APPLICATION TO BE READ.**',
-    ].join('\n'));
+    ].join('\n')).catch(error => {
+        logger.warn(`[Applications] Submitted ${message.author.id}'s application, but could not send its confirmation: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    });
 }
 
 export async function handleApplicationButton(interaction: ButtonInteraction): Promise<boolean> {
@@ -640,14 +812,15 @@ export async function handleApplicationSelect(interaction: StringSelectMenuInter
     }
 
     const type = selected as ActiveApplicationType;
-    const existing = activeApplications.get(interaction.user.id);
-    if (existing && Date.now() - existing.startedAt < APPLICATION_SESSION_TTL_MS) {
+    const existing = await loadApplicationSession(interaction.user.id);
+    if (existing && !applicationExpired(existing)) {
         await interaction.reply({
             content: `You already have a **${APPLICATION_QUESTIONS[existing.type].label}** in progress. Answer the current question in your DMs.`,
             flags: MessageFlags.Ephemeral,
         });
         return true;
     }
+    if (existing) await deleteApplicationSession(interaction.user.id);
 
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     try {
@@ -658,12 +831,15 @@ export async function handleApplicationSelect(interaction: StringSelectMenuInter
             `**Question 1 of ${APPLICATION_QUESTIONS[type].questions.length}**`,
             APPLICATION_QUESTIONS[type].questions[0],
         ].join('\n'));
-        activeApplications.set(interaction.user.id, {
+        const now = Date.now();
+        await saveApplicationSession(interaction.user.id, {
             type,
             guildId: interaction.guildId || '',
             answers: [],
             nextQuestion: 0,
-            startedAt: Date.now(),
+            startedAt: now,
+            lastActivityAt: now,
+            promptPending: false,
         });
         await interaction.editReply('✅ Your application has started. Check your DMs for Question 1.');
     } catch {
@@ -674,40 +850,88 @@ export async function handleApplicationSelect(interaction: StringSelectMenuInter
 
 export async function handleApplicationDmMessage(message: Message): Promise<boolean> {
     if (message.author.bot || message.guildId) return false;
-    const session = activeApplications.get(message.author.id);
-    if (!session) return false;
-    if (Date.now() - session.startedAt >= APPLICATION_SESSION_TTL_MS) {
-        activeApplications.delete(message.author.id);
-        await message.author.send('Your application timed out. Return to the application panel to start again.').catch(() => undefined);
-        return true;
-    }
+    return withApplicationConversationLock(message.author.id, async () => {
+        let session = await loadApplicationSession(message.author.id);
+        let recoveredNextPrompt = false;
+        if (!session) {
+            const recovered = await recoverApplicationSessionFromDm(message);
+            if (!recovered) return false;
+            session = recovered.session;
+            recoveredNextPrompt = recovered.sendNextPromptBeforeAcceptingAnswer;
+        }
+        if (applicationExpired(session)) {
+            await deleteApplicationSession(message.author.id);
+            await message.author.send('Your application timed out after 24 hours without a response. Return to the application panel to start again.').catch(() => undefined);
+            return true;
+        }
 
-    const attachmentUrls = Array.from(message.attachments.values()).map(attachment => attachment.url);
-    const response = [message.content.trim(), ...attachmentUrls].filter(Boolean).join('\n');
-    if (!response) {
-        await message.author.send('Please send a written response or an attachment before continuing.');
-        return true;
-    }
+        const setup = APPLICATION_QUESTIONS[session.type];
+        if (recoveredNextPrompt || session.promptPending) {
+            session.promptPending = true;
+            session.lastActivityAt = Date.now();
+            await saveApplicationSession(message.author.id, session);
+            const delivered = await message.author.send([
+                '✅ I recovered your application progress after an interruption.',
+                '',
+                `**Question ${session.nextQuestion + 1} of ${setup.questions.length}**`,
+                setup.questions[session.nextQuestion],
+            ].join('\n')).then(() => true).catch(() => false);
+            if (delivered) {
+                session.promptPending = false;
+                await saveApplicationSession(message.author.id, session);
+            }
+            return true;
+        }
+        // A completed session is retained when the review channel was down.
+        // The applicant can send any DM to retry without corrupting answers.
+        if (session.nextQuestion >= setup.questions.length) {
+            try {
+                await submitApplication(message, session);
+                await deleteApplicationSession(message.author.id);
+            } catch (error) {
+                logger.error(`[Applications] Submission retry failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                await message.author.send('Your completed answers are saved, but the review channel is still unavailable. Please try again later or contact an administrator.').catch(() => undefined);
+            }
+            return true;
+        }
 
-    session.answers.push(response);
-    session.nextQuestion += 1;
-    const setup = APPLICATION_QUESTIONS[session.type];
-    if (session.nextQuestion < setup.questions.length) {
-        await message.author.send([
-            `**Question ${session.nextQuestion + 1} of ${setup.questions.length}**`,
-            setup.questions[session.nextQuestion],
-        ].join('\n'));
-        return true;
-    }
+        const response = applicationResponse(message);
+        if (!response) {
+            await message.author.send('Please send a written response or an attachment before continuing.');
+            return true;
+        }
 
-    activeApplications.delete(message.author.id);
-    try {
-        await submitApplication(message, session);
-    } catch (error) {
-        logger.error(`[Applications] Submission failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        await message.author.send('Your answers were completed, but I could not submit them for review. Please contact an administrator.').catch(() => undefined);
-    }
-    return true;
+        // Assign by question index instead of blindly pushing so a retried or
+        // restored session can never shift all later answers by one question.
+        session.answers[session.nextQuestion] = response;
+        session.nextQuestion += 1;
+        session.lastActivityAt = Date.now();
+        session.promptPending = session.nextQuestion < setup.questions.length;
+        await saveApplicationSession(message.author.id, session);
+
+        if (session.nextQuestion < setup.questions.length) {
+            try {
+                await message.author.send([
+                    `**Question ${session.nextQuestion + 1} of ${setup.questions.length}**`,
+                    setup.questions[session.nextQuestion],
+                ].join('\n'));
+                session.promptPending = false;
+                await saveApplicationSession(message.author.id, session);
+            } catch (error) {
+                logger.warn(`[Applications] Could not send Question ${session.nextQuestion + 1} to ${message.author.id}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            }
+            return true;
+        }
+
+        try {
+            await submitApplication(message, session);
+            await deleteApplicationSession(message.author.id);
+        } catch (error) {
+            logger.error(`[Applications] Submission failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            await message.author.send('Your answers are safely saved, but I could not submit them for review. Send another DM to retry or contact an administrator.').catch(() => undefined);
+        }
+        return true;
+    });
 }
 
 export const applicationsPanelCommand = {

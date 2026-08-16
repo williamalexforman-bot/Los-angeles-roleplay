@@ -15,6 +15,7 @@ import { onReady } from './events/ready';
 import { startWebhookServer } from './webhook/server';
 import { connectDatabase, disconnectDatabase } from './database/connection';
 import { configureInfractionDatabaseAdapter } from './database/infractionAdapter';
+import { configureApplicationSessionDatabaseAdapter } from './database/applicationSessionAdapter';
 import { handleMessageModeration } from './events/messageModeration';
 // economy message handler removed
 import { startErlcMonitor, type ErlcMonitor } from './monitors/erlcMonitor';
@@ -334,13 +335,16 @@ function createConfiguredClient(privilegedIntents: boolean): Client {
             await channel.send({ embeds: [banEmbed], files: [createLogoAttachment()] }).catch(() => undefined);
         });
 
-        bot.on('messageCreate', async message => {
-            if (await handleApplicationDmMessage(message)) return;
-            // Handle ban appeal DM conversations first (DMs have no guild).
-            if (await handleAppealDmMessage(message)) return;
-            await handleMessageModeration(message);
-        });
     }
+
+    // DM application and appeal conversations do not require privileged
+    // guild intents. Keep them active even if Discord rejects those intents
+    // and the bot falls back to its reduced-intent login mode.
+    bot.on('messageCreate', async message => {
+        if (await handleApplicationDmMessage(message)) return;
+        if (await handleAppealDmMessage(message)) return;
+        if (privilegedIntents) await handleMessageModeration(message);
+    });
     return bot;
 }
 
@@ -358,14 +362,23 @@ async function bootstrap(): Promise<void> {
     }
 
 // Wrap every startup step so nothing crashes the process
-    await connectDatabase().catch(error => {
+    const databaseAvailable = await connectDatabase().catch(error => {
         logger.warn(`Database connection failed: ${error instanceof Error ? error.message : 'Unknown'}`);
+        return false;
     });
 
     try {
         configureInfractionDatabaseAdapter();
     } catch (error) {
         logger.warn(`Infraction database adapter failed: ${error instanceof Error ? error.message : 'Unknown'}`);
+    }
+
+    if (databaseAvailable) {
+        try {
+            configureApplicationSessionDatabaseAdapter();
+        } catch (error) {
+            logger.warn(`Application session database adapter failed: ${error instanceof Error ? error.message : 'Unknown'}`);
+        }
     }
 
     try {

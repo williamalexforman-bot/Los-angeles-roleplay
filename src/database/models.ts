@@ -216,6 +216,28 @@ const infractionAppealSchema = new Schema<InfractionAppealRecord>({
     updatedAt: { type: Date, default: Date.now },
 });
 
+export interface ApplicationSessionRecord {
+    userId: string;
+    type: 'media' | 'discord' | 'ingame' | 'ban_appeal';
+    guildId: string;
+    answers: string[];
+    nextQuestion: number;
+    startedAt: Date;
+    lastActivityAt: Date;
+    promptPending: boolean;
+}
+
+const applicationSessionSchema = new Schema<ApplicationSessionRecord>({
+    userId: { type: String, required: true, unique: true },
+    type: { type: String, enum: ['media', 'discord', 'ingame', 'ban_appeal'], required: true },
+    guildId: { type: String, default: '' },
+    answers: { type: [String], default: [] },
+    nextQuestion: { type: Number, required: true, default: 0 },
+    startedAt: { type: Date, required: true, default: Date.now },
+    lastActivityAt: { type: Date, required: true, default: Date.now, index: true },
+    promptPending: { type: Boolean, required: true, default: false },
+});
+
 const User = model('User', userSchema);
 const Log = model('Log', logSchema);
 const Counter = model('Counter', counterSchema);
@@ -226,5 +248,6 @@ const AuditEvent = model('AuditEvent', auditEventSchema);
 const ActivityCheck = model<ActivityCheckRecord>('ActivityCheck', activityCheckSchema);
 const BanAppeal = model<BanAppealRecord>('BanAppeal', banAppealSchema);
 const InfractionAppeal = model<InfractionAppealRecord>('InfractionAppeal', infractionAppealSchema);
+const ApplicationSession = model<ApplicationSessionRecord>('ApplicationSession', applicationSessionSchema);
 
-export { User, Log, Counter, Infraction, ErlcState, ProhibitedWord, AuditEvent, ActivityCheck, BanAppeal, InfractionAppeal };
+export { User, Log, Counter, Infraction, ErlcState, ProhibitedWord, AuditEvent, ActivityCheck, BanAppeal, InfractionAppeal, ApplicationSession };
