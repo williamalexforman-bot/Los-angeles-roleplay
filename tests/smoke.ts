@@ -30,7 +30,7 @@ import {
     handleApplicationSelect,
     type ApplicationSession,
 } from '../src/commands/applications';
-import { handleLoaButton } from '../src/commands/loa';
+import { handleLoaButton, handleLoaModal } from '../src/commands/loa';
 import { interactionCreate } from '../src/handlers/interactionCreate';
 import {
     ACTIVE_SHIFT_ROLE_ID,
@@ -38,6 +38,7 @@ import {
     isShiftInfractionExempt,
     SHIFT_BREAK_ROLE_ID,
     SHIFT_INFRACTION_EXEMPT_ROLE_IDS,
+    SHIFT_MANAGEMENT_ROLE_ID,
     SHIFT_QUOTA_BY_ROLE_ID,
     runDueShiftQuotaEvaluation,
     shiftQuotaBoundary,
@@ -211,6 +212,7 @@ for (const required of [
         SHIFT_INFRACTION_EXEMPT_ROLE_IDS,
         ['1521593407850680401', '1521593407795888329'],
     );
+    assert.equal(SHIFT_MANAGEMENT_ROLE_ID, '1521593407850680401');
     assert(isShiftInfractionExempt(['1521593407850680401']));
     assert(isShiftInfractionExempt(['1521593407795888329']));
     assert(!isShiftInfractionExempt(['1521593407795888336']));
@@ -257,6 +259,16 @@ for (const required of [
             fetch: async (memberId?: string) => memberId ? shiftGuildMember : shiftMemberCollection,
         },
     };
+    const routeShift = async (payload: Record<string, unknown>): Promise<void> => interactionCreate({
+        commandName: 'shift',
+        isButton: () => false,
+        isModalSubmit: () => false,
+        isStringSelectMenu: () => false,
+        isChatInputCommand: () => true,
+        isRepliable: () => true,
+        reply: async () => undefined,
+        ...payload,
+    } as never);
     const shiftStartReplies: string[] = [];
     await interactionCreate({
         commandName: 'shift',
@@ -279,7 +291,7 @@ for (const required of [
     assert(!shiftRoleCache.has(SHIFT_BREAK_ROLE_ID));
 
     const shiftBreakReplies: string[] = [];
-    await commandNamed('shift').execute({
+    await routeShift({
         guildId: 'shift-guild',
         guild: shiftGuild,
         member: shiftGuildMember,
@@ -287,12 +299,12 @@ for (const required of [
         options: { getSubcommand: () => 'break' },
         deferReply: async () => undefined,
         editReply: async (payload: string) => { shiftBreakReplies.push(payload); },
-    } as never);
+    });
     assert(shiftBreakReplies.some(reply => reply.includes('shift is paused')));
     assert(!shiftRoleCache.has(ACTIVE_SHIFT_ROLE_ID), 'starting a break must remove the active-shift role');
     assert(shiftRoleCache.has(SHIFT_BREAK_ROLE_ID), 'starting a break must add the shift-break role');
 
-    await commandNamed('shift').execute({
+    await routeShift({
         guildId: 'shift-guild',
         guild: shiftGuild,
         member: shiftGuildMember,
@@ -300,16 +312,16 @@ for (const required of [
         options: { getSubcommand: () => 'break' },
         deferReply: async () => undefined,
         editReply: async (payload: string) => { shiftBreakReplies.push(payload); },
-    } as never);
+    });
     assert(shiftBreakReplies.some(reply => reply.includes('shift resumed')));
     assert(shiftRoleCache.has(ACTIVE_SHIFT_ROLE_ID), 'resuming must restore the active-shift role');
     assert(!shiftRoleCache.has(SHIFT_BREAK_ROLE_ID), 'resuming must remove the shift-break role');
 
     const shiftManageReplies: string[] = [];
-    await commandNamed('shift').execute({
+    await routeShift({
         guildId: 'shift-guild',
         guild: shiftGuild,
-        member: { roles: { cache: new Map() } },
+        member: { roles: { cache: new Map([[SHIFT_MANAGEMENT_ROLE_ID, { id: SHIFT_MANAGEMENT_ROLE_ID }]]) } },
         memberPermissions: { has: () => true },
         user: { id: 'shift-manager', username: 'ShiftManager' },
         options: {
@@ -320,27 +332,62 @@ for (const required of [
         },
         deferReply: async () => undefined,
         editReply: async (payload: string) => { shiftManageReplies.push(payload); },
-    } as never);
+    });
     assert(shiftManageReplies.some(reply => reply.includes('Weekly total:** 2h / 2h')));
     assert.equal(shiftTargetDms.length, 1, 'completing quota through shift management must send the member a DM');
     assert.equal(shiftTargetDms[0].flags, 32_768, 'the shift quota completion DM must use Components V2');
 
+    const deniedShiftManageReplies: string[] = [];
+    await routeShift({
+        guildId: 'shift-guild',
+        guild: shiftGuild,
+        member: { roles: { cache: new Map() } },
+        memberPermissions: { has: () => true },
+        user: { id: 'admin-without-shift-role', username: 'NoShiftRole' },
+        options: {
+            getSubcommand: () => 'manage',
+            getString: (name: string) => name === 'action' ? 'remove-time' : 'Unauthorized adjustment',
+            getUser: () => shiftTarget,
+            getInteger: () => 30,
+        },
+        deferReply: async () => undefined,
+        editReply: async (payload: string) => { deniedShiftManageReplies.push(payload); },
+    });
+    assert(deniedShiftManageReplies.some(reply => reply.includes(`<@&${SHIFT_MANAGEMENT_ROLE_ID}>`)));
+
     let shiftLeaderboardPayload: any = null;
-    await commandNamed('shift').execute({
+    await routeShift({
         guildId: 'shift-guild',
         guild: shiftGuild,
         user: shiftTarget,
         options: { getSubcommand: () => 'leaderboard' },
         deferReply: async () => undefined,
         editReply: async (payload: any) => { shiftLeaderboardPayload = payload; },
-    } as never);
+    });
     const shiftLeaderboardEmbed = shiftLeaderboardPayload.embeds[0].toJSON();
     assert.equal(shiftLeaderboardEmbed.title, '⏱️ Weekly Shift Leaderboard');
     assert(shiftLeaderboardEmbed.description.includes(`<@${shiftTarget.id}>`));
     assert(shiftLeaderboardEmbed.description.includes('**2h** / 2h'));
 
+    let fallbackShiftLeaderboardPayload: any = null;
+    await routeShift({
+        guildId: 'shift-guild',
+        guild: {
+            members: {
+                cache: new Collection<string, any>(),
+                fetch: async () => { throw new Error('Server Members intent unavailable'); },
+            },
+        },
+        user: shiftTarget,
+        options: { getSubcommand: () => 'leaderboard' },
+        deferReply: async () => undefined,
+        editReply: async (payload: any) => { fallbackShiftLeaderboardPayload = payload; },
+    });
+    const fallbackShiftLeaderboard = fallbackShiftLeaderboardPayload.embeds[0].toJSON();
+    assert(fallbackShiftLeaderboard.description.includes(`<@${shiftTarget.id}>`), 'leaderboard must use durable profiles when member-list fetch is unavailable');
+
     const shiftEndReplies: string[] = [];
-    await commandNamed('shift').execute({
+    await routeShift({
         guildId: 'shift-guild',
         guild: shiftGuild,
         member: shiftGuildMember,
@@ -348,7 +395,7 @@ for (const required of [
         options: { getSubcommand: () => 'end' },
         deferReply: async () => undefined,
         editReply: async (payload: string) => { shiftEndReplies.push(payload); },
-    } as never);
+    });
     assert(shiftEndReplies.some(reply => reply.includes('Your shift ended')));
     assert(shiftEndReplies.some(reply => reply.includes('Quota status:** ✅ Completed')));
     assert.equal(shiftTargetDms.length, 1, 'ending later must not duplicate an already delivered quota-completion DM');
@@ -886,6 +933,114 @@ for (const required of [
     assert(loaRequestDeleted, 'the original request should be deleted only after approval completes');
     assert.equal(loaResultSends.length, 1, 'the approved LOA result must be posted once');
     assert(loaReviewReplies.some(reply => reply.includes('approved')));
+
+    // A freshly submitted request must approve exactly once. A duplicate
+    // click while role assignment is still running may report "in progress"
+    // but must not release the first reviewer's lock or claim it was processed.
+    const freshLoaUserId = '1489388257925006999';
+    let freshLoaRequestPayload: any = null;
+    let freshLoaRequestDeleted = false;
+    let freshLoaRoleAdds = 0;
+    const freshLoaResults: any[] = [];
+    const freshLoaMember = {
+        id: freshLoaUserId,
+        user: { tag: 'FreshLoa#0001', username: 'FreshLoa' },
+        roles: {
+            add: async () => undefined,
+            remove: async () => undefined,
+        },
+        send: async () => undefined,
+    };
+    let releaseFreshRoleAdd = (): void => undefined;
+    let signalFreshRoleAdd = (): void => undefined;
+    const freshRoleAddStarted = new Promise<void>(resolve => { signalFreshRoleAdd = resolve; });
+    const freshRoleAddGate = new Promise<void>(resolve => { releaseFreshRoleAdd = resolve; });
+    freshLoaMember.roles.add = async () => {
+        freshLoaRoleAdds += 1;
+        signalFreshRoleAdd();
+        await freshRoleAddGate;
+    };
+    const freshLoaChannel = {
+        id: '1528206019237515344',
+        isSendable: () => true,
+        isTextBased: () => true,
+        send: async (payload: any) => {
+            const title = payload.embeds?.[0]?.toJSON?.().title;
+            if (title?.includes('Request Submitted')) freshLoaRequestPayload = payload;
+            else freshLoaResults.push(payload);
+            return { id: 'fresh-loa-request-message' };
+        },
+        messages: {
+            fetch: async () => ({ delete: async () => { freshLoaRequestDeleted = true; } }),
+        },
+    };
+    const freshLoaClient = {
+        channels: { fetch: async () => freshLoaChannel },
+        guilds: {
+            fetch: async () => ({ members: { fetch: async () => freshLoaMember } }),
+        },
+    };
+    const freshLoaSubmitReplies: string[] = [];
+    await handleLoaModal({
+        customId: 'loa:request:modal',
+        guildId: 'fresh-loa-guild',
+        guild: {},
+        user: { id: freshLoaUserId, username: 'FreshLoa' },
+        fields: {
+            getTextInputValue: (name: string) => ({
+                name: 'Fresh LOA Member',
+                start_date: 'August 16, 2026',
+                end_date: 'August 20, 2026',
+                reason: 'Family travel.',
+            } as Record<string, string>)[name],
+        },
+        client: freshLoaClient,
+        deferReply: async () => undefined,
+        editReply: async (reply: string) => { freshLoaSubmitReplies.push(reply); },
+    } as never);
+    assert(freshLoaRequestPayload, 'a fresh LOA submission must create its review message');
+    assert(freshLoaSubmitReplies.some(reply => reply.includes('submitted for review')));
+    const freshLoaCustomId = freshLoaRequestPayload.components[0].toJSON().components[0].custom_id;
+    const freshFirstReplies: string[] = [];
+    const freshSecondReplies: string[] = [];
+    const freshMessage = {
+        id: 'fresh-loa-request-message',
+        channelId: freshLoaChannel.id,
+        embeds: [],
+        createdAt: new Date(),
+    };
+    const firstFreshApproval = handleLoaButton({
+        customId: freshLoaCustomId,
+        guildId: 'fresh-loa-guild',
+        user: { id: 'fresh-loa-reviewer-one' },
+        memberPermissions: { has: () => true },
+        member: { roles: { cache: new Map() } },
+        message: freshMessage,
+        client: freshLoaClient,
+        deferReply: async () => undefined,
+        editReply: async (reply: string) => { freshFirstReplies.push(reply); },
+    } as never);
+    await freshRoleAddStarted;
+    const secondFreshHandled = await handleLoaButton({
+        customId: freshLoaCustomId,
+        guildId: 'fresh-loa-guild',
+        user: { id: 'fresh-loa-reviewer-two' },
+        memberPermissions: { has: () => true },
+        member: { roles: { cache: new Map() } },
+        message: freshMessage,
+        client: freshLoaClient,
+        deferReply: async () => undefined,
+        editReply: async (reply: string) => { freshSecondReplies.push(reply); },
+    } as never);
+    assert(secondFreshHandled);
+    assert(freshSecondReplies.some(reply => reply.includes('already in progress')));
+    assert(!freshSecondReplies.some(reply => reply.includes('already been processed')));
+    releaseFreshRoleAdd();
+    assert(await firstFreshApproval);
+    assert.equal(freshLoaRoleAdds, 1, 'duplicate LOA approval clicks must never assign the role twice');
+    assert(freshFirstReplies.some(reply => reply.includes('approved')));
+    assert.equal(freshLoaResults.length, 1, 'fresh LOA approval must publish one result');
+    assert(freshLoaRequestDeleted, 'fresh LOA approval must delete the completed review request');
 
     let savedInfraction: InfractionRecord | null = null;
     configureInfractionPersistence({

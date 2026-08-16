@@ -244,6 +244,8 @@ export interface ShiftProfileRecord {
     username: string;
     activeStartedAt?: Date;
     breakStartedAt?: Date;
+    quotaSeconds?: number;
+    infractionExempt: boolean;
     weeklySeconds: Record<string, number>;
     completionDmWeeks: string[];
     quotaInfractionWeeks: string[];
@@ -256,6 +258,8 @@ const shiftProfileSchema = new Schema<ShiftProfileRecord>({
     username: { type: String, required: true },
     activeStartedAt: Date,
     breakStartedAt: Date,
+    quotaSeconds: Number,
+    infractionExempt: { type: Boolean, default: false },
     weeklySeconds: { type: Schema.Types.Mixed, default: {} },
     completionDmWeeks: { type: [String], default: [] },
     quotaInfractionWeeks: { type: [String], default: [] },
@@ -282,6 +286,46 @@ const shiftQuotaEvaluationSchema = new Schema<ShiftQuotaEvaluationRecord>({
 });
 shiftQuotaEvaluationSchema.index({ guildId: 1, weekKey: 1 }, { unique: true });
 
+export interface LoaRequestRecord {
+    pendingId: string;
+    guildId: string;
+    userId: string;
+    memberUsername: string;
+    name: string;
+    startDate: string;
+    endDate: string;
+    reason: string;
+    requestedAt: Date;
+    channelId: string;
+    messageId: string;
+    status: 'Pending' | 'Processing' | 'Approved' | 'Denied';
+    reviewerId?: string;
+    processingStartedAt?: Date;
+    decidedAt?: Date;
+    createdAt: Date;
+    updatedAt: Date;
+}
+
+const loaRequestSchema = new Schema<LoaRequestRecord>({
+    pendingId: { type: String, required: true, unique: true },
+    guildId: { type: String, required: true, index: true },
+    userId: { type: String, required: true, index: true },
+    memberUsername: { type: String, required: true },
+    name: { type: String, required: true },
+    startDate: { type: String, required: true },
+    endDate: { type: String, required: true },
+    reason: { type: String, required: true },
+    requestedAt: { type: Date, required: true },
+    channelId: { type: String, default: '' },
+    messageId: { type: String, default: '' },
+    status: { type: String, enum: ['Pending', 'Processing', 'Approved', 'Denied'], default: 'Pending' },
+    reviewerId: String,
+    processingStartedAt: Date,
+    decidedAt: Date,
+    createdAt: { type: Date, default: Date.now },
+    updatedAt: { type: Date, default: Date.now },
+});
+
 const User = model('User', userSchema);
 const Log = model('Log', logSchema);
 const Counter = model('Counter', counterSchema);
@@ -295,6 +339,7 @@ const InfractionAppeal = model<InfractionAppealRecord>('InfractionAppeal', infra
 const ApplicationSession = model<ApplicationSessionRecord>('ApplicationSession', applicationSessionSchema);
 const ShiftProfile = model<ShiftProfileRecord>('ShiftProfile', shiftProfileSchema);
 const ShiftQuotaEvaluation = model<ShiftQuotaEvaluationRecord>('ShiftQuotaEvaluation', shiftQuotaEvaluationSchema);
+const LoaRequest = model<LoaRequestRecord>('LoaRequest', loaRequestSchema);
 
 export {
     User,
@@ -310,4 +355,5 @@ export {
     ApplicationSession,
     ShiftProfile,
     ShiftQuotaEvaluation,
+    LoaRequest,
 };

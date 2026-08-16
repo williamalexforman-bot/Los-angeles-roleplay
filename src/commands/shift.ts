@@ -5,12 +5,10 @@ import {
     EmbedBuilder,
     GuildMember,
     MessageFlags,
-    PermissionFlagsBits,
     SlashCommandBuilder,
     TextDisplayBuilder,
     type User,
 } from 'discord.js';
-import { INFRACTION_AUTHORIZED_ROLE_ID } from '../config/constants';
 import { isDatabaseAvailable } from '../database/connection';
 import { ShiftProfile as ShiftProfileModel, ShiftQuotaEvaluation } from '../database/models';
 import { issueAutomaticInfraction } from './staffManagement';
@@ -22,6 +20,7 @@ const EVALUATION_LEASE_MS = 15 * 60_000;
 const ACTIVATION_KEY = '__activation__';
 export const ACTIVE_SHIFT_ROLE_ID = '1521593407825248360';
 export const SHIFT_BREAK_ROLE_ID = '1521593407825248358';
+export const SHIFT_MANAGEMENT_ROLE_ID = '1521593407850680401';
 
 export const SHIFT_INFRACTION_EXEMPT_ROLE_IDS = Object.freeze([
     '1521593407850680401',
@@ -49,6 +48,8 @@ interface ShiftProfile {
     username: string;
     activeStartedAt: Date | null;
     breakStartedAt: Date | null;
+    quotaSeconds: number | null;
+    infractionExempt: boolean;
     weeklySeconds: Record<string, number>;
     completionDmWeeks: string[];
     quotaInfractionWeeks: string[];
@@ -191,6 +192,8 @@ function profileFromRecord(record: Record<string, unknown>): ShiftProfile {
         username: String(record.username),
         activeStartedAt: record.activeStartedAt ? new Date(String(record.activeStartedAt)) : null,
         breakStartedAt: record.breakStartedAt ? new Date(String(record.breakStartedAt)) : null,
+        quotaSeconds: Number.isFinite(Number(record.quotaSeconds)) ? Number(record.quotaSeconds) : null,
+        infractionExempt: Boolean(record.infractionExempt),
         weeklySeconds: sanitizeWeeklySeconds(record.weeklySeconds),
         completionDmWeeks: Array.isArray(record.completionDmWeeks) ? record.completionDmWeeks.map(String) : [],
         quotaInfractionWeeks: Array.isArray(record.quotaInfractionWeeks) ? record.quotaInfractionWeeks.map(String) : [],
@@ -205,6 +208,8 @@ function newProfile(guildId: string, userId: string, username: string): ShiftPro
         username,
         activeStartedAt: null,
         breakStartedAt: null,
+        quotaSeconds: null,
+        infractionExempt: false,
         weeklySeconds: {},
         completionDmWeeks: [],
         quotaInfractionWeeks: [],
@@ -257,6 +262,8 @@ async function saveProfile(profile: ShiftProfile): Promise<void> {
             guildId: profile.guildId,
             userId: profile.userId,
             username: profile.username,
+            quotaSeconds: profile.quotaSeconds,
+            infractionExempt: profile.infractionExempt,
             weeklySeconds: profile.weeklySeconds,
             completionDmWeeks: profile.completionDmWeeks,
             quotaInfractionWeeks: profile.quotaInfractionWeeks,
@@ -273,11 +280,17 @@ async function saveProfile(profile: ShiftProfile): Promise<void> {
     } else {
         update.$unset = { ...(update.$unset as Record<string, unknown> | undefined), breakStartedAt: 1 };
     }
-    await ShiftProfileModel.findOneAndUpdate(
-        { guildId: profile.guildId, userId: profile.userId },
-        update,
-        { upsert: true, new: true, setDefaultsOnInsert: true },
-    ).exec();
+    try {
+        await ShiftProfileModel.findOneAndUpdate(
+            { guildId: profile.guildId, userId: profile.userId },
+            update,
+            { upsert: true, new: true, setDefaultsOnInsert: true },
+        ).exec();
+    } catch (error) {
+        // Shift commands must continue using the in-memory copy if MongoDB is
+        // connected but temporarily rejects or times out on a write.
+        logger.warn(`[Shift] Could not persist ${profile.userId}; continuing with in-memory tracking: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
 }
 
 async function listProfiles(guildId: string): Promise<ShiftProfile[]> {
@@ -358,6 +371,15 @@ function memberRoleIds(member: GuildMember | ChatInputCommandInteraction['member
     return roles.cache ? [...roles.cache.keys()] : [];
 }
 
+function refreshProfileQuotaSnapshot(
+    profile: ShiftProfile,
+    member: GuildMember | ChatInputCommandInteraction['member'],
+): void {
+    const roleIds = memberRoleIds(member);
+    profile.quotaSeconds = shiftQuotaSecondsForRoleIds(roleIds);
+    profile.infractionExempt = isShiftInfractionExempt(roleIds);
+}
+
 type ShiftRoleState = 'active' | 'break' | 'ended';
 
 async function setMemberShiftRoleState(member: GuildMember, state: ShiftRoleState, actorId: string): Promise<boolean> {
@@ -424,23 +446,11 @@ async function notifyQuotaComplete(
     return delivered;
 }
 
-function authorizedShiftManagerRoleIds(): string[] {
-    return Array.from(new Set([
-        INFRACTION_AUTHORIZED_ROLE_ID,
-        process.env.BOT_PERMISSIONS_ROLE_ID,
-        process.env.ADMIN_ROLE_ID,
-        ...(process.env.INFRACTION_AUTHORIZED_ROLE_IDS || '').split(','),
-    ].map(value => value?.trim()).filter((value): value is string => Boolean(value))));
-}
-
 async function canManageShifts(interaction: ChatInputCommandInteraction): Promise<boolean> {
-    if (interaction.guild?.ownerId === interaction.user.id
-        || interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return true;
-    const authorized = authorizedShiftManagerRoleIds();
-    if (memberRoleIds(interaction.member).some(roleId => authorized.includes(roleId))) return true;
+    if (memberRoleIds(interaction.member).includes(SHIFT_MANAGEMENT_ROLE_ID)) return true;
     if (!interaction.guild) return false;
     const fetched = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
-    return Boolean(fetched && memberRoleIds(fetched).some(roleId => authorized.includes(roleId)));
+    return Boolean(fetched && memberRoleIds(fetched).includes(SHIFT_MANAGEMENT_ROLE_ID));
 }
 
 async function currentGuildMember(interaction: ChatInputCommandInteraction): Promise<GuildMember | null> {
@@ -472,11 +482,12 @@ async function executeShiftStart(interaction: ChatInputCommandInteraction): Prom
         profile.activeStartedAt = now;
         profile.breakStartedAt = null;
         const member = await currentGuildMember(interaction);
+        refreshProfileQuotaSnapshot(profile, member || interaction.member);
         const rolesUpdated = member
             ? await setMemberShiftRoleState(member, 'active', interaction.user.id)
             : false;
         await saveProfile(profile);
-        const quota = shiftQuotaSecondsForRoleIds(memberRoleIds(member || interaction.member));
+        const quota = profile.quotaSeconds;
         await interaction.editReply([
             `✅ Your shift started at <t:${Math.floor(now.getTime() / 1000)}:F>.`,
             quota ? `Your weekly quota is **${formatDuration(quota)}**.` : 'You do not currently have a configured quota role.',
@@ -495,6 +506,7 @@ async function executeShiftBreak(interaction: ChatInputCommandInteraction): Prom
     await withProfileLock(interaction.guildId, interaction.user.id, async () => {
         const profile = await loadProfile(interaction.guildId!, interaction.user.id, interaction.user.username);
         const member = await currentGuildMember(interaction);
+        refreshProfileQuotaSnapshot(profile, member || interaction.member);
         if (!profile.activeStartedAt && !profile.breakStartedAt) {
             await interaction.editReply('You do not have an active or paused shift. Use `/shift start` first.');
             return;
@@ -509,7 +521,7 @@ async function executeShiftBreak(interaction: ChatInputCommandInteraction): Prom
                 : false;
             const weekKey = shiftQuotaWeekKey(now);
             const total = profile.weeklySeconds[weekKey] || 0;
-            const quota = shiftQuotaSecondsForRoleIds(memberRoleIds(member || interaction.member));
+            const quota = profile.quotaSeconds;
             if (quota) await notifyQuotaComplete(interaction.user, profile, weekKey, quota, total);
             await saveProfile(profile);
             await interaction.editReply([
@@ -555,10 +567,11 @@ async function executeShiftEnd(interaction: ChatInputCommandInteraction): Promis
         const weekKey = shiftQuotaWeekKey(now);
         const total = profile.weeklySeconds[weekKey] || 0;
         const member = await currentGuildMember(interaction);
+        refreshProfileQuotaSnapshot(profile, member || interaction.member);
         const rolesUpdated = member
             ? await setMemberShiftRoleState(member, 'ended', interaction.user.id)
             : false;
-        const quota = shiftQuotaSecondsForRoleIds(memberRoleIds(member || interaction.member));
+        const quota = profile.quotaSeconds;
         if (quota) await notifyQuotaComplete(interaction.user, profile, weekKey, quota, total);
         await saveProfile(profile);
         const quotaCompleted = Boolean(quota && total >= quota);
@@ -585,14 +598,26 @@ async function executeShiftLeaderboard(interaction: ChatInputCommandInteraction)
     const weekKey = shiftQuotaWeekKey(now);
     const profiles = new Map((await listProfiles(interaction.guildId)).map(profile => [profile.userId, profile]));
     const fetchedMembers = await interaction.guild.members.fetch().catch(() => interaction.guild!.members.cache);
-    const rows: Array<{ member: GuildMember; total: number; quota: number; active: boolean; paused: boolean; exempt: boolean }> = [];
+    const rows: Array<{
+        userId: string;
+        displayName: string;
+        total: number;
+        quota: number;
+        active: boolean;
+        paused: boolean;
+        exempt: boolean;
+    }> = [];
+    const visibleMemberIds = new Set<string>();
     for (const member of fetchedMembers.values()) {
         if (member.user.bot) continue;
         const quota = shiftQuotaSecondsForRoleIds(memberRoleIds(member));
         if (!quota) continue;
         const profile = profiles.get(member.id) || newProfile(interaction.guildId, member.id, member.user.username);
+        refreshProfileQuotaSnapshot(profile, member);
+        visibleMemberIds.add(member.id);
         rows.push({
-            member,
+            userId: member.id,
+            displayName: member.displayName,
             quota,
             total: totalAt(profile, weekKey, now),
             active: Boolean(profile.activeStartedAt),
@@ -600,12 +625,27 @@ async function executeShiftLeaderboard(interaction: ChatInputCommandInteraction)
             exempt: isShiftInfractionExempt(memberRoleIds(member)),
         });
     }
-    rows.sort((left, right) => right.total - left.total || left.member.displayName.localeCompare(right.member.displayName));
+    // Without the privileged Server Members intent, Discord may only return a
+    // partial member cache. Durable profile snapshots keep the leaderboard
+    // useful for everyone who has used a shift command.
+    for (const profile of profiles.values()) {
+        if (visibleMemberIds.has(profile.userId) || !profile.quotaSeconds) continue;
+        rows.push({
+            userId: profile.userId,
+            displayName: profile.username,
+            quota: profile.quotaSeconds,
+            total: totalAt(profile, weekKey, now),
+            active: Boolean(profile.activeStartedAt),
+            paused: Boolean(profile.breakStartedAt),
+            exempt: profile.infractionExempt,
+        });
+    }
+    rows.sort((left, right) => right.total - left.total || left.displayName.localeCompare(right.displayName));
 
     const description = rows.length
         ? rows.slice(0, 20).map((row, index) => {
             const status = row.total >= row.quota ? '✅' : row.paused ? '⏸️' : row.active ? '🟢' : '⏳';
-            return `**${index + 1}.** <@${row.member.id}> — **${formatDuration(row.total)}** / ${formatDuration(row.quota)} ${status}${row.exempt ? ' • 🛡️' : ''}`;
+            return `**${index + 1}.** <@${row.userId}> — **${formatDuration(row.total)}** / ${formatDuration(row.quota)} ${status}${row.exempt ? ' • 🛡️' : ''}`;
         }).join('\n')
         : 'No members with configured quota roles were found.';
     const nextBoundary = nextShiftQuotaBoundary(now);
@@ -629,7 +669,7 @@ async function executeShiftManage(interaction: ChatInputCommandInteraction): Pro
         return;
     }
     if (!(await canManageShifts(interaction))) {
-        await interaction.editReply('You must be an administrator or authorized infraction-management staff member to manage shifts.');
+        await interaction.editReply(`You need the <@&${SHIFT_MANAGEMENT_ROLE_ID}> role to use \`/shift manage\`.`);
         return;
     }
 
@@ -646,6 +686,7 @@ async function executeShiftManage(interaction: ChatInputCommandInteraction): Pro
     const weekKey = shiftQuotaWeekKey(now);
     await withProfileLock(interaction.guildId, target.id, async () => {
         const profile = await loadProfile(interaction.guildId!, target.id, target.username);
+        refreshProfileQuotaSnapshot(profile, targetMember);
         let actionSummary = '';
         if (action === 'add-time' || action === 'remove-time') {
             if (!minutes) {
@@ -677,7 +718,7 @@ async function executeShiftManage(interaction: ChatInputCommandInteraction): Pro
             return;
         }
 
-        const quota = shiftQuotaSecondsForRoleIds(memberRoleIds(targetMember));
+        const quota = profile.quotaSeconds;
         const total = profile.weeklySeconds[weekKey] || 0;
         if (quota && (action === 'add-time' || action === 'force-end')) {
             await notifyQuotaComplete(target, profile, weekKey, quota, total);
@@ -837,6 +878,7 @@ export async function runDueShiftQuotaEvaluation(client: Client, now: Date = new
             try {
                 await withProfileLock(guildId, member.id, async () => {
                     const profile = await loadProfile(guildId, member.id, member.user.username);
+                    refreshProfileQuotaSnapshot(profile, member);
                     if (profile.activeStartedAt && profile.activeStartedAt.getTime() < completedBoundary.getTime()) {
                         creditElapsed(profile, profile.activeStartedAt, completedBoundary);
                         profile.activeStartedAt = completedBoundary;

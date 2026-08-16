@@ -18,6 +18,8 @@ import { BRAND } from '../config/constants';
 import { createLogoAttachment } from '../utils/embeds';
 import { markSlashCommandFailed } from '../utils/commandAudit';
 import { logger } from '../utils/logger';
+import { isDatabaseAvailable } from '../database/connection';
+import { LoaRequest as LoaRequestModel, type LoaRequestRecord } from '../database/models';
 
 const LOA_REQUEST_CHANNEL_ID = process.env.LOA_REQUEST_CHANNEL_ID || '1528206019237515344';
 const LOA_ROLE_ID = process.env.LOA_ROLE_ID || '1521593407795888329';
@@ -64,6 +66,7 @@ interface ActiveLoa {
 const inMemoryPending: Map<string, PendingLoa> = new Map();
 const inMemoryActive: Map<string, ActiveLoa> = new Map();
 const processingPendingIds: Set<string> = new Set();
+const LOA_PROCESSING_LEASE_MS = 5 * 60 * 1_000;
 
 type RecoverableLoaEmbed = {
     title?: string | null;
@@ -98,16 +101,19 @@ function storedDate(value: string): string {
 function recoverPendingFromMessage(interaction: ButtonInteraction, pendingId: string): PendingLoa | null {
     if (!interaction.guildId) return null;
     const message = interaction.message;
-    const embed = message.embeds.find(candidate => /LOA Request Submitted/i.test(candidate.title || ''));
+    const embed = message.embeds.find(candidate => /LOA Request Submitted/i.test(candidate.title || ''))
+        || message.embeds[0];
     if (!embed) return null;
 
     const requestedBy = fieldValue(embed, 'Requested By');
-    const userId = requestedBy.match(/<@!?(\d{17,20})>/)?.[1];
+    const pendingUserId = pendingId.match(/^(\d{17,20})-\d+$/)?.[1];
+    const embeddedUserId = requestedBy.match(/<@!?(\d{17,20})>/)?.[1];
+    const userId = embeddedUserId || pendingUserId;
     const name = fieldValue(embed, 'Name');
     const startDate = storedDate(fieldValue(embed, 'Start Date'));
     const endDate = storedDate(fieldValue(embed, 'End Date'));
     const reason = fieldValue(embed, 'Reason');
-    if (!userId || !name || !startDate || !endDate || !reason || !pendingId.startsWith(`${userId}-`)) return null;
+    if (!userId || !name || !startDate || !endDate || !reason || pendingUserId !== userId) return null;
 
     const requestedAt = storedDate(fieldValue(embed, 'Submitted At'))
         || embed.timestamp
@@ -129,6 +135,170 @@ function recoverPendingFromMessage(interaction: ButtonInteraction, pendingId: st
     inMemoryPending.set(pendingId, pending);
     logger.info(`Recovered pending LOA ${pendingId} from its Discord review message after a restart.`);
     return pending;
+}
+
+type LoaDecisionStatus = LoaRequestRecord['status'];
+
+interface PendingResolution {
+    pending: PendingLoa | null;
+    status: LoaDecisionStatus | null;
+}
+
+interface PendingClaim {
+    claimed: boolean;
+    status: LoaDecisionStatus;
+    durable: boolean;
+}
+
+function pendingFromStored(record: LoaRequestRecord): PendingLoa {
+    return {
+        guildId: record.guildId,
+        userId: record.userId,
+        memberUsername: record.memberUsername,
+        name: record.name,
+        startDate: record.startDate,
+        endDate: record.endDate,
+        reason: record.reason,
+        requestedAt: new Date(record.requestedAt).toISOString(),
+        approvedBy: record.reviewerId,
+        channelId: record.channelId || undefined,
+        messageId: record.messageId || undefined,
+        timer: pendingExpiryTimer(record.pendingId),
+    };
+}
+
+async function ensurePendingStored(pendingId: string, pending: PendingLoa): Promise<void> {
+    if (!isDatabaseAvailable()) return;
+    const now = new Date();
+    await LoaRequestModel.findOneAndUpdate(
+        { pendingId },
+        {
+            $set: {
+                guildId: pending.guildId,
+                userId: pending.userId,
+                memberUsername: pending.memberUsername,
+                name: pending.name,
+                startDate: pending.startDate,
+                endDate: pending.endDate,
+                reason: pending.reason,
+                requestedAt: new Date(pending.requestedAt),
+                channelId: pending.channelId || '',
+                messageId: pending.messageId || '',
+                updatedAt: now,
+            },
+            $setOnInsert: {
+                status: 'Pending',
+                createdAt: now,
+            },
+        },
+        { upsert: true, new: true, setDefaultsOnInsert: true },
+    ).exec();
+}
+
+async function resolvePendingLoa(interaction: ButtonInteraction, pendingId: string): Promise<PendingResolution> {
+    if (isDatabaseAvailable()) {
+        try {
+            const stored = await LoaRequestModel.findOne({ pendingId }).lean().exec();
+            if (stored) {
+                if (stored.status === 'Approved' || stored.status === 'Denied') {
+                    const cached = inMemoryPending.get(pendingId);
+                    if (cached) clearTimeout(cached.timer);
+                    inMemoryPending.delete(pendingId);
+                    return { pending: null, status: stored.status };
+                }
+                const pending = inMemoryPending.get(pendingId)
+                    || pendingFromStored(stored as unknown as LoaRequestRecord);
+                inMemoryPending.set(pendingId, pending);
+                return { pending, status: stored.status };
+            }
+        } catch (error) {
+            logger.warn(`LOA: durable pending lookup failed for ${pendingId}: ${error instanceof Error ? error.message : 'Unknown'}`);
+        }
+    }
+
+    const pending = inMemoryPending.get(pendingId) || recoverPendingFromMessage(interaction, pendingId);
+    if (!pending) return { pending: null, status: null };
+    await ensurePendingStored(pendingId, pending).catch(error => {
+        logger.warn(`LOA: could not persist recovered request ${pendingId}: ${error instanceof Error ? error.message : 'Unknown'}`);
+    });
+    return { pending, status: 'Pending' };
+}
+
+async function claimPendingLoa(pendingId: string, pending: PendingLoa, reviewerId: string): Promise<PendingClaim> {
+    if (processingPendingIds.has(pendingId)) {
+        return { claimed: false, status: 'Processing', durable: false };
+    }
+    processingPendingIds.add(pendingId);
+
+    if (!isDatabaseAvailable()) return { claimed: true, status: 'Processing', durable: false };
+    try {
+        await ensurePendingStored(pendingId, pending);
+        const now = new Date();
+        const staleBefore = new Date(now.getTime() - LOA_PROCESSING_LEASE_MS);
+        const claimed = await LoaRequestModel.findOneAndUpdate(
+            {
+                pendingId,
+                $or: [
+                    { status: 'Pending' },
+                    { status: 'Processing', processingStartedAt: { $lt: staleBefore } },
+                    { status: 'Processing', processingStartedAt: { $exists: false } },
+                ],
+            },
+            {
+                $set: {
+                    status: 'Processing',
+                    reviewerId,
+                    processingStartedAt: now,
+                    updatedAt: now,
+                },
+            },
+            { new: true },
+        ).lean().exec();
+        if (claimed) return { claimed: true, status: 'Processing', durable: true };
+
+        processingPendingIds.delete(pendingId);
+        const existing = await LoaRequestModel.findOne({ pendingId }).lean().exec();
+        return {
+            claimed: false,
+            status: (existing?.status as LoaDecisionStatus | undefined) || 'Processing',
+            durable: true,
+        };
+    } catch (error) {
+        // The still-visible Discord message remains a safe recovery source if
+        // MongoDB drops during a review. The in-process lock prevents doubles.
+        logger.warn(`LOA: durable claim failed for ${pendingId}; using the in-process lock: ${error instanceof Error ? error.message : 'Unknown'}`);
+        return { claimed: true, status: 'Processing', durable: false };
+    }
+}
+
+async function finishPendingLoa(
+    pendingId: string,
+    reviewerId: string,
+    status: Extract<LoaDecisionStatus, 'Approved' | 'Denied'>,
+    durable: boolean,
+): Promise<void> {
+    if (durable && isDatabaseAvailable()) {
+        const updated = await LoaRequestModel.updateOne(
+            { pendingId, status: 'Processing', reviewerId },
+            {
+                $set: { status, decidedAt: new Date(), updatedAt: new Date() },
+                $unset: { processingStartedAt: 1 },
+            },
+        ).exec();
+        if (updated.modifiedCount !== 1) throw new Error('The durable LOA decision could not be finalized.');
+    }
+}
+
+async function releasePendingLoa(pendingId: string, reviewerId: string, durable: boolean): Promise<void> {
+    if (durable && isDatabaseAvailable()) {
+        await LoaRequestModel.updateOne(
+            { pendingId, status: 'Processing', reviewerId },
+            {
+                $set: { status: 'Pending', updatedAt: new Date() },
+                $unset: { reviewerId: 1, processingStartedAt: 1 },
+            },
+        ).exec().catch(() => undefined);
+    }
 }
 
 function pendingTimestamp(loa: PendingLoa): string {
@@ -336,10 +506,15 @@ export async function handleLoaButton(interaction: ButtonInteraction): Promise<b
         const pendingId = parts.slice(3).join(':');
 
         if (!['approve', 'deny'].includes(action)) return false;
-        const pending = inMemoryPending.get(pendingId) || recoverPendingFromMessage(interaction, pendingId);
+        const resolution = await resolvePendingLoa(interaction, pendingId);
+        const pending = resolution.pending;
         if (!pending) {
             await interaction.reply({
-                content: 'This LOA request could not be recovered from its review message. Please submit a new request.',
+                content: resolution.status === 'Approved'
+                    ? 'This LOA request was already approved.'
+                    : resolution.status === 'Denied'
+                        ? 'This LOA request was already denied.'
+                        : 'This LOA request could not be recovered from its review message. Please submit a new request.',
                 flags: MessageFlags.Ephemeral,
             });
             return true;
@@ -347,6 +522,8 @@ export async function handleLoaButton(interaction: ButtonInteraction): Promise<b
 
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
+        let claim: PendingClaim | null = null;
+        let decisionFinished = false;
         try {
             // Allow users with Administrator permission OR any configured management role
             const hasAdmin = interaction.memberPermissions?.has(LOA_MANAGEMENT_PERMISSION);
@@ -365,11 +542,17 @@ export async function handleLoaButton(interaction: ButtonInteraction): Promise<b
                 return true;
             }
 
-            if (processingPendingIds.has(pendingId)) {
-                await interaction.editReply('This LOA request is currently being processed by another reviewer.');
+            claim = await claimPendingLoa(pendingId, pending, interaction.user.id);
+            if (!claim.claimed) {
+                await interaction.editReply(
+                    claim.status === 'Approved'
+                        ? 'This LOA request was already approved.'
+                        : claim.status === 'Denied'
+                            ? 'This LOA request was already denied.'
+                            : 'This LOA review is already in progress. Please wait for the first review action to finish.',
+                );
                 return true;
             }
-            processingPendingIds.add(pendingId);
 
             pending.approvedBy = interaction.user.id;
 
@@ -411,6 +594,9 @@ export async function handleLoaButton(interaction: ButtonInteraction): Promise<b
                     });
                 }
 
+                await finishPendingLoa(pendingId, interaction.user.id, 'Approved', claim.durable);
+                decisionFinished = true;
+
                 clearTimeout(pending.timer);
                 inMemoryPending.delete(pendingId);
                 // Remove the request message only after the decision has been
@@ -441,6 +627,9 @@ export async function handleLoaButton(interaction: ButtonInteraction): Promise<b
                     });
                 }
 
+                await finishPendingLoa(pendingId, interaction.user.id, 'Denied', claim.durable);
+                decisionFinished = true;
+
                 clearTimeout(pending.timer);
                 inMemoryPending.delete(pendingId);
                 await deleteOriginalRequest(pending, interaction.client);
@@ -450,10 +639,13 @@ export async function handleLoaButton(interaction: ButtonInteraction): Promise<b
             }
         } catch (error) {
             logger.error(`LOA review failed: ${error instanceof Error ? error.message : 'Unknown'}`);
+            if (claim?.claimed && !decisionFinished) {
+                await releasePendingLoa(pendingId, interaction.user.id, claim.durable);
+            }
             await interaction.editReply('Unable to process this LOA review right now. Please try again later.');
             return true;
         } finally {
-            processingPendingIds.delete(pendingId);
+            if (claim?.claimed) processingPendingIds.delete(pendingId);
         }
     }
 
@@ -513,6 +705,9 @@ export async function handleLoaModal(interaction: ModalSubmitInteraction): Promi
         });
         pending.channelId = channel.id;
         pending.messageId = sent.id;
+        await ensurePendingStored(pendingId, pending).catch(error => {
+            logger.warn(`LOA: request ${pendingId} will use Discord-message recovery because durable storage failed: ${error instanceof Error ? error.message : 'Unknown'}`);
+        });
 
         await interaction.editReply('✅ Your LOA request has been submitted for review. You will be notified once management decides.');
         return true;
