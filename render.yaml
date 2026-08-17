@@ -1,31 +1,19 @@
 # Render Blueprint Configuration
 # Deploy on Render: https://render.com
-# Free tier supports this bot 24/7
 #
-# ⚠️ CRITICAL: After deploying, go to Render Dashboard → your service → Environment
-# and add ALL environment variables from your .env file (BOT_TOKEN, MONGODB_URI, etc.).
-#
-# 🔴 KEEPING THE BOT AWAKE (IMPORTANT):
-# Render free services spin down after 15 min of inactivity. Use a free uptime monitor
-# (e.g., UptimeRobot at https://uptimerobot.com) to ping your service URL every 5 min:
-#
-#   1. Sign up at https://uptimerobot.com
-#   2. Add a new monitor (HTTP type)
-#   3. URL: https://YOUR-APP-NAME.onrender.com/health
-#   4. Interval: Every 5 minutes
-#   5. Save — that's it!
-#
-# This guarantees the bot stays online 24/7.
+# IMPORTANT: add your private environment variables in the Render Dashboard
+# (BOT_TOKEN, MONGODB_URI, ERLC_SERVER_KEY, etc.). Never commit live secrets.
 
 services:
   - type: web
     name: discord-management-bot
     env: node
-    # --include=dev is REQUIRED: Render sets NODE_ENV=production during build,
-    # which makes `npm install` skip devDependencies (typescript, ts-node).
-    # Without them `npm run build` (tsc) fails and the deploy never starts.
-    buildCommand: npm install --include=dev && npm run build
-    startCommand: node dist/index.js
+    # The repository already has a memory-safe runtime bootstrap in index.js
+    # that loads TypeScript through ts-node with transpileOnly=true. Do not run
+    # a full tsc build on Render; one type-check error or a memory spike should
+    # not prevent the Discord bot and /health server from starting.
+    buildCommand: npm install --include=dev --no-audit --no-fund
+    startCommand: node index.js
     numInstances: 1
     plan: free
     healthCheckPath: /health
