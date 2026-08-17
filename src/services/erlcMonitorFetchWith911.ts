@@ -4,7 +4,7 @@ import {
     fetchErlcServer,
     type ErlcFetchResult,
 } from './erlcService';
-import { processEmergencyDispatchApiPayload } from '../events/emergencyDispatchPro';
+import { processIntegratedEmergencyCalls } from '../events/emergencyDispatchIntegrated';
 import { logger } from '../utils/logger';
 
 /**
@@ -39,7 +39,7 @@ export async function fetchErlcMonitorSnapshotWith911(
 
     if (result.ok && emergencyPayload) {
         try {
-            await processEmergencyDispatchApiPayload(client, emergencyPayload);
+            await processIntegratedEmergencyCalls(client, emergencyPayload);
         } catch (error) {
             // A Discord 911-panel failure must never break command/team monitoring.
             logger.warn(`[911 Integrated] Could not process emergency calls: ${error instanceof Error ? error.message : 'Unknown error'}`);
