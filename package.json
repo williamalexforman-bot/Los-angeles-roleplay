@@ -5,9 +5,10 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "build": "tsc",
+    "build": "node -e \"console.log('No compile step required; index.js uses ts-node transpileOnly at runtime.')\"",
+    "typecheck": "tsc --noEmit",
     "test": "ts-node --transpile-only tests/smoke.ts",
-    "check": "npm run build && npm test",
+    "check": "npm run typecheck && npm test",
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts"
   },
   "dependencies": {
