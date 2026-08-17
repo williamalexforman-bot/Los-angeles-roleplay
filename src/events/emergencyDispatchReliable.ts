@@ -60,13 +60,13 @@ function isRecord(value: unknown): value is UnknownRecord {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function asText(value: unknown): string | null {
+function text(value: unknown): string | null {
     if (typeof value === 'string' && value.trim()) return value.trim();
     if (typeof value === 'number' && Number.isFinite(value)) return String(value);
     return null;
 }
 
-function asNumber(value: unknown): number | null {
+function numberValue(value: unknown): number | null {
     if (typeof value === 'number' && Number.isFinite(value)) return value;
     if (typeof value === 'string' && value.trim()) {
         const parsed = Number(value);
@@ -76,13 +76,13 @@ function asNumber(value: unknown): number | null {
 }
 
 function unixSeconds(value: unknown): number | null {
-    const parsed = asNumber(value);
+    const parsed = numberValue(value);
     if (parsed === null || parsed <= 0) return null;
     return Math.floor(parsed >= 1_000_000_000_000 ? parsed / 1_000 : parsed);
 }
 
 function parseIdentity(value: unknown): { username: string; robloxId: string | null } {
-    const raw = asText(value) || '';
+    const raw = text(value) || '';
     const split = raw.lastIndexOf(':');
     if (split > 0 && split < raw.length - 1) {
         const username = raw.slice(0, split).trim();
@@ -95,20 +95,20 @@ function parseIdentity(value: unknown): { username: string; robloxId: string | n
 function parsePlayer(value: unknown): ParsedPlayer | null {
     if (!isRecord(value)) return null;
     const identity = parseIdentity(value.Player ?? value.player);
-    const team = asText(value.Team ?? value.team);
+    const team = text(value.Team ?? value.team);
     if (!team || identity.username === 'Unknown') return null;
 
-    const locationValue = isRecord(value.Location) ? value.Location : isRecord(value.location) ? value.location : null;
+    const rawLocation = isRecord(value.Location) ? value.Location : isRecord(value.location) ? value.location : null;
     let location: ParsedPlayer['location'] = null;
-    if (locationValue) {
-        const x = asNumber(locationValue.LocationX ?? locationValue.x ?? locationValue.X);
-        const z = asNumber(locationValue.LocationZ ?? locationValue.z ?? locationValue.Z);
+    if (rawLocation) {
+        const x = numberValue(rawLocation.LocationX ?? rawLocation.x ?? rawLocation.X);
+        const z = numberValue(rawLocation.LocationZ ?? rawLocation.z ?? rawLocation.Z);
         if (x !== null && z !== null) {
             location = {
                 x,
                 z,
-                postalCode: asText(locationValue.PostalCode ?? locationValue.postal),
-                streetName: asText(locationValue.StreetName ?? locationValue.street),
+                postalCode: text(rawLocation.PostalCode ?? rawLocation.postal),
+                streetName: text(rawLocation.StreetName ?? rawLocation.street),
             };
         }
     }
@@ -117,19 +117,19 @@ function parsePlayer(value: unknown): ParsedPlayer | null {
         robloxId: identity.robloxId,
         username: identity.username,
         team,
-        callsign: asText(value.Callsign ?? value.callsign),
+        callsign: text(value.Callsign ?? value.callsign),
         location,
     };
 }
 
 function parseCaller(value: unknown): { key: string; robloxId: string; label: string } {
-    const numeric = asNumber(value);
+    const numeric = numberValue(value);
     if (numeric !== null && numeric > 0) {
         const id = String(Math.trunc(numeric));
         return { key: `id:${id}`, robloxId: id, label: '' };
     }
 
-    const raw = asText(value);
+    const raw = text(value);
     if (raw) {
         const identity = parseIdentity(raw);
         if (identity.robloxId) return { key: `id:${identity.robloxId}`, robloxId: identity.robloxId, label: identity.username };
@@ -140,12 +140,11 @@ function parseCaller(value: unknown): { key: string; robloxId: string; label: st
 
 function fallbackCallNumber(value: UnknownRecord, startedAt: number): number {
     const seed = JSON.stringify([
-        asText(value.Description ?? value.description ?? value.Message ?? value.message) || '',
-        asText(value.PositionDescriptor ?? value.location ?? value.Location) || '',
+        text(value.Description ?? value.description ?? value.Message ?? value.message) || '',
+        text(value.PositionDescriptor ?? value.positionDescriptor ?? value.Location ?? value.location) || '',
         startedAt,
     ]);
-    const hex = createHash('sha256').update(seed).digest('hex').slice(0, 7);
-    return 100_000 + (parseInt(hex, 16) % 900_000);
+    return 100_000 + (parseInt(createHash('sha256').update(seed).digest('hex').slice(0, 7), 16) % 900_000);
 }
 
 function parseCall(value: unknown): ParsedCall | null {
@@ -156,16 +155,16 @@ function parseCall(value: unknown): ParsedCall | null {
         : Array.isArray(value.position)
             ? value.position
             : [];
-    const x = asNumber(position[0] ?? value.LocationX ?? value.x ?? value.X) ?? 0;
-    const z = asNumber(position[1] ?? value.LocationZ ?? value.z ?? value.Z) ?? 0;
+    const x = numberValue(position[0] ?? value.LocationX ?? value.x ?? value.X) ?? 0;
+    const z = numberValue(position[1] ?? value.LocationZ ?? value.z ?? value.Z) ?? 0;
     const startedAt = unixSeconds(value.StartedAt ?? value.startedAt ?? value.Timestamp ?? value.timestamp)
         ?? Math.floor(Date.now() / 1_000);
-    const explicitNumber = asNumber(value.CallNumber ?? value.callNumber ?? value.Number ?? value.number);
+    const explicitCallNumber = numberValue(value.CallNumber ?? value.callNumber ?? value.Number ?? value.number);
     const caller = parseCaller(value.Caller ?? value.caller ?? value.Player ?? value.player ?? value.User ?? value.user);
 
-    const description = asText(value.Description ?? value.description ?? value.Message ?? value.message ?? value.Incident ?? value.incident)
+    const description = text(value.Description ?? value.description ?? value.Message ?? value.message ?? value.Incident ?? value.incident)
         || '911 emergency call received.';
-    const positionDescriptor = asText(
+    const location = text(
         value.PositionDescriptor
         ?? value.positionDescriptor
         ?? value.LocationDescriptor
@@ -175,38 +174,38 @@ function parseCall(value: unknown): ParsedCall | null {
     ) || (x !== 0 || z !== 0 ? `ER:LC coordinates X ${x.toFixed(1)}, Z ${z.toFixed(1)}` : 'Location unavailable.');
 
     return {
-        team: asText(value.Team ?? value.team ?? value.Service ?? value.service) || 'Emergency Services',
+        team: text(value.Team ?? value.team ?? value.Service ?? value.service) || 'Emergency Services',
         callerKey: caller.key,
         callerRobloxId: caller.robloxId,
         callerLabel: caller.label,
         positionX: x,
         positionZ: z,
         startedAt,
-        callNumber: explicitNumber === null ? fallbackCallNumber(value, startedAt) : Math.trunc(explicitNumber),
+        callNumber: explicitCallNumber === null ? fallbackCallNumber(value, startedAt) : Math.trunc(explicitCallNumber),
         description,
-        positionDescriptor,
+        positionDescriptor: location,
     };
 }
 
-function findCallInWebhook(value: unknown, depth = 0): ParsedCall | null {
+function findWebhookCall(value: unknown, depth = 0): ParsedCall | null {
     if (depth > 5 || !isRecord(value)) return null;
-    const hasCallShape = [
+    const looksLikeCall = [
         'CallNumber', 'callNumber', 'Position', 'position', 'StartedAt', 'startedAt',
         'PositionDescriptor', 'positionDescriptor', 'Description', 'description',
     ].some(key => key in value);
-    if (hasCallShape) {
+    if (looksLikeCall) {
         const parsed = parseCall(value);
         if (parsed) return parsed;
     }
     for (const child of Object.values(value)) {
         if (!isRecord(child)) continue;
-        const nested = findCallInWebhook(child, depth + 1);
+        const nested = findWebhookCall(child, depth + 1);
         if (nested) return nested;
     }
     return null;
 }
 
-function callId(guildId: string, call: ParsedCall): string {
+function makeId(guildId: string, call: ParsedCall): string {
     return createHash('sha256')
         .update(`${guildId}:${call.callNumber}:${call.startedAt}:${call.callerKey}:${call.description}`)
         .digest('hex')
@@ -216,9 +215,9 @@ function callId(guildId: string, call: ParsedCall): string {
 function remember(id: string): void {
     seenIds.add(id);
     while (seenIds.size > MAX_SEEN) {
-        const first = seenIds.values().next().value as string | undefined;
-        if (!first) break;
-        seenIds.delete(first);
+        const oldest = seenIds.values().next().value as string | undefined;
+        if (!oldest) break;
+        seenIds.delete(oldest);
     }
 }
 
@@ -232,12 +231,8 @@ function serviceLabel(team: string): string {
 function matchingUnit(callTeam: string, playerTeam: string): boolean {
     const call = callTeam.toLowerCase();
     const team = playerTeam.toLowerCase();
-    if (call.includes('police') || call.includes('sheriff') || call.includes('law')) {
-        return team.includes('police') || team.includes('sheriff');
-    }
-    if (call.includes('fire') || call.includes('ems') || call.includes('medical')) {
-        return team.includes('fire') || team.includes('ems') || team.includes('medical');
-    }
+    if (call.includes('police') || call.includes('sheriff') || call.includes('law')) return team.includes('police') || team.includes('sheriff');
+    if (call.includes('fire') || call.includes('ems') || call.includes('medical')) return team.includes('fire') || team.includes('ems') || team.includes('medical');
     return call === team;
 }
 
@@ -269,12 +264,6 @@ function clean(value: string, max = 1_400): string {
 
 function divider(): SeparatorBuilder {
     return new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small);
-}
-
-function mapGallery(): MediaGalleryBuilder {
-    return new MediaGalleryBuilder().addItems(
-        new MediaGalleryItemBuilder().setURL(ERLC_POSTAL_MAP_URL).setDescription('ER:LC postal map'),
-    );
 }
 
 function closestText(record: EmergencyDispatchCallRecord): string {
@@ -314,46 +303,35 @@ function panel(record: EmergencyDispatchCallRecord, controlsEnabled: boolean, in
             `**Location:** ${clean(record.positionDescriptor, 500)}`,
         ].join('\n')));
 
-    if (includeMap) container.addMediaGalleryComponents(mapGallery());
+    if (includeMap) {
+        container.addMediaGalleryComponents(
+            new MediaGalleryBuilder().addItems(
+                new MediaGalleryItemBuilder().setURL(ERLC_POSTAL_MAP_URL).setDescription('ER:LC postal map'),
+            ),
+        );
+    }
 
-    container
+    return container
         .addSeparatorComponents(divider())
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(
             controlsEnabled
                 ? '### 📝 Dispatch Notes\n*No dispatch notes added yet.*'
-                : '### 📝 Dispatch Notes\n*Alert posted successfully. Dispatch controls are temporarily unavailable because persistent storage is offline.*',
+                : '### 📝 Dispatch Notes\n*Alert is live. Dispatch controls are waiting for persistent storage.*',
         ))
         .addActionRowComponents(new ActionRowBuilder<ButtonBuilder>().addComponents(
-            new ButtonBuilder()
-                .setCustomId(`dispatch3:attach:${record.dispatchId}`)
-                .setLabel('Attach Units')
-                .setEmoji('🚓')
-                .setStyle(ButtonStyle.Success)
-                .setDisabled(!controlsEnabled),
-            new ButtonBuilder()
-                .setCustomId(`dispatch3:notes:${record.dispatchId}`)
-                .setLabel('Add Notes')
-                .setEmoji('📝')
-                .setStyle(ButtonStyle.Secondary)
-                .setDisabled(!controlsEnabled),
-            new ButtonBuilder()
-                .setCustomId(`dispatch3:end:${record.dispatchId}`)
-                .setLabel('End Call')
-                .setEmoji('✅')
-                .setStyle(ButtonStyle.Danger)
-                .setDisabled(!controlsEnabled),
+            new ButtonBuilder().setCustomId(`dispatch3:attach:${record.dispatchId}`).setLabel('Attach Units').setEmoji('🚓').setStyle(ButtonStyle.Success).setDisabled(!controlsEnabled),
+            new ButtonBuilder().setCustomId(`dispatch3:notes:${record.dispatchId}`).setLabel('Add Notes').setEmoji('📝').setStyle(ButtonStyle.Secondary).setDisabled(!controlsEnabled),
+            new ButtonBuilder().setCustomId(`dispatch3:end:${record.dispatchId}`).setLabel('End Call').setEmoji('✅').setStyle(ButtonStyle.Danger).setDisabled(!controlsEnabled),
         ))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(
             `*Los Angeles Roleplay • 911 Emergency Dispatch • Call #${record.callNumber}*`,
         ));
-
-    return container;
 }
 
 async function callerName(call: ParsedCall, players: ParsedPlayer[]): Promise<string> {
     if (!/^\d+$/.test(call.callerRobloxId)) return call.callerLabel || 'System';
-    const live = players.find(player => player.robloxId === call.callerRobloxId)?.username;
-    if (live) return live;
+    const inGame = players.find(player => player.robloxId === call.callerRobloxId)?.username;
+    if (inGame) return inGame;
     if (call.callerLabel) return call.callerLabel;
 
     const controller = new AbortController();
@@ -365,7 +343,7 @@ async function callerName(call: ParsedCall, players: ParsedPlayer[]): Promise<st
         });
         if (!response.ok) return `Roblox User ${call.callerRobloxId}`;
         const body = await response.json().catch(() => null);
-        return isRecord(body) && asText(body.name) ? asText(body.name)! : `Roblox User ${call.callerRobloxId}`;
+        return isRecord(body) && text(body.name) ? text(body.name)! : `Roblox User ${call.callerRobloxId}`;
     } catch {
         return `Roblox User ${call.callerRobloxId}`;
     } finally {
@@ -373,24 +351,10 @@ async function callerName(call: ParsedCall, players: ParsedPlayer[]): Promise<st
     }
 }
 
-async function mapIsReachable(): Promise<boolean> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3_000);
-    try {
-        const response = await fetch(ERLC_POSTAL_MAP_URL, { method: 'GET', signal: controller.signal });
-        try { await response.body?.cancel(); } catch { /* ignore */ }
-        return response.ok;
-    } catch {
-        return false;
-    } finally {
-        clearTimeout(timeout);
-    }
-}
-
-function makeRecord(guildId: string, id: string, call: ParsedCall, players: ParsedPlayer[], name: string): EmergencyDispatchCallRecord {
+function makeRecord(guildId: string, dispatchId: string, call: ParsedCall, players: ParsedPlayer[], name: string): EmergencyDispatchCallRecord {
     const now = new Date();
     return {
-        dispatchId: id,
+        dispatchId,
         guildId,
         callNumber: call.callNumber,
         startedAt: call.startedAt,
@@ -412,53 +376,84 @@ function makeRecord(guildId: string, id: string, call: ParsedCall, players: Pars
     };
 }
 
+async function persistPostedCall(record: EmergencyDispatchCallRecord, messageId: string, channelId: string): Promise<EmergencyDispatchCallRecord | null> {
+    if (!isDatabaseAvailable()) return null;
+    try {
+        const existing = await EmergencyDispatchCall.findOne({
+            guildId: record.guildId,
+            callNumber: record.callNumber,
+            startedAt: record.startedAt,
+        }).lean().exec();
+
+        if (existing) {
+            const updated = await EmergencyDispatchCall.findOneAndUpdate(
+                { dispatchId: existing.dispatchId },
+                { $set: { messageId, channelId, updatedAt: new Date() } },
+                { new: true },
+            ).lean().exec();
+            return updated as unknown as EmergencyDispatchCallRecord | null;
+        }
+
+        const created = await EmergencyDispatchCall.create({
+            ...record,
+            messageId,
+            channelId,
+            updatedAt: new Date(),
+        });
+        return created.toObject() as EmergencyDispatchCallRecord;
+    } catch (error) {
+        if ((error as { code?: number }).code === 11000) {
+            const duplicate = await EmergencyDispatchCall.findOneAndUpdate(
+                { guildId: record.guildId, callNumber: record.callNumber, startedAt: record.startedAt },
+                { $set: { messageId, channelId, updatedAt: new Date() } },
+                { new: true },
+            ).lean().exec().catch(() => null);
+            return duplicate as unknown as EmergencyDispatchCallRecord | null;
+        }
+        logger.warn(`[911 Reliable] Persistence failed after alert post: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        return null;
+    }
+}
+
+async function mapIsReachable(): Promise<boolean> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3_000);
+    try {
+        const response = await fetch(ERLC_POSTAL_MAP_URL, { method: 'GET', signal: controller.signal });
+        try { await response.body?.cancel(); } catch { /* ignore */ }
+        return response.ok;
+    } catch {
+        return false;
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
 async function postCall(client: Client, guildId: string, call: ParsedCall, players: ParsedPlayer[]): Promise<void> {
-    const id = callId(guildId, call);
-    if (seenIds.has(id)) return;
+    const provisionalId = makeId(guildId, call);
+    if (seenIds.has(provisionalId)) return;
 
     const channel = await client.channels.fetch(EMERGENCY_CALL_CHANNEL_ID).catch(() => null);
     if (!channel?.isSendable()) {
-        logger.warn(`[911 Reliable] Cannot send to ${EMERGENCY_CALL_CHANNEL_ID}; check View Channel and Send Messages permissions.`);
+        logger.warn(`[911 Reliable] Cannot send to ${EMERGENCY_CALL_CHANNEL_ID}; check the bot's channel permissions.`);
         return;
     }
 
-    const name = await callerName(call, players);
-    let record = makeRecord(guildId, id, call, players, name);
+    let record = makeRecord(guildId, provisionalId, call, players, await callerName(call, players));
 
-    // POST FIRST. Database persistence and the map must never be able to block the emergency alert.
+    // Emergency alert first. A DB failure or map failure can no longer prevent the call from appearing.
     const message = await channel.send({
         components: [panel(record, false, false)],
         flags: MessageFlags.IsComponentsV2,
         allowedMentions: { parse: [] },
     });
-    remember(id);
+    remember(provisionalId);
 
-    let controlsEnabled = false;
-    if (isDatabaseAvailable()) {
-        try {
-            const saved = await EmergencyDispatchCall.findOneAndUpdate(
-                { dispatchId: id },
-                {
-                    $setOnInsert: {
-                        ...record,
-                        messageId: message.id,
-                        channelId: message.channelId,
-                    },
-                    $set: {
-                        messageId: message.id,
-                        channelId: message.channelId,
-                        updatedAt: new Date(),
-                    },
-                },
-                { upsert: true, new: true, setDefaultsOnInsert: true },
-            ).lean().exec();
-            if (saved) {
-                record = saved as unknown as EmergencyDispatchCallRecord;
-                controlsEnabled = true;
-            }
-        } catch (error) {
-            logger.warn(`[911 Reliable] Alert posted, but persistence failed for call #${call.callNumber}: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        }
+    const persisted = await persistPostedCall(record, message.id, message.channelId);
+    const controlsEnabled = Boolean(persisted);
+    if (persisted) {
+        record = persisted;
+        remember(record.dispatchId);
     }
 
     const includeMap = await mapIsReachable();
@@ -468,14 +463,14 @@ async function postCall(client: Client, guildId: string, call: ParsedCall, playe
             flags: MessageFlags.IsComponentsV2,
             allowedMentions: { parse: [] },
         }).catch(error => {
-            logger.warn(`[911 Reliable] Call #${call.callNumber} posted, but enhancement edit failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            logger.warn(`[911 Reliable] Alert posted but enhancement failed for call #${call.callNumber}: ${error instanceof Error ? error.message : 'Unknown error'}`);
         });
     }
 
-    logger.info(`[911 Reliable] Posted ER:LC 911 call #${call.callNumber} to ${EMERGENCY_CALL_CHANNEL_ID}.`);
+    logger.info(`[911 Reliable] Posted ER:LC 911 call #${call.callNumber} in ${EMERGENCY_CALL_CHANNEL_ID}.`);
 }
 
-function getServerKey(): string {
+function serverKey(): string {
     return (
         process.env.ERLC_SERVER_KEY
         || process.env.PRC_SERVER_KEY
@@ -487,8 +482,8 @@ function getServerKey(): string {
 
 async function fetchSnapshot(): Promise<{ calls: ParsedCall[]; players: ParsedPlayer[] } | null> {
     if (Date.now() < nextAllowedRequestAt) return null;
-    const serverKey = getServerKey();
-    if (!serverKey) {
+    const key = serverKey();
+    if (!key) {
         logger.warn('[911 Reliable] No ER:LC server key is available to the running bot process.');
         return null;
     }
@@ -496,48 +491,46 @@ async function fetchSnapshot(): Promise<{ calls: ParsedCall[]; players: ParsedPl
     const url = new URL(ERLC_SERVER_ENDPOINT);
     url.searchParams.set('Players', 'true');
     url.searchParams.set('EmergencyCalls', 'true');
-
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
     try {
         const response = await fetch(url, {
             method: 'GET',
-            headers: { Accept: 'application/json', 'server-key': serverKey },
+            headers: { Accept: 'application/json', 'server-key': key },
             signal: controller.signal,
         });
-        const payload = await response.json().catch(() => null);
+        const body = await response.json().catch(() => null);
 
-        const retryAfter = Number(response.headers.get('retry-after') || 0);
-        const resetSeconds = Number(response.headers.get('x-ratelimit-reset') || 0);
         if (response.status === 429) {
-            const delay = Number.isFinite(retryAfter) && retryAfter > 0
-                ? Math.ceil(retryAfter * 1_000)
-                : Number.isFinite(resetSeconds) && resetSeconds > 0
-                    ? Math.max(1_000, Math.ceil(resetSeconds * 1_000 - Date.now()))
+            const retrySeconds = numberValue(response.headers.get('retry-after'));
+            const reset = numberValue(response.headers.get('x-ratelimit-reset'));
+            const waitMs = retrySeconds !== null && retrySeconds > 0
+                ? Math.ceil(retrySeconds * 1_000)
+                : reset !== null && reset > 0
+                    ? Math.max(1_000, Math.ceil(reset * 1_000 - Date.now()))
                     : 15_000;
-            nextAllowedRequestAt = Date.now() + delay;
-            logger.warn(`[911 Reliable] ER:LC rate limited the 911 scan; retrying after ${Math.ceil(delay / 1_000)}s.`);
+            nextAllowedRequestAt = Date.now() + waitMs;
+            logger.warn(`[911 Reliable] ER:LC rate limited the scan; retrying in ${Math.ceil(waitMs / 1_000)} seconds.`);
             return null;
         }
 
-        if (!response.ok || !isRecord(payload)) {
-            const code = isRecord(payload) ? asNumber(payload.code) : null;
-            logger.warn(`[911 Reliable] ER:LC 911 scan failed: HTTP ${response.status}${code !== null ? ` / code ${Math.trunc(code)}` : ''}.`);
+        if (!response.ok || !isRecord(body)) {
+            const code = isRecord(body) ? numberValue(body.code) : null;
+            logger.warn(`[911 Reliable] ER:LC scan failed: HTTP ${response.status}${code !== null ? ` / API code ${Math.trunc(code)}` : ''}.`);
             return null;
         }
 
-        const rawCalls = Array.isArray(payload.EmergencyCalls) ? payload.EmergencyCalls : [];
+        const rawCalls = Array.isArray(body.EmergencyCalls) ? body.EmergencyCalls : [];
         const calls = rawCalls.map(parseCall).filter((call): call is ParsedCall => Boolean(call));
-        const players = Array.isArray(payload.Players)
-            ? payload.Players.map(parsePlayer).filter((player): player is ParsedPlayer => Boolean(player))
+        const players = Array.isArray(body.Players)
+            ? body.Players.map(parsePlayer).filter((player): player is ParsedPlayer => Boolean(player))
             : [];
 
-        if (rawCalls.length !== calls.length) {
-            logger.warn(`[911 Reliable] ER:LC returned ${rawCalls.length} emergency calls; ${calls.length} were parsed.`);
-        }
+        logger.info(`[911 Reliable] ER:LC scan returned ${rawCalls.length} emergency call(s); ${calls.length} parsed.`);
         return { calls, players };
     } catch (error) {
-        logger.warn(`[911 Reliable] ER:LC 911 scan request failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        logger.warn(`[911 Reliable] ER:LC request failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
         return null;
     } finally {
         clearTimeout(timeout);
@@ -571,7 +564,7 @@ export function startReliableEmergencyDispatchWatcher(client: Client): void {
 
 export function triggerReliableEmergencyDispatchFromWebhook(client: Client, payload?: Record<string, unknown>): void {
     const guildId = process.env.GUILD_ID || client.guilds.cache.firstKey();
-    const directCall = payload ? findCallInWebhook(payload) : null;
+    const directCall = payload ? findWebhookCall(payload) : null;
     if (guildId && directCall) {
         void postCall(client, guildId, directCall, []).catch(error => {
             logger.warn(`[911 Reliable] Signed webhook call could not be posted directly: ${error instanceof Error ? error.message : 'Unknown error'}`);
