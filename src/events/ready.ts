@@ -8,7 +8,6 @@ import { startAdvancedPaidAdScheduler } from '../commands/advancedPaidAds';
 import { registerTicketRobloxInfo } from './ticketRobloxInfo';
 import { registerOffDutyCommandWatcher } from './offDutyCommandWatcher';
 import { registerJoinAccountDateCorrection } from './joinAccountDateCorrection';
-import { startEmergencyDispatchProWatcher } from './emergencyDispatchPro';
 
 const MEMBER_COUNT_REFRESH_MS = 5 * 60 * 1000;
 let memberCountPresenceTimer: ReturnType<typeof setInterval> | null = null;
@@ -94,5 +93,4 @@ export const onReady = async (client: Client): Promise<void> => {
     }, MEMBER_COUNT_REFRESH_MS);
     startShiftQuotaScheduler(client);
     startAdvancedPaidAdScheduler(client);
-    startEmergencyDispatchProWatcher(client);
 };
