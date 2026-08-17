@@ -20,11 +20,6 @@ import { handlePaidAdButton, handlePaidAdModal, handlePaidAdSelect } from '../co
 import { handleAdvancedPaidAdSelect, normalizePaidAdSchedule } from '../commands/advancedPaidAds';
 import { handleSuggestionButton } from '../commands/suggestions';
 import {
-    handleEmergencyDispatchV3Button,
-    handleEmergencyDispatchV3Modal,
-    handleEmergencyDispatchV3UserSelect,
-} from '../events/emergencyDispatchV3';
-import {
     handleTicketButton,
     handleTicketModal,
     handleTicketSelect,
@@ -182,7 +177,6 @@ async function handleChatCommand(interaction: ChatInputCommandInteraction): Prom
 export const interactionCreate = async (interaction: Interaction): Promise<void> => {
     try {
         if (interaction.isButton()) {
-            if (await handleEmergencyDispatchV3Button(interaction)) return;
             if (await handleSuggestionButton(interaction)) return;
             if (await handlePaidAdButton(interaction)) return;
             if (await handleTicketButton(interaction)) return;
@@ -199,7 +193,6 @@ export const interactionCreate = async (interaction: Interaction): Promise<void>
         }
 
         if (interaction.isModalSubmit()) {
-            if (await handleEmergencyDispatchV3Modal(interaction)) return;
             if (await handlePaidAdModal(interaction)) {
                 await normalizePaidAdSchedule(interaction.client).catch(error => {
                     logger.warn(`[PaidAdV2] Could not normalize after setup: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -214,11 +207,6 @@ export const interactionCreate = async (interaction: Interaction): Promise<void>
             if (await handleLoaModal(interaction)) return;
             if (await handleBanAppealModal(interaction)) return;
             if (await handleInfractionAppealModal(interaction)) return;
-            return;
-        }
-
-        if (interaction.isUserSelectMenu()) {
-            if (await handleEmergencyDispatchV3UserSelect(interaction)) return;
             return;
         }
 
