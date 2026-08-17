@@ -34,6 +34,9 @@ import { grantShiftGamePermission, verifyShiftGameAccess } from '../services/shi
 import { INFRACTION_AUTHORIZED_ROLE_ID, PROMOTION_AUTHORIZED_ROLE_ID } from '../config/constants';
 import { logger } from '../utils/logger';
 
+const TRAINING_DEPARTMENT_ROLE_ID = '1524013351850737835';
+const TRAINING_MANAGEMENT_ROLE_ID = '1521593407795888330';
+
 const MANAGEMENT_COMMANDS = new Set([
     'infraction', 'promotion', 'training-results', 'training-result',
     'request-training', 'teamswitch', 'punishment',
@@ -57,23 +60,71 @@ function interactionRoleIds(interaction: ChatInputCommandInteraction): string[] 
     return member.roles;
 }
 
+function configuredRoleIds(...values: Array<string | undefined>): string[] {
+    return Array.from(new Set(
+        values
+            .flatMap(value => (value || '').split(','))
+            .map(value => value.trim())
+            .filter(Boolean),
+    ));
+}
+
 async function hasManagementCommandPermission(interaction: ChatInputCommandInteraction): Promise<boolean> {
     if (!interaction.guildId) return false;
     if (interaction.guild?.ownerId === interaction.user.id
         || interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return true;
-    let roles = new Set(interactionRoleIds(interaction));
-    const requiredRoles = interaction.commandName === 'promotion'
-        ? [PROMOTION_AUTHORIZED_ROLE_ID]
-            : interaction.commandName === 'infraction' || interaction.commandName === 'punishment'
-                ? Array.from(new Set([
-                    INFRACTION_AUTHORIZED_ROLE_ID,
-                    process.env.BOT_PERMISSIONS_ROLE_ID,
-                    process.env.ADMIN_ROLE_ID,
-                    ...(process.env.INFRACTION_AUTHORIZED_ROLE_IDS || '').split(','),
-                ].map(value => value?.trim()).filter((value): value is string => Boolean(value))))
-                : [];
+
+    let requiredRoles: string[];
+    switch (interaction.commandName) {
+        case 'promotion':
+            requiredRoles = configuredRoleIds(
+                PROMOTION_AUTHORIZED_ROLE_ID,
+                process.env.BOT_PERMISSIONS_ROLE_ID,
+                process.env.ADMIN_ROLE_ID,
+            );
+            break;
+        case 'infraction':
+        case 'punishment':
+            requiredRoles = configuredRoleIds(
+                INFRACTION_AUTHORIZED_ROLE_ID,
+                process.env.BOT_PERMISSIONS_ROLE_ID,
+                process.env.ADMIN_ROLE_ID,
+                process.env.INFRACTION_AUTHORIZED_ROLE_IDS,
+            );
+            break;
+        case 'training-results':
+        case 'training-result':
+            requiredRoles = configuredRoleIds(
+                TRAINING_DEPARTMENT_ROLE_ID,
+                TRAINING_MANAGEMENT_ROLE_ID,
+                process.env.BOT_PERMISSIONS_ROLE_ID,
+                process.env.ADMIN_ROLE_ID,
+            );
+            break;
+        case 'request-training':
+            requiredRoles = configuredRoleIds(
+                TRAINING_DEPARTMENT_ROLE_ID,
+                process.env.BOT_PERMISSIONS_ROLE_ID,
+                process.env.ADMIN_ROLE_ID,
+            );
+            break;
+        case 'teamswitch':
+            requiredRoles = configuredRoleIds(
+                process.env.BOT_PERMISSIONS_ROLE_ID,
+                process.env.ADMIN_ROLE_ID,
+            );
+            break;
+        default:
+            return false;
+    }
+
     if (requiredRoles.length === 0) return false;
+
+    let roles = new Set(interactionRoleIds(interaction));
     if (requiredRoles.some(roleId => roles.has(roleId))) return true;
+
+    // Always refresh once before denying. This avoids stale Discord member
+    // cache data causing authorized trainers/managers to be rejected.
     try {
         const guild = interaction.guild;
         if (!guild) return false;
