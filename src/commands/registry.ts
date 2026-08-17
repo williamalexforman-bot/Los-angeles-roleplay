@@ -28,7 +28,6 @@ import { paidAdCommands } from './paidAds';
 import { advancedInstantPostCommand } from './advancedPaidAds';
 import { accountInfoCommands } from './accountInfo';
 import { suggestionCommands } from './suggestions';
-import { emergencyDispatchStatusCommand } from '../events/emergencyDispatchV3';
 
 export interface CommandDefinition {
     data: {
@@ -77,7 +76,6 @@ export const commandDefinitions: CommandDefinition[] = [
     advancedInstantPostCommand,
     ...accountInfoCommands,
     ...suggestionCommands,
-    emergencyDispatchStatusCommand,
     { data: cmdsCommandData, execute: executeCmds as (interaction: ChatInputCommandInteraction) => Promise<unknown> },
 ] as CommandDefinition[];
 
