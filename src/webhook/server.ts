@@ -119,7 +119,7 @@ async function processOfficialErlcEvent(client: Client, payload: Record<string, 
 }
 
 export function startWebhookServer(client: Client) {
-    // Railway sets PORT automatically; prefer WEBHOOK_PORT if explicitly configured.
+    // Render/Railway expose PORT for web services; WEBHOOK_PORT can override it.
     const portSource = process.env.WEBHOOK_PORT || process.env.PORT || '3000';
     const configuredPort = Number(portSource);
     const port = Number.isInteger(configuredPort) && configuredPort >= 1 && configuredPort <= 65_535
@@ -189,12 +189,10 @@ export function startWebhookServer(client: Client) {
     });
 
     server.on('error', error => logger.warn(`Webhook server unavailable: ${error.message}`));
-    server.listen(port, () => logger.info(`Webhook server listening on port ${port}.`));
+    // Render requires public web services to listen on an externally reachable
+    // interface. Binding explicitly avoids platform-specific IPv4/IPv6 ambiguity.
+    server.listen(port, '0.0.0.0', () => logger.info(`Webhook server listening on 0.0.0.0:${port}.`));
 
-    // Self-keep-alive: Render free tier spins down after ~15 minutes without
-    // inbound traffic. Render injects RENDER_EXTERNAL_URL automatically; we
-    // ping our own public /health endpoint so the service stays awake even
-    // without UptimeRobot.
     const externalUrl = process.env.RENDER_EXTERNAL_URL || process.env.RENDER_URL || process.env.SELF_URL;
     if (externalUrl) {
         const healthUrl = `${externalUrl.replace(/\/+$/, '')}/health`;
