@@ -99,7 +99,7 @@ export async function renderErlcCallMap(
         const height = metadata.height ?? OFFICIAL_MAP_SIZE;
         const scaleX = width / OFFICIAL_MAP_SIZE;
         const scaleY = height / OFFICIAL_MAP_SIZE;
-        const overlays: sharp.OverlayOptions[] = [
+        const overlays: Array<{ input: Buffer; left: number; top: number }> = [
             { input: callLabelSvg(callNumber, locationLabel), left: Math.max(10, Math.round((width - 1100) / 2)), top: 24 },
         ];
 
