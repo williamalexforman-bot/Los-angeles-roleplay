@@ -20,6 +20,11 @@ import { handlePaidAdButton, handlePaidAdModal, handlePaidAdSelect } from '../co
 import { handleAdvancedPaidAdSelect, normalizePaidAdSchedule } from '../commands/advancedPaidAds';
 import { handleSuggestionButton } from '../commands/suggestions';
 import {
+    handleStableEmergencyDispatchButton,
+    handleStableEmergencyDispatchModal,
+    handleStableEmergencyDispatchUserSelect,
+} from '../events/emergencyDispatchControls';
+import {
     handleIntegratedEmergencyDispatchButton,
     handleIntegratedEmergencyDispatchModal,
     handleIntegratedEmergencyDispatchUserSelect,
@@ -182,6 +187,7 @@ async function handleChatCommand(interaction: ChatInputCommandInteraction): Prom
 export const interactionCreate = async (interaction: Interaction): Promise<void> => {
     try {
         if (interaction.isButton()) {
+            if (await handleStableEmergencyDispatchButton(interaction)) return;
             if (await handleIntegratedEmergencyDispatchButton(interaction)) return;
             if (await handleSuggestionButton(interaction)) return;
             if (await handlePaidAdButton(interaction)) return;
@@ -199,6 +205,7 @@ export const interactionCreate = async (interaction: Interaction): Promise<void>
         }
 
         if (interaction.isModalSubmit()) {
+            if (await handleStableEmergencyDispatchModal(interaction)) return;
             if (await handleIntegratedEmergencyDispatchModal(interaction)) return;
             if (await handlePaidAdModal(interaction)) {
                 await normalizePaidAdSchedule(interaction.client).catch(error => {
@@ -218,6 +225,7 @@ export const interactionCreate = async (interaction: Interaction): Promise<void>
         }
 
         if (interaction.isUserSelectMenu()) {
+            if (await handleStableEmergencyDispatchUserSelect(interaction)) return;
             if (await handleIntegratedEmergencyDispatchUserSelect(interaction)) return;
             return;
         }
