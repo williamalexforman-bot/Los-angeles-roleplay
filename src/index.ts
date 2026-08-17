@@ -19,6 +19,7 @@ import { configureApplicationSessionDatabaseAdapter } from './database/applicati
 import { handleMessageModeration } from './events/messageModeration';
 // economy message handler removed
 import { startErlcMonitor, type ErlcMonitor } from './monitors/erlcMonitor';
+import { fetchErlcMonitorSnapshotWith911 } from './services/erlcMonitorFetchWith911';
 import { MongoErlcMonitorStateStore } from './database/erlcStateStore';
 import { BRAND, CHANNEL_IDS, INFRACTION_AUTHORIZED_ROLE_ID } from './config/constants';
 import { createLogoAttachment } from './utils/embeds';
@@ -167,10 +168,11 @@ function createConfiguredClient(privilegedIntents: boolean): Client {
         try {
             erlcMonitor = await startErlcMonitor(bot, {
                 stateStore: new MongoErlcMonitorStateStore(guildId),
-                pollIntervalMs: Number(process.env.ERLC_POLL_INTERVAL_MS || 30_000),
+                fetchSnapshot: signal => fetchErlcMonitorSnapshotWith911(bot, signal),
+                pollIntervalMs: Number(process.env.ERLC_POLL_INTERVAL_MS || 5_000),
                 onError: (error, context) => logger.warn(`ER:LC monitor ${context}: ${error.message}`),
             });
-            logger.info('ER:LC v2 monitor started.');
+            logger.info('ER:LC v2 monitor started with integrated 911 polling.');
         } catch (error) {
             logger.warn(`ER:LC monitor is unavailable: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
@@ -371,14 +373,14 @@ async function bootstrap(): Promise<void> {
     try {
         configureInfractionDatabaseAdapter();
     } catch (error) {
-        logger.warn(`Infraction database adapter failed: ${error instanceof Error ? error.message : 'Unknown'}`);
+        logger.warn(`Infraction database adapter failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
 
     if (databaseAvailable) {
         try {
             configureApplicationSessionDatabaseAdapter();
         } catch (error) {
-            logger.warn(`Application session database adapter failed: ${error instanceof Error ? error.message : 'Unknown'}`);
+            logger.warn(`Application session database adapter failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
     }
 
@@ -401,7 +403,7 @@ async function bootstrap(): Promise<void> {
             return roleIds.some(roleId => memberRoleIds.includes(roleId));
         });
     } catch (error) {
-        logger.warn(`Infraction authorization config failed: ${error instanceof Error ? error.message : 'Unknown'}`);
+        logger.warn(`Infraction authorization config failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
 
     const token = getDiscordBotToken();
@@ -414,7 +416,7 @@ async function bootstrap(): Promise<void> {
         await client.login(token);
     } catch (error) {
         if (!enablePrivileged || !/disallowed intents/i.test(error instanceof Error ? error.message : String(error))) {
-            logger.error(`Discord login failed: ${error instanceof Error ? error.message : 'Unknown'}`);
+            logger.error(`Discord login failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
             return;
         }
         logger.warn('Discord rejected privileged intents. Retrying with slash-command-only intents so the bot can remain online.');
@@ -423,7 +425,7 @@ async function bootstrap(): Promise<void> {
         try {
             await client.login(token);
         } catch (loginError) {
-            logger.error(`Discord login (fallback) failed: ${loginError instanceof Error ? loginError.message : 'Unknown'}`);
+            logger.error(`Discord login (fallback) failed: ${loginError instanceof Error ? loginError.message : 'Unknown error'}`);
             return;
         }
     }
