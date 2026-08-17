@@ -1,16 +1,25 @@
 import { createHash } from 'node:crypto';
 import {
     ActionRowBuilder,
+    AttachmentBuilder,
     ButtonBuilder,
+    ButtonInteraction,
     ButtonStyle,
     Client,
     ContainerBuilder,
+    GuildMember,
     MediaGalleryBuilder,
     MediaGalleryItemBuilder,
     MessageFlags,
+    ModalBuilder,
+    ModalSubmitInteraction,
     SeparatorBuilder,
     SeparatorSpacingSize,
     TextDisplayBuilder,
+    TextInputBuilder,
+    TextInputStyle,
+    UserSelectMenuBuilder,
+    UserSelectMenuInteraction,
 } from 'discord.js';
 import { isDatabaseAvailable } from '../database/connection';
 import {
@@ -18,12 +27,15 @@ import {
     type EmergencyDispatchCallRecord,
     type EmergencyDispatchClosestUnit,
 } from '../database/emergencyDispatchCallModel';
+import { renderErlcCallMap } from '../services/erlcCallMap';
 import { logger } from '../utils/logger';
 
 const EMERGENCY_CALL_CHANNEL_ID = '1538695671081861221';
-const ERLC_POSTAL_MAP_URL = 'https://api.policeroleplay.community/maps/fall_postals.png';
+const DISPATCH_ROLE_ID = '1530984749232033963';
+const OFFICIAL_POSTAL_MAP_URL = 'https://api.erlc.gg/maps/fall_postals.png';
 const PANEL_COLOR = 0x247bf1;
 const seenWithoutDatabase = new Set<string>();
+const liveCalls = new Map<string, EmergencyDispatchCallRecord>();
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -90,20 +102,25 @@ function parseIdentity(value: unknown): { username: string; robloxId: string | n
 
 function parsePlayer(value: unknown): ParsedPlayer | null {
     if (!isRecord(value)) return null;
-    const identity = parseIdentity(value.Player);
-    const team = text(value.Team);
+    const identity = parseIdentity(value.Player ?? value.player);
+    const team = text(value.Team ?? value.team);
     if (!team || identity.username === 'Unknown') return null;
 
+    const rawLocation = isRecord(value.Location)
+        ? value.Location
+        : isRecord(value.location)
+            ? value.location
+            : null;
     let location: ParsedPlayer['location'] = null;
-    if (isRecord(value.Location)) {
-        const x = numberValue(value.Location.LocationX);
-        const z = numberValue(value.Location.LocationZ);
+    if (rawLocation) {
+        const x = numberValue(rawLocation.LocationX ?? rawLocation.locationX ?? rawLocation.X ?? rawLocation.x);
+        const z = numberValue(rawLocation.LocationZ ?? rawLocation.locationZ ?? rawLocation.Z ?? rawLocation.z);
         if (x !== null && z !== null) {
             location = {
                 x,
                 z,
-                postalCode: text(value.Location.PostalCode),
-                streetName: text(value.Location.StreetName),
+                postalCode: text(rawLocation.PostalCode ?? rawLocation.postalCode ?? rawLocation.postal),
+                streetName: text(rawLocation.StreetName ?? rawLocation.streetName ?? rawLocation.street),
             };
         }
     }
@@ -112,46 +129,64 @@ function parsePlayer(value: unknown): ParsedPlayer | null {
         robloxId: identity.robloxId,
         username: identity.username,
         team,
-        callsign: text(value.Callsign),
+        callsign: text(value.Callsign ?? value.callsign),
         location,
+    };
+}
+
+function parseCaller(value: unknown): { robloxId: string; label: string } {
+    const numeric = numberValue(value);
+    if (numeric !== null && numeric > 0) {
+        return { robloxId: String(Math.trunc(numeric)), label: '' };
+    }
+
+    if (isRecord(value)) {
+        const nestedId = numberValue(value.UserId ?? value.userId ?? value.Id ?? value.id ?? value.Caller ?? value.caller);
+        const nestedName = text(value.Username ?? value.username ?? value.Name ?? value.name);
+        if (nestedId !== null && nestedId > 0) {
+            return { robloxId: String(Math.trunc(nestedId)), label: nestedName || '' };
+        }
+    }
+
+    const identity = parseIdentity(value);
+    if (identity.robloxId) return { robloxId: identity.robloxId, label: identity.username };
+    return {
+        robloxId: 'System',
+        label: identity.username !== 'Unknown' ? identity.username : 'System',
     };
 }
 
 function parseCall(value: unknown): ParsedCall | null {
     if (!isRecord(value)) return null;
-    const position = Array.isArray(value.Position) ? value.Position : [];
-    const x = numberValue(position[0]);
-    const z = numberValue(position[1]);
-    const callNumber = numberValue(value.CallNumber);
+    const position = Array.isArray(value.Position)
+        ? value.Position
+        : Array.isArray(value.position)
+            ? value.position
+            : [];
+    const x = numberValue(position[0] ?? value.LocationX ?? value.locationX ?? value.X ?? value.x);
+    const z = numberValue(position[1] ?? value.LocationZ ?? value.locationZ ?? value.Z ?? value.z);
+    const callNumber = numberValue(value.CallNumber ?? value.callNumber ?? value.Number ?? value.number);
     if (x === null || z === null || callNumber === null) return null;
 
-    const rawCaller = value.Caller;
-    const numericCaller = numberValue(rawCaller);
-    let callerRobloxId = 'System';
-    let callerLabel = 'System';
-    if (numericCaller !== null && numericCaller > 0) {
-        callerRobloxId = String(Math.trunc(numericCaller));
-        callerLabel = '';
-    } else {
-        const identity = parseIdentity(rawCaller);
-        if (identity.robloxId) {
-            callerRobloxId = identity.robloxId;
-            callerLabel = identity.username;
-        } else if (identity.username !== 'Unknown') {
-            callerLabel = identity.username;
-        }
-    }
-
+    const caller = parseCaller(value.Caller ?? value.caller ?? value.Player ?? value.player ?? value.User ?? value.user);
     return {
-        team: text(value.Team) || 'Emergency Services',
-        callerRobloxId,
-        callerLabel,
+        team: text(value.Team ?? value.team ?? value.Service ?? value.service) || 'Emergency Services',
+        callerRobloxId: caller.robloxId,
+        callerLabel: caller.label,
         positionX: x,
         positionZ: z,
-        startedAt: unixSeconds(value.StartedAt),
+        startedAt: unixSeconds(value.StartedAt ?? value.startedAt ?? value.Timestamp ?? value.timestamp),
         callNumber: Math.trunc(callNumber),
-        description: text(value.Description) || '911 emergency call received.',
-        positionDescriptor: text(value.PositionDescriptor) || `ER:LC coordinates X ${x.toFixed(1)}, Z ${z.toFixed(1)}`,
+        description: text(value.Description ?? value.description ?? value.Message ?? value.message ?? value.Incident ?? value.incident)
+            || '911 emergency call received.',
+        positionDescriptor: text(
+            value.PositionDescriptor
+            ?? value.positionDescriptor
+            ?? value.LocationDescriptor
+            ?? value.locationDescriptor
+            ?? value.LocationName
+            ?? value.locationName,
+        ) || 'Location received from ER:LC.',
     };
 }
 
@@ -196,6 +231,7 @@ function closestUnits(call: ParsedCall, players: ParsedPlayer[]): EmergencyDispa
 
 function safe(value: string, max = 1_300): string {
     const clean = value.replace(/@/g, '@\u200b').replace(/```/g, "'''").trim();
+    if (!clean) return 'Unavailable';
     return clean.length <= max ? clean : `${clean.slice(0, max - 1)}…`;
 }
 
@@ -203,52 +239,97 @@ function divider(): SeparatorBuilder {
     return new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small);
 }
 
-function buildPanel(record: EmergencyDispatchCallRecord): ContainerBuilder {
-    const callerId = /^\d+$/.test(record.callerRobloxId) ? ` • Roblox ID \`${record.callerRobloxId}\`` : '';
-    const closest = record.closestUnits.length
-        ? record.closestUnits.map((unit, i) => {
-            const callsign = unit.callsign ? `**${safe(unit.callsign, 40)}** • ` : '';
-            const location = [unit.streetName, unit.postalCode ? `Postal ${unit.postalCode}` : null].filter(Boolean).join(' • ');
-            return `**${i + 1}.** ${callsign}${safe(unit.robloxUsername, 80)}${location ? ` — ${safe(location, 120)}` : ''}`;
-        }).join('\n')
-        : '*No nearby matching units were available in this snapshot.*';
+function mapFilename(callNumber: number): string {
+    return `erlc-911-map-${callNumber}.png`;
+}
+
+function closestText(record: EmergencyDispatchCallRecord): string {
+    if (!record.closestUnits.length) return '*No nearby matching units were available in this snapshot.*';
+    return record.closestUnits.map((unit, i) => {
+        const callsign = unit.callsign ? `**${safe(unit.callsign, 40)}** • ` : '';
+        const location = [unit.streetName, unit.postalCode ? `Postal ${unit.postalCode}` : null]
+            .filter(Boolean)
+            .join(' • ');
+        return `**${i + 1}.** ${callsign}${safe(unit.robloxUsername, 80)}${location ? ` — ${safe(location, 120)}` : ''}`;
+    }).join('\n');
+}
+
+function assignedText(record: EmergencyDispatchCallRecord): string {
+    return record.assignedDiscordIds.length
+        ? record.assignedDiscordIds.map(id => `<@${id}>`).join(' • ')
+        : '*No units assigned yet.*';
+}
+
+function notesText(record: EmergencyDispatchCallRecord): string {
+    if (!record.notes.length) return '*No dispatch notes added yet.*';
+    return record.notes.slice(-6).map(note => {
+        const unix = Math.floor(new Date(note.createdAt).getTime() / 1_000);
+        return `• <@${note.authorId}> • <t:${unix}:R> — ${safe(note.text, 450)}`;
+    }).join('\n');
+}
+
+function buildPanel(record: EmergencyDispatchCallRecord, mapUrl: string): ContainerBuilder {
+    const ended = record.status === 'Ended';
+    const callerId = /^\d+$/.test(record.callerRobloxId)
+        ? ` • Roblox ID \`${record.callerRobloxId}\``
+        : '';
 
     return new ContainerBuilder()
-        .setAccentColor(PANEL_COLOR)
+        .setAccentColor(ended ? 0x6b7280 : PANEL_COLOR)
         .addTextDisplayComponents(new TextDisplayBuilder().setContent([
-            `## 📞 911 Call Received: ${safe(record.team, 80)}`,
+            ended ? `## ✅ 911 Call Closed: ${safe(record.team, 80)}` : `## 📞 911 Call Received: ${safe(record.team, 80)}`,
             `**Caller:** ${safe(record.callerRobloxUsername, 90)}${callerId}`,
             `**Incident:** ${safe(record.description, 1_000)}`,
             `**Location:** ${safe(record.positionDescriptor, 500)}`,
             `**Call Number:** \`${record.callNumber}\``,
             `**Time:** <t:${record.startedAt}:F> • <t:${record.startedAt}:R>`,
-            '**Status:** 🟢 **Active**',
+            `**Status:** ${ended ? '🔴 **Ended — responding units are 10-8**' : '🟢 **Active**'}`,
         ].join('\n')))
         .addSeparatorComponents(divider())
         .addTextDisplayComponents(new TextDisplayBuilder().setContent([
             '### 🚔 Closest Units',
-            closest,
+            closestText(record),
             '',
             '### 👥 Assigned Units',
-            '*No units assigned yet.*',
+            assignedText(record),
         ].join('\n')))
         .addSeparatorComponents(divider())
         .addTextDisplayComponents(new TextDisplayBuilder().setContent([
-            '### 🗺️ ER:LC Call Location',
-            `📍 **X:** \`${record.positionX.toFixed(1)}\` • **Z:** \`${record.positionZ.toFixed(1)}\``,
-            `**Location:** ${safe(record.positionDescriptor, 500)}`,
+            '### 🗺️ ER:LC Call Map',
+            `**${safe(record.positionDescriptor, 500)}**`,
         ].join('\n')))
         .addMediaGalleryComponents(new MediaGalleryBuilder().addItems(
             new MediaGalleryItemBuilder()
-                .setURL(ERLC_POSTAL_MAP_URL)
-                .setDescription(`ER:LC postal map — call #${record.callNumber}`),
+                .setURL(mapUrl)
+                .setDescription(`ER:LC 911 map for call #${record.callNumber}`),
         ))
         .addSeparatorComponents(divider())
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent('### 📝 Dispatch Notes\n*No dispatch notes added yet.*'))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+            '### 📝 Dispatch Notes',
+            notesText(record),
+        ].join('\n')))
         .addActionRowComponents(new ActionRowBuilder<ButtonBuilder>().addComponents(
-            new ButtonBuilder().setCustomId(`dispatchpro:attach:${record.dispatchId}`).setLabel('Attach Units').setEmoji('🚓').setStyle(ButtonStyle.Success),
-            new ButtonBuilder().setCustomId(`dispatchpro:notes:${record.dispatchId}`).setLabel('Add Notes').setEmoji('📝').setStyle(ButtonStyle.Secondary),
-            new ButtonBuilder().setCustomId(`dispatchpro:end:${record.dispatchId}`).setLabel('End Call').setEmoji('✅').setStyle(ButtonStyle.Danger),
+            new ButtonBuilder()
+                .setCustomId(`dispatch911:attach:${record.dispatchId}`)
+                .setLabel('Attach Units')
+                .setEmoji('🚓')
+                .setStyle(ButtonStyle.Success)
+                .setDisabled(ended),
+            new ButtonBuilder()
+                .setCustomId(`dispatch911:notes:${record.dispatchId}`)
+                .setLabel('Add Notes')
+                .setEmoji('📝')
+                .setStyle(ButtonStyle.Secondary)
+                .setDisabled(ended),
+            new ButtonBuilder()
+                .setCustomId(`dispatch911:end:${record.dispatchId}`)
+                .setLabel('End Call')
+                .setEmoji('✅')
+                .setStyle(ButtonStyle.Danger)
+                .setDisabled(ended),
+        ))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+            `*Los Angeles Roleplay • 911 Emergency Dispatch • Call #${record.callNumber}*`,
         ));
 }
 
@@ -275,6 +356,47 @@ async function resolveCallerName(call: ParsedCall, players: ParsedPlayer[]): Pro
     }
 }
 
+async function loadRecord(dispatchIdValue: string): Promise<EmergencyDispatchCallRecord | null> {
+    const live = liveCalls.get(dispatchIdValue);
+    if (live) return live;
+    if (!isDatabaseAvailable()) return null;
+    const stored = await EmergencyDispatchCall.findOne({ dispatchId: dispatchIdValue }).lean().exec().catch(() => null);
+    if (!stored) return null;
+    const record = stored as unknown as EmergencyDispatchCallRecord;
+    liveCalls.set(record.dispatchId, record);
+    return record;
+}
+
+async function persistRecord(record: EmergencyDispatchCallRecord): Promise<void> {
+    record.updatedAt = new Date();
+    liveCalls.set(record.dispatchId, record);
+    if (!isDatabaseAvailable()) return;
+    await EmergencyDispatchCall.findOneAndUpdate(
+        { guildId: record.guildId, callNumber: record.callNumber, startedAt: record.startedAt },
+        { $set: record },
+        { upsert: true, new: true, setDefaultsOnInsert: true },
+    ).exec().catch(error => {
+        logger.warn(`[911 Integrated] Could not persist call #${record.callNumber}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    });
+}
+
+async function editCallMessage(client: Client, record: EmergencyDispatchCallRecord): Promise<void> {
+    if (!record.channelId || !record.messageId) return;
+    const channel = await client.channels.fetch(record.channelId).catch(() => null);
+    if (!channel?.isTextBased() || !('messages' in channel)) return;
+    const message = await channel.messages.fetch(record.messageId).catch(() => null);
+    if (!message) return;
+
+    const expectedName = mapFilename(record.callNumber);
+    const hasMapAttachment = message.attachments.some(attachment => attachment.name === expectedName);
+    const mapUrl = hasMapAttachment ? `attachment://${expectedName}` : OFFICIAL_POSTAL_MAP_URL;
+    await message.edit({
+        components: [buildPanel(record, mapUrl)],
+        flags: MessageFlags.IsComponentsV2,
+        allowedMentions: { parse: [] },
+    });
+}
+
 async function postCall(client: Client, guildId: string, call: ParsedCall, players: ParsedPlayer[]): Promise<void> {
     const id = dispatchId(guildId, call);
 
@@ -284,7 +406,10 @@ async function postCall(client: Client, guildId: string, call: ParsedCall, playe
             callNumber: call.callNumber,
             startedAt: call.startedAt,
         }).lean().exec().catch(() => null);
-        if (existing?.messageId) return;
+        if (existing?.messageId) {
+            liveCalls.set(existing.dispatchId, existing as unknown as EmergencyDispatchCallRecord);
+            return;
+        }
     } else if (seenWithoutDatabase.has(id)) {
         return;
     }
@@ -317,55 +442,218 @@ async function postCall(client: Client, guildId: string, call: ParsedCall, playe
         createdAt: now,
         updatedAt: now,
     };
+    liveCalls.set(id, record);
 
-    // Store before posting so the dispatchpro buttons can resolve this call immediately.
     if (isDatabaseAvailable()) {
         await EmergencyDispatchCall.findOneAndUpdate(
             { guildId, callNumber: call.callNumber, startedAt: call.startedAt },
             { $setOnInsert: record },
             { upsert: true, new: true, setDefaultsOnInsert: true },
-        ).exec();
+        ).exec().catch(() => null);
     } else {
         seenWithoutDatabase.add(id);
     }
 
+    const renderedMap = await renderErlcCallMap(
+        record.positionX,
+        record.positionZ,
+        record.callNumber,
+        record.positionDescriptor,
+    );
+    const files = renderedMap
+        ? [new AttachmentBuilder(renderedMap.buffer, { name: renderedMap.filename })]
+        : [];
+    const mapUrl = renderedMap ? `attachment://${renderedMap.filename}` : OFFICIAL_POSTAL_MAP_URL;
+
     const message = await channel.send({
-        components: [buildPanel(record)],
+        components: [buildPanel(record, mapUrl)],
+        files,
         flags: MessageFlags.IsComponentsV2,
         allowedMentions: { parse: [] },
     });
 
     record.messageId = message.id;
     record.channelId = message.channelId;
-    if (isDatabaseAvailable()) {
-        await EmergencyDispatchCall.updateOne(
-            { guildId, callNumber: call.callNumber, startedAt: call.startedAt },
-            { $set: { messageId: message.id, channelId: message.channelId, updatedAt: new Date() } },
-        ).exec();
-    }
-
+    await persistRecord(record);
     logger.info(`[911 Integrated] Posted ${/^\d+$/.test(call.callerRobloxId) ? 'PLAYER' : 'SYSTEM'} call #${call.callNumber} from ${record.callerRobloxUsername}.`);
 }
 
-/** Consume EmergencyCalls from the same v2 response used by the main ER:LC monitor. */
+function emergencyCallsArray(payload: UnknownRecord): unknown[] {
+    if (Array.isArray(payload.EmergencyCalls)) return payload.EmergencyCalls;
+    if (Array.isArray(payload.emergencyCalls)) return payload.emergencyCalls;
+    const nested = isRecord(payload.data) ? payload.data : isRecord(payload.Data) ? payload.Data : null;
+    if (nested && Array.isArray(nested.EmergencyCalls)) return nested.EmergencyCalls;
+    if (nested && Array.isArray(nested.emergencyCalls)) return nested.emergencyCalls;
+    return [];
+}
+
+/** Consume EmergencyCalls from the same v2 HTTP response used by the main ER:LC monitor. */
 export async function processIntegratedEmergencyCalls(client: Client, payload: unknown): Promise<void> {
     if (!isRecord(payload)) return;
     const guildId = process.env.GUILD_ID || client.guilds.cache.firstKey();
     if (!guildId) return;
 
-    const rawCalls = Array.isArray(payload.EmergencyCalls) ? payload.EmergencyCalls : [];
+    const rawCalls = emergencyCallsArray(payload);
     const calls = rawCalls.map(parseCall).filter((call): call is ParsedCall => Boolean(call));
-    const players = Array.isArray(payload.Players)
-        ? payload.Players.map(parsePlayer).filter((player): player is ParsedPlayer => Boolean(player))
-        : [];
+    const rawPlayers = Array.isArray(payload.Players)
+        ? payload.Players
+        : Array.isArray(payload.players)
+            ? payload.players
+            : [];
+    const players = rawPlayers.map(parsePlayer).filter((player): player is ParsedPlayer => Boolean(player));
 
     const playerCalls = calls.filter(call => /^\d+$/.test(call.callerRobloxId)).length;
     const systemCalls = calls.length - playerCalls;
-    logger.info(`[911 Integrated] Snapshot has ${calls.length} call(s): ${playerCalls} player, ${systemCalls} system.`);
+    const rawCallerTypes = rawCalls
+        .slice(0, 8)
+        .map(call => isRecord(call) ? `${typeof (call.Caller ?? call.caller)}:${String(call.Caller ?? call.caller ?? 'missing').slice(0, 24)}` : typeof call)
+        .join(', ');
+    logger.info(`[911 Integrated] ER:LC returned ${rawCalls.length} raw call(s); parsed ${calls.length} (${playerCalls} player / ${systemCalls} system). Caller samples: ${rawCallerTypes || 'none'}.`);
 
     for (const call of calls.sort((a, b) => a.startedAt - b.startedAt)) {
         await postCall(client, guildId, call, players).catch(error => {
             logger.warn(`[911 Integrated] Could not post call #${call.callNumber}: ${error instanceof Error ? error.message : 'Unknown error'}`);
         });
     }
+}
+
+async function hasDispatchRole(
+    interaction: ButtonInteraction | ModalSubmitInteraction | UserSelectMenuInteraction,
+): Promise<boolean> {
+    if (!interaction.guild) return false;
+    if (interaction.guild.ownerId === interaction.user.id) return true;
+    const member = interaction.member;
+    if (member instanceof GuildMember && member.roles.cache.has(DISPATCH_ROLE_ID)) return true;
+    if (member && Array.isArray(member.roles) && member.roles.includes(DISPATCH_ROLE_ID)) return true;
+    const fetched = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
+    return Boolean(fetched?.roles.cache.has(DISPATCH_ROLE_ID));
+}
+
+function notesModal(dispatchIdValue: string): ModalBuilder {
+    return new ModalBuilder()
+        .setCustomId(`dispatch911:notes-modal:${dispatchIdValue}`)
+        .setTitle('Add Dispatch Notes')
+        .addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(
+            new TextInputBuilder()
+                .setCustomId('notes')
+                .setLabel('Dispatch notes')
+                .setPlaceholder('Enter information responding units should know.')
+                .setStyle(TextInputStyle.Paragraph)
+                .setRequired(true)
+                .setMinLength(2)
+                .setMaxLength(1_000),
+        ));
+}
+
+export async function handleIntegratedEmergencyDispatchButton(interaction: ButtonInteraction): Promise<boolean> {
+    const match = interaction.customId.match(/^dispatch911:(attach|notes|end):([a-f0-9]{16})$/);
+    if (!match) return false;
+
+    if (!await hasDispatchRole(interaction)) {
+        await interaction.reply({
+            content: `You need <@&${DISPATCH_ROLE_ID}> to manage 911 calls.`,
+            flags: MessageFlags.Ephemeral,
+        });
+        return true;
+    }
+
+    const record = await loadRecord(match[2]);
+    if (!record || record.status !== 'Active') {
+        await interaction.reply({ content: 'That 911 call is no longer active.', flags: MessageFlags.Ephemeral });
+        return true;
+    }
+
+    if (match[1] === 'attach') {
+        const selector = new UserSelectMenuBuilder()
+            .setCustomId(`dispatch911:attach-select:${record.dispatchId}`)
+            .setPlaceholder('Select responding unit(s)')
+            .setMinValues(1)
+            .setMaxValues(10);
+        await interaction.reply({
+            content: `🚓 Select the Discord unit(s) responding to call #${record.callNumber}.`,
+            components: [new ActionRowBuilder<UserSelectMenuBuilder>().addComponents(selector)],
+            flags: MessageFlags.Ephemeral,
+            allowedMentions: { parse: [] },
+        });
+        return true;
+    }
+
+    if (match[1] === 'notes') {
+        await interaction.showModal(notesModal(record.dispatchId));
+        return true;
+    }
+
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    record.status = 'Ended';
+    record.endedAt = new Date();
+    record.endedById = interaction.user.id;
+    await persistRecord(record);
+    await editCallMessage(interaction.client, record).catch(() => undefined);
+    await interaction.editReply(`✅ Call #${record.callNumber} ended. Assigned units are now 10-8.`);
+    return true;
+}
+
+export async function handleIntegratedEmergencyDispatchUserSelect(
+    interaction: UserSelectMenuInteraction,
+): Promise<boolean> {
+    const match = interaction.customId.match(/^dispatch911:attach-select:([a-f0-9]{16})$/);
+    if (!match) return false;
+
+    if (!await hasDispatchRole(interaction)) {
+        await interaction.update({
+            content: `You need <@&${DISPATCH_ROLE_ID}> to attach units.`,
+            components: [],
+        });
+        return true;
+    }
+
+    const record = await loadRecord(match[1]);
+    if (!record || record.status !== 'Active') {
+        await interaction.update({ content: 'That 911 call is no longer active.', components: [] });
+        return true;
+    }
+
+    const selectedIds = [...interaction.users.values()]
+        .filter(user => !user.bot)
+        .map(user => user.id);
+    record.assignedDiscordIds = Array.from(new Set([
+        ...record.assignedDiscordIds,
+        ...selectedIds,
+    ]));
+    await persistRecord(record);
+    await editCallMessage(interaction.client, record).catch(() => undefined);
+    await interaction.update({
+        content: `✅ ${selectedIds.length} unit${selectedIds.length === 1 ? '' : 's'} attached to call #${record.callNumber}.`,
+        components: [],
+    });
+    return true;
+}
+
+export async function handleIntegratedEmergencyDispatchModal(
+    interaction: ModalSubmitInteraction,
+): Promise<boolean> {
+    const match = interaction.customId.match(/^dispatch911:notes-modal:([a-f0-9]{16})$/);
+    if (!match) return false;
+
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    if (!await hasDispatchRole(interaction)) {
+        await interaction.editReply(`You need <@&${DISPATCH_ROLE_ID}> to write dispatch notes.`);
+        return true;
+    }
+
+    const record = await loadRecord(match[1]);
+    if (!record || record.status !== 'Active') {
+        await interaction.editReply('That 911 call is no longer active.');
+        return true;
+    }
+
+    record.notes.push({
+        authorId: interaction.user.id,
+        text: interaction.fields.getTextInputValue('notes').trim(),
+        createdAt: new Date(),
+    });
+    await persistRecord(record);
+    await editCallMessage(interaction.client, record).catch(() => undefined);
+    await interaction.editReply(`✅ Dispatch notes added to call #${record.callNumber}.`);
+    return true;
 }
