@@ -103,9 +103,6 @@ export async function renderErlcCallMap(
             { input: callLabelSvg(callNumber, locationLabel), left: Math.max(10, Math.round((width - 1100) / 2)), top: 24 },
         ];
 
-        // Only mark coordinates that fit the documented image coordinate frame.
-        // Out-of-range world values still receive the complete postal map instead
-        // of being clamped into an incorrect/empty edge crop.
         const candidateX = OFFICIAL_MAP_CENTER + x;
         const candidateY = OFFICIAL_MAP_CENTER + z;
         if (Number.isFinite(candidateX)
@@ -126,16 +123,14 @@ export async function renderErlcCallMap(
         const output = await sharp(source, { failOn: 'none' })
             .composite(overlays)
             .resize({ width: OUTPUT_SIZE, height: OUTPUT_SIZE, fit: 'contain' })
-            .webp({ quality: 82, effort: 4 })
+            .png({ compressionLevel: 8, palette: true, quality: 90 })
             .toBuffer();
 
         return {
             buffer: output,
-            filename: `erlc-911-map-${callNumber}.webp`,
+            filename: `erlc-911-map-${callNumber}.png`,
         };
     } catch (error) {
-        // If image processing fails, still attach the real official map rather
-        // than falling back to an external URL that Discord may fail to proxy.
         logger.warn(`[911 Map] Marker rendering failed; using full official map: ${error instanceof Error ? error.message : 'Unknown error'}`);
         return {
             buffer: source,
