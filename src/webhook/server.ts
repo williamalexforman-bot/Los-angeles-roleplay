@@ -6,6 +6,7 @@ import { isDatabaseAvailable } from '../database/connection';
 import { BRAND, CHANNEL_IDS } from '../config/constants';
 import { createLogoAttachment } from '../utils/embeds';
 import { logger } from '../utils/logger';
+import { triggerEmergencyDispatchFromWebhook } from '../events/emergencyDispatchV3';
 
 const MAX_BODY_BYTES = 1_000_000;
 const SIGNATURE_REPLAY_WINDOW_MS = 10 * 60 * 1_000;
@@ -94,6 +95,12 @@ async function processLegacyEvent(client: Client, payload: Record<string, unknow
 }
 
 async function processOfficialErlcEvent(client: Client, payload: Record<string, unknown>): Promise<void> {
+    // Official ER:LC webhooks include Emergency Calls. The exact event payload is
+    // intentionally not trusted here for dispatch state; a signed delivery simply
+    // triggers an immediate authenticated v2 snapshot so the same parser/deduper is
+    // used for both polling and webhooks.
+    triggerEmergencyDispatchFromWebhook(client);
+
     const eventType = String(payload.event || payload.Event || payload.type || payload.Type || 'Unknown');
     const lowerEvent = eventType.toLocaleLowerCase();
     if (['kick', 'ban', 'tempban', 'unban'].includes(lowerEvent)) {
