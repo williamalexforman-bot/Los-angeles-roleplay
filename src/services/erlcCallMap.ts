@@ -5,6 +5,7 @@ const OFFICIAL_POSTAL_MAP_URL = 'https://api.erlc.gg/maps/fall_postals.png';
 const OFFICIAL_MAP_SIZE = 3121;
 const OFFICIAL_MAP_CENTER = (OFFICIAL_MAP_SIZE - 1) / 2;
 const MAP_CACHE_MS = 30 * 60 * 1000;
+const OUTPUT_SIZE = 1200;
 
 let cachedMap: { buffer: Buffer; loadedAt: number } | null = null;
 
@@ -38,6 +39,7 @@ async function fetchOfficialMap(): Promise<Buffer> {
         });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const buffer = Buffer.from(await response.arrayBuffer());
+        if (buffer.length < 10_000) throw new Error('Official map response was unexpectedly small.');
         cachedMap = { buffer, loadedAt: Date.now() };
         return buffer;
     } finally {
@@ -45,10 +47,37 @@ async function fetchOfficialMap(): Promise<Buffer> {
     }
 }
 
+function callLabelSvg(callNumber: number, locationLabel: string): Buffer {
+    const label = escapeXml((locationLabel || `911 Call #${callNumber}`).slice(0, 70));
+    return Buffer.from(`
+        <svg xmlns="http://www.w3.org/2000/svg" width="1100" height="86">
+            <rect x="0" y="0" width="1100" height="86" rx="18" fill="#202124" fill-opacity="0.94"/>
+            <text x="550" y="35" text-anchor="middle" font-family="Arial, sans-serif" font-size="28" font-weight="700" fill="#ffffff">911 Call #${callNumber}</text>
+            <text x="550" y="66" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" fill="#ffffff">${label}</text>
+        </svg>
+    `);
+}
+
+function markerSvg(): Buffer {
+    return Buffer.from(`
+        <svg xmlns="http://www.w3.org/2000/svg" width="74" height="96">
+            <path d="M37 92 C30 78 8 55 8 34 C8 15 20 5 37 5 C54 5 66 15 66 34 C66 55 44 78 37 92 Z"
+                  fill="#ef4444" stroke="#ffffff" stroke-width="5"/>
+            <circle cx="37" cy="34" r="12" fill="#ffffff"/>
+            <circle cx="37" cy="34" r="6" fill="#ef4444"/>
+        </svg>
+    `);
+}
+
 /**
- * ER:LC documents 0,0 as the center of its 3121x3121 official map image,
- * with +X moving right and +Z moving down. Convert directly into map pixels,
- * then crop a dispatch-style view around the call and draw a location pin.
+ * Always returns the actual official ER:LC postal map as a Discord attachment.
+ *
+ * ER:LC documents that the map image is 3121x3121, with 0,0 at its centre,
+ * +X to the right and +Z downward. The documentation does not promise that
+ * every world-unit value is a 1:1 image pixel, so we never crop the image based
+ * on an unverified scale. When the raw coordinate safely fits the documented
+ * image bounds we draw a marker; otherwise the full postal map still displays
+ * with the exact ER:LC location label above it instead of producing a blank crop.
  */
 export async function renderErlcCallMap(
     x: number,
@@ -56,82 +85,61 @@ export async function renderErlcCallMap(
     callNumber: number,
     locationLabel: string,
 ): Promise<RenderedErlcCallMap | null> {
+    let source: Buffer;
     try {
-        const source = await fetchOfficialMap();
-        const image = sharp(source, { failOn: 'none' });
-        const metadata = await image.metadata();
+        source = await fetchOfficialMap();
+    } catch (error) {
+        logger.warn(`[911 Map] Could not download official ER:LC map: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        return null;
+    }
+
+    try {
+        const metadata = await sharp(source, { failOn: 'none' }).metadata();
         const width = metadata.width ?? OFFICIAL_MAP_SIZE;
         const height = metadata.height ?? OFFICIAL_MAP_SIZE;
-
         const scaleX = width / OFFICIAL_MAP_SIZE;
         const scaleY = height / OFFICIAL_MAP_SIZE;
-        const pixelX = clamp((OFFICIAL_MAP_CENTER + x) * scaleX, 0, width - 1);
-        const pixelY = clamp((OFFICIAL_MAP_CENTER + z) * scaleY, 0, height - 1);
+        const overlays: sharp.OverlayOptions[] = [
+            { input: callLabelSvg(callNumber, locationLabel), left: Math.max(10, Math.round((width - 1100) / 2)), top: 24 },
+        ];
 
-        // Roughly the same wide, zoomed dispatch-map framing as the reference panel.
-        const cropWidth = Math.min(width, Math.max(900, Math.round(1500 * scaleX)));
-        const cropHeight = Math.min(height, Math.max(560, Math.round(900 * scaleY)));
-        const left = Math.round(clamp(pixelX - cropWidth / 2, 0, width - cropWidth));
-        const top = Math.round(clamp(pixelY - cropHeight / 2, 0, height - cropHeight));
-        const markerX = pixelX - left;
-        const markerY = pixelY - top;
-
-        const markerWidth = Math.max(74, Math.round(92 * scaleX));
-        const markerHeight = Math.max(96, Math.round(118 * scaleY));
-        const ringSize = Math.max(42, Math.round(54 * scaleX));
-        const label = escapeXml(locationLabel || `Call #${callNumber}`);
-        const markerSvg = Buffer.from(`
-            <svg xmlns="http://www.w3.org/2000/svg" width="${markerWidth}" height="${markerHeight}">
-                <defs>
-                    <filter id="shadow" x="-40%" y="-40%" width="180%" height="180%">
-                        <feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#000000" flood-opacity="0.55"/>
-                    </filter>
-                </defs>
-                <g filter="url(#shadow)">
-                    <path d="M ${markerWidth / 2} ${markerHeight - 4}
-                             C ${markerWidth / 2 - 7} ${markerHeight - 20}, 10 ${markerHeight * 0.56}, 10 ${markerHeight * 0.34}
-                             C 10 ${markerHeight * 0.12}, ${markerWidth * 0.27} 5, ${markerWidth / 2} 5
-                             C ${markerWidth * 0.73} 5, ${markerWidth - 10} ${markerHeight * 0.12}, ${markerWidth - 10} ${markerHeight * 0.34}
-                             C ${markerWidth - 10} ${markerHeight * 0.56}, ${markerWidth / 2 + 7} ${markerHeight - 20}, ${markerWidth / 2} ${markerHeight - 4} Z"
-                          fill="#ef4444" stroke="#ffffff" stroke-width="5"/>
-                    <circle cx="${markerWidth / 2}" cy="${markerHeight * 0.34}" r="${ringSize / 4}" fill="#ffffff"/>
-                    <circle cx="${markerWidth / 2}" cy="${markerHeight * 0.34}" r="${ringSize / 8}" fill="#ef4444"/>
-                </g>
-            </svg>
-        `);
-
-        // Add a dark call label above the marker so the image reads like a dispatch map.
-        const labelWidth = Math.min(cropWidth - 30, Math.max(220, Math.round(460 * scaleX)));
-        const labelHeight = Math.max(58, Math.round(70 * scaleY));
-        const safeLabel = label.length > 46 ? `${label.slice(0, 45)}…` : label;
-        const labelSvg = Buffer.from(`
-            <svg xmlns="http://www.w3.org/2000/svg" width="${labelWidth}" height="${labelHeight}">
-                <rect x="2" y="2" width="${labelWidth - 4}" height="${labelHeight - 4}" rx="18" fill="#202124" fill-opacity="0.94" stroke="#ffffff" stroke-opacity="0.18" stroke-width="2"/>
-                <text x="${labelWidth / 2}" y="${labelHeight * 0.62}" text-anchor="middle" font-family="Arial, sans-serif" font-size="${Math.max(24, Math.round(30 * scaleX))}" font-weight="700" fill="#ffffff">${safeLabel}</text>
-            </svg>
-        `);
-
-        const markerLeft = Math.round(clamp(markerX - markerWidth / 2, 0, cropWidth - markerWidth));
-        const markerTop = Math.round(clamp(markerY - markerHeight + 8, 0, cropHeight - markerHeight));
-        const labelLeft = Math.round(clamp(markerX - labelWidth / 2, 0, cropWidth - labelWidth));
-        const labelTop = Math.round(clamp(markerTop - labelHeight - 10, 0, cropHeight - labelHeight));
+        // Only mark coordinates that fit the documented image coordinate frame.
+        // Out-of-range world values still receive the complete postal map instead
+        // of being clamped into an incorrect/empty edge crop.
+        const candidateX = OFFICIAL_MAP_CENTER + x;
+        const candidateY = OFFICIAL_MAP_CENTER + z;
+        if (Number.isFinite(candidateX)
+            && Number.isFinite(candidateY)
+            && candidateX >= 0
+            && candidateX < OFFICIAL_MAP_SIZE
+            && candidateY >= 0
+            && candidateY < OFFICIAL_MAP_SIZE) {
+            const pixelX = candidateX * scaleX;
+            const pixelY = candidateY * scaleY;
+            overlays.push({
+                input: markerSvg(),
+                left: Math.round(clamp(pixelX - 37, 0, Math.max(0, width - 74))),
+                top: Math.round(clamp(pixelY - 92, 0, Math.max(0, height - 96))),
+            });
+        }
 
         const output = await sharp(source, { failOn: 'none' })
-            .extract({ left, top, width: cropWidth, height: cropHeight })
-            .composite([
-                { input: markerSvg, left: markerLeft, top: markerTop },
-                { input: labelSvg, left: labelLeft, top: labelTop },
-            ])
-            .resize({ width: 1200, height: 720, fit: 'fill' })
-            .png({ compressionLevel: 8 })
+            .composite(overlays)
+            .resize({ width: OUTPUT_SIZE, height: OUTPUT_SIZE, fit: 'contain' })
+            .webp({ quality: 82, effort: 4 })
             .toBuffer();
 
         return {
             buffer: output,
-            filename: `erlc-911-map-${callNumber}.png`,
+            filename: `erlc-911-map-${callNumber}.webp`,
         };
     } catch (error) {
-        logger.warn(`[911 Map] Could not render official ER:LC map: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        return null;
+        // If image processing fails, still attach the real official map rather
+        // than falling back to an external URL that Discord may fail to proxy.
+        logger.warn(`[911 Map] Marker rendering failed; using full official map: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        return {
+            buffer: source,
+            filename: `erlc-911-map-${callNumber}.png`,
+        };
     }
 }
