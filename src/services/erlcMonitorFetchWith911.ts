@@ -8,15 +8,17 @@ import { processIntegratedEmergencyCalls } from '../events/emergencyDispatchInte
 import { logger } from '../utils/logger';
 
 /**
- * Fetch one combined ER:LC v2 snapshot for BOTH the normal ER:LC monitor and
- * 911 dispatch. This deliberately avoids a second emergency-call poller so
- * short player-made 911 calls do not get lost behind a competing rate limit.
+ * Fetch one combined ER:LC v2 response for BOTH the normal ER:LC monitor and
+ * 911 dispatch. EmergencyCalls are consumed directly from the raw successful
+ * HTTP response so a validation problem in an unrelated logs/player section
+ * cannot make a real 911 call disappear.
  */
 export async function fetchErlcMonitorSnapshotWith911(
     client: Client,
     signal?: AbortSignal,
 ): Promise<ErlcFetchResult> {
     let emergencyPayload: unknown = null;
+    let emergencyHttpOk = false;
 
     const result = await fetchErlcServer({
         signal,
@@ -28,6 +30,7 @@ export async function fetchErlcMonitorSnapshotWith911(
             url.searchParams.set('EmergencyCalls', 'true');
 
             const response = await fetch(url, init);
+            emergencyHttpOk = response.ok;
             try {
                 emergencyPayload = await response.clone().json();
             } catch {
@@ -37,11 +40,12 @@ export async function fetchErlcMonitorSnapshotWith911(
         },
     });
 
-    if (result.ok && emergencyPayload) {
+    // Do not tie 911 detection to parseSnapshot(). The raw ER:LC response is
+    // authoritative for EmergencyCalls even if another requested section is malformed.
+    if (emergencyHttpOk && emergencyPayload) {
         try {
             await processIntegratedEmergencyCalls(client, emergencyPayload);
         } catch (error) {
-            // A Discord 911-panel failure must never break command/team monitoring.
             logger.warn(`[911 Integrated] Could not process emergency calls: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
     }
