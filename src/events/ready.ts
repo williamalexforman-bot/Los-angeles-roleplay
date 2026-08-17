@@ -5,6 +5,7 @@ import { logger } from '../utils/logger';
 import { getDiscordBotToken } from '../config/env';
 import { startShiftQuotaScheduler } from '../commands/shift';
 import { startAdvancedPaidAdScheduler } from '../commands/advancedPaidAds';
+import { startShiftPersistenceCheckpointScheduler } from '../services/shiftPersistenceCheckpoint';
 import { registerTicketRobloxInfo } from './ticketRobloxInfo';
 import { registerOffDutyCommandWatcher } from './offDutyCommandWatcher';
 import { registerJoinAccountDateCorrection } from './joinAccountDateCorrection';
@@ -93,6 +94,7 @@ export const onReady = async (client: Client): Promise<void> => {
         void updateMemberCountPresence(client);
     }, MEMBER_COUNT_REFRESH_MS);
     startShiftQuotaScheduler(client);
+    startShiftPersistenceCheckpointScheduler(client);
     startAdvancedPaidAdScheduler(client);
 
     // Independent HTTP polling keeps player-made 911 calls working even when the
