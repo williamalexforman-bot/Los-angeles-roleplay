@@ -19,7 +19,6 @@ import { configureApplicationSessionDatabaseAdapter } from './database/applicati
 import { handleMessageModeration } from './events/messageModeration';
 // economy message handler removed
 import { startErlcMonitor, type ErlcMonitor } from './monitors/erlcMonitor';
-import { fetchErlcMonitorSnapshotWith911 } from './services/erlcMonitorFetchWith911';
 import { MongoErlcMonitorStateStore } from './database/erlcStateStore';
 import { BRAND, CHANNEL_IDS, INFRACTION_AUTHORIZED_ROLE_ID } from './config/constants';
 import { legacyEmbedToV2Message } from './utils/embeds';
@@ -30,7 +29,6 @@ import { setDiscordClientForDm } from './commands/punishment';
 import { sendPunishmentDm, handleAppealDmMessage, setBanAppealClient } from './commands/banAppeal';
 import { setInfractionAppealClient } from './commands/infractionAppeal';
 import { handleApplicationDmMessage } from './commands/applications';
-import { stopShiftQuotaScheduler } from './commands/shift';
 
 // Crash-proof error handling — keeps the process alive on errors and prevents premature exit
 process.on('unhandledRejection', (reason: unknown) => {
@@ -168,11 +166,10 @@ function createConfiguredClient(privilegedIntents: boolean): Client {
         try {
             erlcMonitor = await startErlcMonitor(bot, {
                 stateStore: new MongoErlcMonitorStateStore(guildId),
-                fetchSnapshot: signal => fetchErlcMonitorSnapshotWith911(bot, signal),
                 pollIntervalMs: Number(process.env.ERLC_POLL_INTERVAL_MS || 5_000),
                 onError: (error, context) => logger.warn(`ER:LC monitor ${context}: ${error.message}`),
             });
-            logger.info('ER:LC v2 monitor started with integrated 911 polling.');
+            logger.info('ER:LC v2 monitor started.');
         } catch (error) {
             logger.warn(`ER:LC monitor is unavailable: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
@@ -450,7 +447,6 @@ async function bootstrap(): Promise<void> {
 async function shutdown(signal: string): Promise<void> {
     logger.info(`Received ${signal}; shutting down.`);
     if (erlcMonitor) try { erlcMonitor.stop(); } catch { /* ignore */ }
-    stopShiftQuotaScheduler();
     client.destroy();
     const activeServer = webhookServer;
     webhookServer = null;

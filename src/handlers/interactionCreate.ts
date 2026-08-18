@@ -27,14 +27,16 @@ import {
 } from '../commands/tickets';
 import { handleApplicationButton, handleApplicationModal, handleApplicationSelect } from '../commands/applications';
 import { roleCommand } from '../commands/role';
-import { shiftCommand, viewCommand } from '../commands/shift';
-import { grantShiftGamePermission, revokeShiftGamePermission, verifyShiftGameAccess } from '../services/shiftGameAccess';
 // economy module removed
-import { INFRACTION_AUTHORIZED_ROLE_ID, PROMOTION_AUTHORIZED_ROLE_ID } from '../config/constants';
+import {
+    INFRACTION_AUTHORIZED_ROLE_ID,
+    PROMOTION_AUTHORIZED_ROLE_ID,
+    SESSION_START_AUTHORIZED_ROLE_ID,
+    TRAINING_RESULTS_AUTHORIZED_ROLE_ID,
+} from '../config/constants';
 import { logger } from '../utils/logger';
 
 const TRAINING_DEPARTMENT_ROLE_ID = '1524013351850737835';
-const TRAINING_MANAGEMENT_ROLE_ID = '1521593407795888330';
 
 const MANAGEMENT_COMMANDS = new Set([
     'infraction', 'promotion', 'training-results', 'training-result',
@@ -70,19 +72,18 @@ function configuredRoleIds(...values: Array<string | undefined>): string[] {
 
 async function hasManagementCommandPermission(interaction: ChatInputCommandInteraction): Promise<boolean> {
     if (!interaction.guildId) return false;
-    if (interaction.guild?.ownerId === interaction.user.id
-        || interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return true;
 
     let requiredRoles: string[];
     switch (interaction.commandName) {
+        case 'session-start':
+            requiredRoles = [SESSION_START_AUTHORIZED_ROLE_ID];
+            break;
         case 'promotion':
-            requiredRoles = configuredRoleIds(
-                PROMOTION_AUTHORIZED_ROLE_ID,
-                process.env.BOT_PERMISSIONS_ROLE_ID,
-                process.env.ADMIN_ROLE_ID,
-            );
+            requiredRoles = [PROMOTION_AUTHORIZED_ROLE_ID];
             break;
         case 'infraction':
+            requiredRoles = [INFRACTION_AUTHORIZED_ROLE_ID];
+            break;
         case 'punishment':
             requiredRoles = configuredRoleIds(
                 INFRACTION_AUTHORIZED_ROLE_ID,
@@ -93,12 +94,7 @@ async function hasManagementCommandPermission(interaction: ChatInputCommandInter
             break;
         case 'training-results':
         case 'training-result':
-            requiredRoles = configuredRoleIds(
-                TRAINING_DEPARTMENT_ROLE_ID,
-                TRAINING_MANAGEMENT_ROLE_ID,
-                process.env.BOT_PERMISSIONS_ROLE_ID,
-                process.env.ADMIN_ROLE_ID,
-            );
+            requiredRoles = [TRAINING_RESULTS_AUTHORIZED_ROLE_ID];
             break;
         case 'request-training':
             requiredRoles = configuredRoleIds(
@@ -116,6 +112,14 @@ async function hasManagementCommandPermission(interaction: ChatInputCommandInter
         default:
             return false;
     }
+
+    const exactRoleCommand = interaction.commandName === 'session-start'
+        || interaction.commandName === 'promotion'
+        || interaction.commandName === 'infraction'
+        || interaction.commandName === 'training-results'
+        || interaction.commandName === 'training-result';
+    if (!exactRoleCommand && (interaction.guild?.ownerId === interaction.user.id
+        || interaction.memberPermissions?.has(PermissionFlagsBits.Administrator))) return true;
 
     if (requiredRoles.length === 0) return false;
 
@@ -173,29 +177,19 @@ async function handleChatCommand(interaction: ChatInputCommandInteraction): Prom
             await postTicketPanel(interaction);
             return;
         }
+        if (interaction.commandName === 'session-start') {
+            const allowed = await hasManagementCommandPermission(interaction);
+            if (!allowed) {
+                await interaction.reply({
+                    content: `You need <@&${SESSION_START_AUTHORIZED_ROLE_ID}> to start a session.`,
+                    flags: MessageFlags.Ephemeral,
+                });
+                return;
+            }
+        }
         if (await handleEnhancedSessionCommand(interaction)) return;
         if (interaction.commandName === 'role') {
             await roleCommand.execute(interaction);
-            return;
-        }
-        if (interaction.commandName === 'shift') {
-            const subcommand = interaction.options.getSubcommand(true);
-            if (subcommand === 'start') {
-                const access = await verifyShiftGameAccess(interaction);
-                if (!access.ok) {
-                    await interaction.reply({ content: access.message, flags: MessageFlags.Ephemeral });
-                    return;
-                }
-                const started = await shiftCommand.execute(interaction);
-                if (started) await grantShiftGamePermission(interaction, access);
-                return;
-            }
-            const completed = await shiftCommand.execute(interaction);
-            if (subcommand === 'end' && completed) await revokeShiftGamePermission(interaction);
-            return;
-        }
-        if (interaction.commandName === 'view') {
-            await viewCommand.execute(interaction);
             return;
         }
         const handler = commandHandlers.get(interaction.commandName);
@@ -211,7 +205,19 @@ async function handleChatCommand(interaction: ChatInputCommandInteraction): Prom
             return;
         }
         if (MANAGEMENT_COMMANDS.has(interaction.commandName) && !(await hasManagementCommandPermission(interaction))) {
-            await interaction.reply({ content: 'You must be authorized management or a server administrator to use this command.', ephemeral: true });
+            const exactRole = interaction.commandName === 'infraction'
+                ? INFRACTION_AUTHORIZED_ROLE_ID
+                : interaction.commandName === 'promotion'
+                    ? PROMOTION_AUTHORIZED_ROLE_ID
+                    : interaction.commandName === 'training-results' || interaction.commandName === 'training-result'
+                        ? TRAINING_RESULTS_AUTHORIZED_ROLE_ID
+                        : null;
+            await interaction.reply({
+                content: exactRole
+                    ? `You need <@&${exactRole}> to use this command.`
+                    : 'You must be authorized management or a server administrator to use this command.',
+                ephemeral: true,
+            });
             return;
         }
         const moderationPermission = MODERATION_PERMISSIONS.get(interaction.commandName);

@@ -15,6 +15,7 @@ import {
     SESSION_ACCENT_COLOR,
 } from '../utils/embeds';
 import { logger } from '../utils/logger';
+import { SESSION_START_AUTHORIZED_ROLE_ID } from '../config/constants';
 
 const ERLC_JOIN_URL = 'https://erlc.gg/join?code=LARNRPP&placeId=2534724415';
 const ERLC_GAME_CODE = 'LARNRPP';
@@ -77,6 +78,20 @@ async function getSessionChannel(interaction: ChatInputCommandInteraction): Prom
     const channel = await interaction.client.channels.fetch(SESSION_ANNOUNCEMENT_CHANNEL_ID).catch(() => null);
     if (!channel || !channel.isTextBased() || !channel.isSendable() || !('messages' in channel)) return null;
     return channel as TextChannel;
+}
+
+function sessionMemberRoleIds(member: ChatInputCommandInteraction['member']): string[] {
+    if (!member) return [];
+    if (Array.isArray(member.roles)) return member.roles;
+    const cache = (member.roles as { cache?: { keys(): IterableIterator<string> } }).cache;
+    return cache?.keys ? [...cache.keys()] : [];
+}
+
+async function canStartSession(interaction: ChatInputCommandInteraction): Promise<boolean> {
+    if (sessionMemberRoleIds(interaction.member).includes(SESSION_START_AUTHORIZED_ROLE_ID)) return true;
+    if (!interaction.guild) return false;
+    const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
+    return Boolean(member && sessionMemberRoleIds(member).includes(SESSION_START_AUTHORIZED_ROLE_ID));
 }
 
 async function saveNewVote(vote: VoteState): Promise<void> {
@@ -258,7 +273,7 @@ function buildStartPanel(interaction: ChatInputCommandInteraction, voterIds: rea
 function buildEndPanel(interaction: ChatInputCommandInteraction) {
     return createSessionPanel(
         'SESSION END',
-        `${SESSION_PING_MENTION}\n\nThe session has been shut down by <@${interaction.user.id}>. Please don't join or you may face punishment.`,
+        `The session has been shut down by <@${interaction.user.id}>. Please don't join or you may face punishment.`,
         'end',
         [new ActionRowBuilder<ButtonBuilder>().addComponents(sessionPingRoleButton())],
         SESSION_ACCENT_COLOR,
@@ -388,6 +403,10 @@ async function handleSessionVoteCommand(interaction: ChatInputCommandInteraction
 
 async function handleSessionStartCommand(interaction: ChatInputCommandInteraction): Promise<void> {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    if (!(await canStartSession(interaction))) {
+        await interaction.editReply(`You need <@&${SESSION_START_AUTHORIZED_ROLE_ID}> to start a session.`);
+        return;
+    }
     const channel = await getSessionChannel(interaction);
     if (!channel) {
         await interaction.editReply(`The session announcement channel <#${SESSION_ANNOUNCEMENT_CHANNEL_ID}> is unavailable.`);
@@ -431,7 +450,7 @@ async function handleSessionEndCommand(interaction: ChatInputCommandInteraction)
         components: [buildEndPanel(interaction)],
         files: createSessionAttachments('end'),
         flags: MessageFlags.IsComponentsV2,
-        allowedMentions: { parse: [], roles: [SESSION_PING_ROLE_ID], users: [interaction.user.id] },
+        allowedMentions: { parse: [] },
     });
 
     const secondCleanup = await deleteMessagesExcept(channel, endMessage.id);

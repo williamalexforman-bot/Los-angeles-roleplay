@@ -19,7 +19,6 @@ import { sessionCommands } from './session';
 import { ticketCommands } from './tickets';
 import { applicationsPanelCommand } from './applications';
 import { roleCommand } from './role';
-import { shiftCommand, viewCommand } from './shift';
 import { marketplacePanelCommand } from './marketplace';
 import { erlcUtilityCommands } from './erlcUtilities';
 import { dockConfigCommand } from './dockConfig';
@@ -65,8 +64,6 @@ export const commandDefinitions: CommandDefinition[] = [
     ...ticketCommands,
     applicationsPanelCommand,
     roleCommand,
-    shiftCommand,
-    viewCommand,
     marketplacePanelCommand,
     ...erlcUtilityCommands,
     dockConfigCommand,

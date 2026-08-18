@@ -3,11 +3,8 @@ import { commandDefinitions } from '../commands/registry';
 import { loadProhibitedWordOverrides } from '../commands/prohibitedWords';
 import { logger } from '../utils/logger';
 import { getDiscordBotToken } from '../config/env';
-import { startShiftQuotaScheduler } from '../commands/shift';
 import { startAdvancedPaidAdScheduler } from '../commands/advancedPaidAds';
-import { startShiftPersistenceCheckpointScheduler } from '../services/shiftPersistenceCheckpoint';
 import { registerTicketRobloxInfo } from './ticketRobloxInfo';
-import { registerOffDutyCommandWatcher } from './offDutyCommandWatcher';
 import { registerJoinAccountDateCorrection } from './joinAccountDateCorrection';
 import { registerRaidProtection } from './raidProtection';
 
@@ -47,7 +44,6 @@ export const onReady = async (client: Client): Promise<void> => {
     }
 
     registerTicketRobloxInfo(client);
-    registerOffDutyCommandWatcher(client);
     registerJoinAccountDateCorrection(client);
     registerRaidProtection(client);
 
@@ -94,7 +90,5 @@ export const onReady = async (client: Client): Promise<void> => {
     memberCountPresenceTimer = setInterval(() => {
         void updateMemberCountPresence(client);
     }, MEMBER_COUNT_REFRESH_MS);
-    startShiftQuotaScheduler(client);
-    startShiftPersistenceCheckpointScheduler(client);
     startAdvancedPaidAdScheduler(client);
 };
