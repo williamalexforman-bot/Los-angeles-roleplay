@@ -28,10 +28,14 @@ import {
     type Message,
     type SendableChannels,
     type ThreadChannel,
-    type User,
 } from 'discord.js';
-import { INFRACTION_AUTHORIZED_ROLE_ID, PROMOTION_AUTHORIZED_ROLE_ID } from '../config/constants';
+import {
+    INFRACTION_AUTHORIZED_ROLE_ID,
+    PROMOTION_AUTHORIZED_ROLE_ID,
+    TRAINING_RESULTS_AUTHORIZED_ROLE_ID,
+} from '../config/constants';
 import { markSlashCommandFailed } from '../utils/commandAudit';
+import { legacyEmbedToV2Message } from '../utils/embeds';
 import { logger } from '../utils/logger';
 
 const BRAND_COLOR = 0x3b82f6;
@@ -348,15 +352,8 @@ function infractionAuthorizedRoleIds(): string[] {
     ].map(value => value?.trim()).filter((value): value is string => Boolean(value))));
 }
 
-function isGuildOwnerOrAdministrator(interaction: ChatInputCommandInteraction): boolean {
-    return interaction.guild?.ownerId === interaction.user.id
-        || Boolean(interaction.memberPermissions?.has(PermissionFlagsBits.Administrator));
-}
-
-/** Server owners and administrators can always issue an infraction. */
 async function canIssueInfraction(interaction: ChatInputCommandInteraction): Promise<boolean> {
-    return isGuildOwnerOrAdministrator(interaction)
-        || memberHasAnyRole(interaction, infractionAuthorizedRoleIds());
+    return memberHasRole(interaction, INFRACTION_AUTHORIZED_ROLE_ID);
 }
 
 function brandedEmbed(title: string, color = BRAND_COLOR): EmbedBuilder {
@@ -720,6 +717,10 @@ function trainingResultCommand() {
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
             try {
+                if (!(await memberHasRole(interaction, TRAINING_RESULTS_AUTHORIZED_ROLE_ID))) {
+                    await interaction.editReply(`You need <@&${TRAINING_RESULTS_AUTHORIZED_ROLE_ID}> to publish training results.`);
+                    return;
+                }
                 const trainee = interaction.options.getUser('trainee', true);
                 const trainer = interaction.options.getUser('trainer', true);
                 const department = interaction.options.getString('department', true);
@@ -756,12 +757,10 @@ function trainingResultCommand() {
                     { name: 'Submitted', value: discordTimestamp() },
                 );
 
-                await destination.send({
+                await destination.send(legacyEmbedToV2Message(embed, {
                     content: `<@${trainee.id}> — Training Result`,
-                    embeds: [embed],
-                    files: [logoAttachment()],
                     allowedMentions: { users: [trainee.id], parse: [] },
-                });
+                }));
                 await interaction.editReply('The training result has been published successfully.');
             } catch (error) {
                 console.error('[Staff Management] Training result submission failed.', error);
@@ -802,7 +801,7 @@ function promotionCommand() {
                 const approvedBy = interaction.options.getUser('approved-by', true);
                 const effectiveDate = interaction.options.getString('effective-date', true);
                 if (!(await memberHasRole(interaction, PROMOTION_AUTHORIZED_ROLE_ID))) {
-                    await interaction.editReply('You do not have the required role to issue promotions.');
+                    await interaction.editReply(`You need <@&${PROMOTION_AUTHORIZED_ROLE_ID}> to issue promotions.`);
                     return;
                 }
 
@@ -918,7 +917,7 @@ function infractionCommand() {
                 const member = interaction.options.getUser('member', true);
                 const action = interaction.options.getString('action', true) as InfractionAction;
                 if (!(await canIssueInfraction(interaction))) {
-                    await interaction.editReply('You need the configured infraction role or the Discord Administrator permission to issue infractions.');
+                    await interaction.editReply(`You need <@&${INFRACTION_AUTHORIZED_ROLE_ID}> to issue infractions.`);
                     return;
                 }
                 const reason = interaction.options.getString('reason', true);
@@ -1084,111 +1083,6 @@ function infractionCommand() {
     };
 }
 
-export interface AutomaticInfractionDetails {
-    reason: string;
-    ruleBroken: string;
-    evidence?: string;
-    internalNotes?: string;
-}
-
-/** Issues the same durable V2 infraction used by /infraction for automated systems. */
-export async function issueAutomaticInfraction(
-    client: Client,
-    guildId: string,
-    member: User,
-    details: AutomaticInfractionDetails,
-): Promise<{ caseNumber: string; url: string }> {
-    const issuerId = client.user?.id;
-    if (!issuerId) throw new Error('The Discord client is not ready to issue an automatic infraction.');
-
-    const fetchedParent = await client.channels.fetch(INFRACTION_PARENT_CHANNEL_ID).catch(() => null);
-    if (!fetchedParent || fetchedParent.type !== ChannelType.GuildText || !fetchedParent.isSendable()) {
-        throw new Error('The configured infraction parent channel is unavailable.');
-    }
-    const infractionParent = fetchedParent as TextChannel;
-    const caseNumber = await nextInfractionCaseNumber(guildId);
-    const now = new Date().toISOString();
-    const record: InfractionRecord = {
-        caseNumber,
-        guildId,
-        memberId: member.id,
-        memberUsername: member.username,
-        issuedById: issuerId,
-        action: 'Warning',
-        reason: details.reason,
-        ruleBroken: details.ruleBroken,
-        evidence: details.evidence || 'Automatically generated from the weekly shift quota record.',
-        internalNotes: details.internalNotes || 'Automatically issued by the weekly shift quota scheduler.',
-        notifyMember: true,
-        appealable: true,
-        expiration: 'No expiration set.',
-        status: 'Active',
-        parentChannelId: infractionParent.id,
-        headerMessageId: '',
-        threadId: '',
-        detailMessageId: '',
-        createdAt: now,
-        updatedAt: now,
-        history: [],
-    };
-    addHistory(record, 'Created Automatically', issuerId, `Warning issued to ${member.username} for an incomplete weekly shift quota.`);
-
-    const detailMessage = await infractionParent.send({
-        components: [buildInfractionPanel(record, record.caseNumber)],
-        files: infractionArtworkAttachments(),
-        flags: MessageFlags.IsComponentsV2,
-        allowedMentions: { parse: [], users: [member.id] },
-    });
-    record.headerMessageId = detailMessage.id;
-    record.detailMessageId = detailMessage.id;
-
-    let thread: ThreadChannel | null = null;
-    try {
-        thread = await createInfractionThread(
-            detailMessage,
-            `${caseNumber} | ${sanitizeThreadSegment(member.username)} | Warning`.slice(0, 100),
-            `${caseNumber} automatically issued for missed shift quota`,
-        );
-        record.threadId = thread.id;
-    } catch (error) {
-        record.threadId = detailMessage.id;
-        addHistory(record, 'Evidence Thread Unavailable', issuerId, 'Discord did not allow an evidence thread for this automatic case.');
-        logger.warn(`[Shift Quota] ${caseNumber} was issued without an evidence thread: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-
-    inMemoryInfractions.set(record.caseNumber, record);
-    inMemoryInfractions.set(record.threadId, record);
-
-    let memberNotified = true;
-    await member.send({
-        components: [buildInfractionPanel(record, record.caseNumber)],
-        files: infractionArtworkAttachments(),
-        flags: MessageFlags.IsComponentsV2,
-        allowedMentions: { parse: [] },
-    }).catch(() => {
-        memberNotified = false;
-    });
-    addHistory(
-        record,
-        memberNotified ? 'Member Notified' : 'Notification Failed',
-        issuerId,
-        memberNotified
-            ? 'The member was notified by direct message.'
-            : 'The member could not be reached by direct message.',
-    );
-
-    const persisted = await persistRecord(record);
-    const eventChannel = thread || infractionParent;
-    if (!memberNotified) {
-        await eventChannel.send('The member could not be notified by direct message.').catch(() => undefined);
-    }
-    if (!persisted) {
-        await eventChannel.send('Database persistence is currently unavailable. The automatic case remains active in this process only.').catch(() => undefined);
-    }
-
-    return { caseNumber, url: thread?.url || detailMessage.url };
-}
-
 async function isAuthorized(
     interaction: ButtonInteraction | ModalSubmitInteraction,
     record: InfractionRecord,
@@ -1254,11 +1148,9 @@ function singleInputModal(
 }
 
 async function threadEventEmbed(thread: ThreadChannel, title: string, description: string): Promise<void> {
-    await thread.send({
-        embeds: [brandedEmbed(title).setDescription(description)],
-        files: [logoAttachment()],
+    await thread.send(legacyEmbedToV2Message(brandedEmbed(title).setDescription(description), {
         allowedMentions: { parse: [] },
-    });
+    }));
 }
 
 /**

@@ -11,7 +11,7 @@ import {
     MessageFlags,
 } from 'discord.js';
 import { BRAND } from '../config/constants';
-import { createLogoAttachment } from '../utils/embeds';
+import { legacyEmbedToV2Message } from '../utils/embeds';
 import { markSlashCommandFailed } from '../utils/commandAudit';
 
 const TRAINING_DEPARTMENT_ROLE_ID = '1524013351850737835';
@@ -95,12 +95,10 @@ export async function handleTrainingModal(interaction: ModalSubmitInteraction): 
             .setFooter({ text: BRAND.footer })
             .setTimestamp();
 
-        await channel.send({
+        await channel.send(legacyEmbedToV2Message(embed, {
             content: `<@&${TRAINING_MANAGEMENT_ROLE_ID}> A new training request has been submitted!`,
-            embeds: [embed],
-            files: [createLogoAttachment()],
             allowedMentions: { roles: [TRAINING_MANAGEMENT_ROLE_ID], parse: [] },
-        });
+        }));
 
         await interaction.editReply('✅ Your training request has been submitted successfully. Training management has been notified.');
         return true;
@@ -110,4 +108,3 @@ export async function handleTrainingModal(interaction: ModalSubmitInteraction): 
         return true;
     }
 }
-

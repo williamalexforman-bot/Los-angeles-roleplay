@@ -14,7 +14,7 @@ import { BRAND } from '../config/constants';
 import { Infraction } from '../database/models';
 import { isDatabaseAvailable } from '../database/connection';
 import { markSlashCommandFailed } from '../utils/commandAudit';
-import { createLogoAttachment } from '../utils/embeds';
+import { legacyEmbedToV2Message } from '../utils/embeds';
 
 const BRAND_FOOTER = BRAND.footer;
 const LOGO_URL = BRAND.logoUrl;
@@ -40,7 +40,7 @@ async function sendDm(userId: string, embed: EmbedBuilder): Promise<boolean> {
         if (!client) return false;
         const user = await client.users.fetch(userId);
         if (!user) return false;
-        await user.send({ embeds: [embed], files: [createLogoAttachment()] });
+        await user.send(legacyEmbedToV2Message(embed));
         return true;
     } catch {
         return false;
@@ -205,9 +205,8 @@ export const punishmentCommands = [
                         if (client) {
                             const user = await client.users.fetch(targetUser.id);
                             if (user) {
-                                await user.send({
-                                    embeds: [dmEmbed],
-                                    components: [
+                                await user.send(legacyEmbedToV2Message(dmEmbed, {
+                                    actionRows: [
                                         new ActionRowBuilder<ButtonBuilder>().addComponents(
                                             new ButtonBuilder()
                                                 .setCustomId(`infraction-appeal:start:punishment-${caseNumber}`)
@@ -216,8 +215,7 @@ export const punishmentCommands = [
                                                 .setEmoji('⚖️'),
                                         ),
                                     ],
-                                    files: [createLogoAttachment()],
-                                });
+                                }));
                                 dmSent = true;
                             }
                         }
@@ -280,7 +278,7 @@ export const punishmentCommands = [
                         { name: 'DM Sent', value: dmSent ? '✅ Yes' : '❌ No (DMs may be closed)', inline: true },
                     );
 
-                await interaction.editReply({ embeds: [confirmEmbed], files: [createLogoAttachment()] });
+                await interaction.editReply(legacyEmbedToV2Message(confirmEmbed));
             } catch (error) {
                 console.error('[Punishment] Command failed.', error);
                 markSlashCommandFailed(interaction, error);
@@ -335,7 +333,7 @@ export const punishmentCommands = [
                     if (records.length === 0) {
                         const embed = brandedEmbed('Punishment History')
                             .setDescription(`${targetUser} has no punishment history.`);
-                        await interaction.editReply({ embeds: [embed], files: [createLogoAttachment()] });
+                        await interaction.editReply(legacyEmbedToV2Message(embed));
                         return;
                     }
 
@@ -352,7 +350,7 @@ export const punishmentCommands = [
                         .setDescription(`${targetUser} has ${records.length} record(s):\n\n${historyText}`)
                         .setThumbnail(targetUser.displayAvatarURL());
 
-                    await interaction.editReply({ embeds: [embed], files: [createLogoAttachment()] });
+                    await interaction.editReply(legacyEmbedToV2Message(embed));
                     return;
                 }
 
@@ -387,7 +385,7 @@ export const punishmentCommands = [
                             { name: 'Original Reason', value: record.reason },
                         );
 
-                    await interaction.editReply({ embeds: [embed], files: [createLogoAttachment()] });
+                    await interaction.editReply(legacyEmbedToV2Message(embed));
                     return;
                 }
             } catch (error) {
@@ -398,4 +396,3 @@ export const punishmentCommands = [
         },
     },
 ];
-

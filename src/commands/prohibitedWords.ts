@@ -3,7 +3,7 @@ import { BRAND } from '../config/constants';
 import { ProhibitedWord } from '../database/models';
 import { isDatabaseAvailable } from '../database/connection';
 import prohibitedWords, { addProhibitedWord, removeProhibitedWord, replaceProhibitedWords } from '../config/prohibitedWords';
-import { createLogoAttachment } from '../utils/embeds';
+import { legacyEmbedToV2Message } from '../utils/embeds';
 
 const defaults = [...prohibitedWords];
 
@@ -33,7 +33,7 @@ export const prohibitedWordCommand = {
                 .setDescription(prohibitedWords.length ? prohibitedWords.map(word => `• ${word}`).join('\n').slice(0, 4000) : 'No prohibited words are configured.')
                 .setFooter({ text: BRAND.footer })
                 .setTimestamp();
-            await interaction.editReply({ embeds: [embed], files: [createLogoAttachment()] });
+            await interaction.editReply(legacyEmbedToV2Message(embed));
             return;
         }
 
@@ -66,4 +66,3 @@ export async function loadProhibitedWordOverrides(guildIds: readonly string[]): 
         else addProhibitedWord(override.word);
     }
 }
-

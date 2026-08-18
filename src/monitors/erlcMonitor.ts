@@ -8,7 +8,7 @@ import {
     fetchErlcServer,
 } from '../services/erlcService';
 import { BRAND, CHANNEL_IDS } from '../config/constants';
-import { createLogoAttachment } from '../utils/embeds';
+import { legacyEmbedToV2Message } from '../utils/embeds';
 
 export const ERLC_COMMAND_LOG_CHANNEL_ID = CHANNEL_IDS.erlcCommandLog;
 export const ERLC_TEAM_CHANGE_LOG_CHANNEL_ID = CHANNEL_IDS.erlcTeamChangeLog;
@@ -725,7 +725,7 @@ export class ErlcMonitor {
             if (!client) return;
             const channel = await client.channels.fetch(channelId);
             if (!channel?.isSendable()) throw new Error(`ER:LC log channel ${channelId} is unavailable.`);
-            await channel.send({ embeds: [embed], files: [createLogoAttachment()], allowedMentions: { parse: [] } });
+            await channel.send(legacyEmbedToV2Message(embed, { allowedMentions: { parse: [] } }));
         };
 
         return {

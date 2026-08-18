@@ -7,10 +7,14 @@ import {
     configureInfractionPersistence,
     handleStaffManagementButton,
     hasRequiredRole,
-    issueAutomaticInfraction,
     type InfractionRecord,
 } from '../src/commands/staffManagement';
-import { INFRACTION_AUTHORIZED_ROLE_ID, PROMOTION_AUTHORIZED_ROLE_ID } from '../src/config/constants';
+import {
+    INFRACTION_AUTHORIZED_ROLE_ID,
+    PROMOTION_AUTHORIZED_ROLE_ID,
+    SESSION_START_AUTHORIZED_ROLE_ID,
+    TRAINING_RESULTS_AUTHORIZED_ROLE_ID,
+} from '../src/config/constants';
 import { handleCommunityButton, handleCommunityModal } from '../src/commands/community';
 import {
     handleInfractionAppealButton,
@@ -31,20 +35,9 @@ import {
     type ApplicationSession,
 } from '../src/commands/applications';
 import { handleLoaButton, handleLoaModal } from '../src/commands/loa';
+import { handleTrainingModal } from '../src/commands/requestTraining';
+import { handleSuggestionButton } from '../src/commands/suggestions';
 import { interactionCreate } from '../src/handlers/interactionCreate';
-import {
-    ACTIVE_SHIFT_ROLE_ID,
-    clearShiftMemory,
-    isShiftInfractionExempt,
-    SHIFT_BREAK_ROLE_ID,
-    SHIFT_INFRACTION_EXEMPT_ROLE_IDS,
-    SHIFT_MANAGEMENT_ROLE_ID,
-    SHIFT_QUOTA_BY_ROLE_ID,
-    runDueShiftQuotaEvaluation,
-    shiftQuotaBoundary,
-    shiftQuotaSecondsForRoleIds,
-    shiftQuotaWeekKey,
-} from '../src/commands/shift';
 import { sanitizedCommandOptions } from '../src/utils/commandAudit';
 import { fetchErlcServer, type ErlcServerSnapshot } from '../src/services/erlcService';
 import {
@@ -63,15 +56,20 @@ async function run(): Promise<void> {
     );
     assert.equal(hasRequiredRole({ roles: { cache: new Map([['1523121675007426692', { id: '1523121675007426692' }]]) } } as any, '1523121675007426692'), true, 'the infraction role should grant infraction access');
     assert.equal(hasRequiredRole({ roles: { cache: new Map([['other-role', { id: 'other-role' }]]) } } as any, '1523121675007426692'), false, 'other roles should not grant infraction access');
+    assert.equal(SESSION_START_AUTHORIZED_ROLE_ID, '1521593407804280963');
+    assert.equal(INFRACTION_AUTHORIZED_ROLE_ID, '1523121675007426692');
+    assert.equal(PROMOTION_AUTHORIZED_ROLE_ID, '1523121617079767151');
+    assert.equal(TRAINING_RESULTS_AUTHORIZED_ROLE_ID, '1521593407795888330');
 
     const names = commandDefinitions.map(command => command.data.name);
     assert.equal(new Set(names).size, names.length, 'slash command names must be unique');
 for (const required of [
         'movie-feedback', 'staff-feedback', 'partnership', 'staff-complaint', 'training-results',
         'promotion', 'infraction', 'view-infractions', 'session-start', 'session-vote', 'session-end',
-        'session-boost', 'session-full', 'prohibited-word', 'say', 'loa', 'activitycheck',
+        'session-boost', 'session-full', 'prohibited-word', 'say', 'loa',
         'request-training', 'roleplay-log', 'rename', 'ticket', 'ticket-panel', 'ticketpanel', 'close', 'closerequest',
-        'applications-panel', 'unclaim', 'role', 'shift', 'view',
+        'applications-panel', 'unclaim', 'role', 'suggestions',
+        'suggestion-approved', 'suggestion-denied', 'suggestion-maybe',
     ]) {
         assert(names.includes(required), `missing /${required}`);
     }
@@ -82,6 +80,99 @@ for (const required of [
         assert(command, `missing command implementation for /${name}`);
         return command;
     };
+
+    for (const [commandName, roleId] of [
+        ['session-start', SESSION_START_AUTHORIZED_ROLE_ID],
+        ['infraction', INFRACTION_AUTHORIZED_ROLE_ID],
+        ['promotion', PROMOTION_AUTHORIZED_ROLE_ID],
+        ['training-results', TRAINING_RESULTS_AUTHORIZED_ROLE_ID],
+    ] as const) {
+        const deniedReplies: any[] = [];
+        await interactionCreate({
+            commandName,
+            guildId: 'role-gate-guild',
+            guild: {
+                ownerId: 'different-owner',
+                members: { fetch: async () => ({ roles: { cache: new Map() } }) },
+            },
+            member: { roles: [] },
+            memberPermissions: { has: () => true },
+            user: { id: 'administrator-without-required-role' },
+            isButton: () => false,
+            isModalSubmit: () => false,
+            isUserSelectMenu: () => false,
+            isStringSelectMenu: () => false,
+            isChatInputCommand: () => true,
+            isRepliable: () => true,
+            reply: async (payload: any) => { deniedReplies.push(payload); },
+        } as never);
+        assert(
+            deniedReplies.some(reply => String(reply.content).includes(`<@&${roleId}>`)),
+            `/${commandName} must require its exact configured role even from a Discord administrator`,
+        );
+    }
+
+    let suggestionPost: any = null;
+    let suggestionEdit: any = null;
+    const suggestionReceipts: string[] = [];
+    const suggestionFollowUps: any[] = [];
+    const suggestionDms: any[] = [];
+    const suggestionMessage = {
+        id: 'suggestion-message',
+        edit: async (payload: any) => { suggestionEdit = payload; },
+    };
+    const suggestionChannel = {
+        isSendable: () => true,
+        isTextBased: () => true,
+        send: async (payload: any) => {
+            suggestionPost = payload;
+            return suggestionMessage;
+        },
+        messages: { fetch: async () => suggestionMessage },
+    };
+    const suggestionClient = {
+        channels: { fetch: async () => suggestionChannel },
+        users: { fetch: async () => ({ send: async (payload: any) => { suggestionDms.push(payload); } }) },
+    };
+    await commandNamed('suggestions').execute({
+        guildId: 'suggestion-guild',
+        user: { id: 'suggestion-author', username: 'SuggestionAuthor' },
+        options: { getString: () => 'Please add more community events.' },
+        client: suggestionClient,
+        deferReply: async () => undefined,
+        editReply: async (content: string) => { suggestionReceipts.push(content); },
+    } as never);
+    assert.equal(suggestionPost?.flags, MessageFlags.IsComponentsV2, 'suggestions must post even when MongoDB is offline');
+    const suggestionComponents = suggestionPost.components[0].toJSON().components;
+    const suggestionVoteRow = suggestionComponents.find((component: { type: number }) => component.type === 1);
+    const suggestionVoteId = suggestionVoteRow.components[0].custom_id as string;
+    const suggestionId = suggestionVoteId.split(':').at(-1)!;
+    assert(suggestionReceipts.some(receipt => receipt.includes(suggestionId)));
+
+    await handleSuggestionButton({
+        customId: suggestionVoteId,
+        guildId: 'suggestion-guild',
+        user: { id: 'suggestion-voter', username: 'SuggestionVoter' },
+        message: suggestionMessage,
+        deferUpdate: async () => undefined,
+        followUp: async (payload: any) => { suggestionFollowUps.push(payload); },
+    } as never);
+    assert.equal(suggestionEdit?.flags, MessageFlags.IsComponentsV2);
+    assert(suggestionFollowUps.some(reply => String(reply.content).includes('upvote was recorded')));
+
+    const suggestionDecisionReplies: string[] = [];
+    await commandNamed('suggestion-approved').execute({
+        guildId: 'suggestion-guild',
+        guild: { ownerId: 'suggestion-owner' },
+        user: { id: 'suggestion-owner' },
+        options: { getString: () => suggestionId },
+        client: suggestionClient,
+        deferReply: async () => undefined,
+        editReply: async (content: string) => { suggestionDecisionReplies.push(content); },
+    } as never);
+    assert(suggestionDecisionReplies.some(reply => reply.includes('Approved')));
+    assert(suggestionDms.length === 1, 'an in-memory suggestion decision must still notify its author');
+    assert(JSON.stringify(suggestionEdit).includes('Approved'));
 
     const movieSchema = commandNamed('movie-feedback').data.toJSON() as {
         options: Array<{ name: string; required?: boolean; min_value?: number; max_value?: number }>;
@@ -180,6 +271,7 @@ for (const required of [
         options: { getSubcommand: () => 'all', getRole: () => assignableRole },
         isButton: () => false,
         isModalSubmit: () => false,
+        isUserSelectMenu: () => false,
         isStringSelectMenu: () => false,
         isChatInputCommand: () => true,
         isRepliable: () => true,
@@ -194,322 +286,6 @@ for (const required of [
     assert(massRoleText.includes('Bots skipped:** 1'));
     assert(!massRoleText.includes('not currently available'), '/role all must route to its handler');
 
-    const shiftSchema = commandNamed('shift').data.toJSON() as {
-        options: Array<{ name: string; options?: Array<{ name: string }> }>;
-    };
-    assert.deepEqual(shiftSchema.options.map(option => option.name), ['start', 'break', 'leaderboard', 'manage', 'end']);
-    assert.deepEqual(
-        shiftSchema.options.find(option => option.name === 'manage')?.options?.map(option => option.name),
-        ['action', 'member', 'reason', 'minutes'],
-    );
-    const viewSchema = commandNamed('view').data.toJSON() as {
-        options: Array<{ name: string }>;
-    };
-    assert.deepEqual(viewSchema.options.map(option => option.name), ['quota']);
-    assert.equal(SHIFT_QUOTA_BY_ROLE_ID['1521593407795888336'], 7_200);
-    assert.equal(SHIFT_QUOTA_BY_ROLE_ID['1521593407816990819'], 5_400);
-    assert.equal(SHIFT_QUOTA_BY_ROLE_ID['1521593407833640981'], 4_500);
-    assert.equal(SHIFT_QUOTA_BY_ROLE_ID['1523111129696702584'], 3_600);
-    assert.equal(SHIFT_QUOTA_BY_ROLE_ID['1521593407833640986'], 2_700);
-    assert.equal(SHIFT_QUOTA_BY_ROLE_ID['1521598108226818288'], 1_800);
-    assert.deepEqual(
-        SHIFT_INFRACTION_EXEMPT_ROLE_IDS,
-        ['1521593407850680401', '1521593407795888329'],
-    );
-    assert.equal(SHIFT_MANAGEMENT_ROLE_ID, '1521593407850680401');
-    assert(isShiftInfractionExempt(['1521593407850680401']));
-    assert(isShiftInfractionExempt(['1521593407795888329']));
-    assert(!isShiftInfractionExempt(['1521593407795888336']));
-    assert.equal(
-        shiftQuotaSecondsForRoleIds(['1523111129696702584', '1521593407795888336']),
-        7_200,
-        'members with multiple quota roles must receive the highest requirement',
-    );
-    assert.equal(shiftQuotaBoundary(new Date('2026-01-09T15:00:00.000Z')).toISOString(), '2026-01-09T15:00:00.000Z');
-    assert.equal(shiftQuotaBoundary(new Date('2026-08-14T14:00:00.000Z')).toISOString(), '2026-08-14T14:00:00.000Z');
-    assert.equal(shiftQuotaWeekKey(new Date('2026-08-14T13:59:59.000Z')), '2026-08-07');
-
-    clearShiftMemory();
-    const shiftMemberRole = { id: '1521593407795888336' };
-    const shiftTargetDms: any[] = [];
-    const shiftTarget = {
-        id: 'shift-target',
-        username: 'ShiftTarget',
-        send: async (payload: any) => { shiftTargetDms.push(payload); },
-    };
-    const shiftRoleEvents: string[] = [];
-    const shiftRoleCache = new Map([[shiftMemberRole.id, shiftMemberRole]]);
-    const shiftGuildMember = {
-        id: shiftTarget.id,
-        user: shiftTarget,
-        roles: {
-            cache: shiftRoleCache,
-            add: async (roleId: string) => {
-                shiftRoleEvents.push(`add:${roleId}`);
-                shiftRoleCache.set(roleId, { id: roleId });
-            },
-            remove: async (roleId: string) => {
-                shiftRoleEvents.push(`remove:${roleId}`);
-                shiftRoleCache.delete(roleId);
-            },
-        },
-        displayName: 'ShiftTarget',
-    };
-    const shiftMemberCollection = new Collection<string, any>([[shiftTarget.id, shiftGuildMember]]);
-    const shiftGuild = {
-        ownerId: 'shift-manager',
-        members: {
-            cache: shiftMemberCollection,
-            fetch: async (memberId?: string) => memberId ? shiftGuildMember : shiftMemberCollection,
-        },
-    };
-    const routeShift = async (payload: Record<string, unknown>): Promise<void> => interactionCreate({
-        commandName: 'shift',
-        isButton: () => false,
-        isModalSubmit: () => false,
-        isStringSelectMenu: () => false,
-        isChatInputCommand: () => true,
-        isRepliable: () => true,
-        reply: async () => undefined,
-        ...payload,
-    } as never);
-    const shiftStartDefers: any[] = [];
-    const shiftStartReplies: any[] = [];
-    await interactionCreate({
-        commandName: 'shift',
-        guildId: 'shift-guild',
-        guild: shiftGuild,
-        member: shiftGuildMember,
-        user: shiftTarget,
-        options: { getSubcommand: () => 'start' },
-        isButton: () => false,
-        isModalSubmit: () => false,
-        isStringSelectMenu: () => false,
-        isChatInputCommand: () => true,
-        isRepliable: () => true,
-        deferReply: async (payload: any) => { shiftStartDefers.push(payload); },
-        editReply: async (payload: any) => { shiftStartReplies.push(payload); },
-        reply: async (payload: any) => { shiftStartReplies.push(payload); },
-    } as never);
-    assert.equal(shiftStartDefers[0]?.flags, MessageFlags.Ephemeral, '/shift start must be visible only to its user');
-    assert.equal(shiftStartReplies[0]?.flags, MessageFlags.IsComponentsV2, '/shift start must use a Components V2 emblem');
-    assert.equal(shiftStartReplies[0]?.files?.length, 1, '/shift start must include the branded underbanner');
-    assert(JSON.stringify(shiftStartReplies[0]).includes('weekly quota is **2h**'));
-    assert(shiftRoleCache.has(ACTIVE_SHIFT_ROLE_ID), '/shift start must add the active-shift role');
-    assert(!shiftRoleCache.has(SHIFT_BREAK_ROLE_ID));
-
-    let viewQuotaDefer: any = null;
-    let viewQuotaPayload: any = null;
-    await interactionCreate({
-        commandName: 'view',
-        guildId: 'shift-guild',
-        guild: shiftGuild,
-        member: shiftGuildMember,
-        user: shiftTarget,
-        options: { getSubcommand: () => 'quota' },
-        isButton: () => false,
-        isModalSubmit: () => false,
-        isStringSelectMenu: () => false,
-        isChatInputCommand: () => true,
-        isRepliable: () => true,
-        deferReply: async (payload: any) => { viewQuotaDefer = payload; },
-        editReply: async (payload: any) => { viewQuotaPayload = payload; },
-        reply: async () => undefined,
-    } as never);
-    assert.equal(viewQuotaDefer?.flags, MessageFlags.Ephemeral, '/view quota must be private');
-    assert.equal(viewQuotaPayload?.flags, MessageFlags.IsComponentsV2, '/view quota must use a Components V2 emblem');
-    const viewQuotaText = JSON.stringify(viewQuotaPayload);
-    assert(viewQuotaText.includes('Your Weekly Shift Quota'));
-    assert(viewQuotaText.includes('**Required:** 2h'));
-    assert(viewQuotaText.includes('**Current Shift:** 🟢 Shift active'));
-    assert(!viewQuotaText.includes('not currently available'), '/view quota must route to its handler');
-
-    const shiftBreakReplies: string[] = [];
-    await routeShift({
-        guildId: 'shift-guild',
-        guild: shiftGuild,
-        member: shiftGuildMember,
-        user: shiftTarget,
-        options: { getSubcommand: () => 'break' },
-        deferReply: async () => undefined,
-        editReply: async (payload: string) => { shiftBreakReplies.push(payload); },
-    });
-    assert(shiftBreakReplies.some(reply => reply.includes('shift is paused')));
-    assert(!shiftRoleCache.has(ACTIVE_SHIFT_ROLE_ID), 'starting a break must remove the active-shift role');
-    assert(shiftRoleCache.has(SHIFT_BREAK_ROLE_ID), 'starting a break must add the shift-break role');
-
-    await routeShift({
-        guildId: 'shift-guild',
-        guild: shiftGuild,
-        member: shiftGuildMember,
-        user: shiftTarget,
-        options: { getSubcommand: () => 'break' },
-        deferReply: async () => undefined,
-        editReply: async (payload: string) => { shiftBreakReplies.push(payload); },
-    });
-    assert(shiftBreakReplies.some(reply => reply.includes('shift resumed')));
-    assert(shiftRoleCache.has(ACTIVE_SHIFT_ROLE_ID), 'resuming must restore the active-shift role');
-    assert(!shiftRoleCache.has(SHIFT_BREAK_ROLE_ID), 'resuming must remove the shift-break role');
-
-    const shiftManageReplies: string[] = [];
-    await routeShift({
-        guildId: 'shift-guild',
-        guild: shiftGuild,
-        member: { roles: { cache: new Map([[SHIFT_MANAGEMENT_ROLE_ID, { id: SHIFT_MANAGEMENT_ROLE_ID }]]) } },
-        memberPermissions: { has: () => true },
-        user: { id: 'shift-manager', username: 'ShiftManager' },
-        options: {
-            getSubcommand: () => 'manage',
-            getString: (name: string) => name === 'action' ? 'add-time' : 'Quota test adjustment',
-            getUser: () => shiftTarget,
-            getInteger: () => 120,
-        },
-        deferReply: async () => undefined,
-        editReply: async (payload: string) => { shiftManageReplies.push(payload); },
-    });
-    assert(shiftManageReplies.some(reply => reply.includes('Weekly total:** 2h / 2h')));
-    assert.equal(shiftTargetDms.length, 1, 'completing quota through shift management must send the member a DM');
-    assert.equal(shiftTargetDms[0].flags, 32_768, 'the shift quota completion DM must use Components V2');
-
-    const deniedShiftManageReplies: string[] = [];
-    await routeShift({
-        guildId: 'shift-guild',
-        guild: shiftGuild,
-        member: { roles: { cache: new Map() } },
-        memberPermissions: { has: () => true },
-        user: { id: 'admin-without-shift-role', username: 'NoShiftRole' },
-        options: {
-            getSubcommand: () => 'manage',
-            getString: (name: string) => name === 'action' ? 'remove-time' : 'Unauthorized adjustment',
-            getUser: () => shiftTarget,
-            getInteger: () => 30,
-        },
-        deferReply: async () => undefined,
-        editReply: async (payload: string) => { deniedShiftManageReplies.push(payload); },
-    });
-    assert(deniedShiftManageReplies.some(reply => reply.includes(`<@&${SHIFT_MANAGEMENT_ROLE_ID}>`)));
-
-    let shiftLeaderboardPayload: any = null;
-    await routeShift({
-        guildId: 'shift-guild',
-        guild: shiftGuild,
-        user: shiftTarget,
-        options: { getSubcommand: () => 'leaderboard' },
-        deferReply: async () => undefined,
-        editReply: async (payload: any) => { shiftLeaderboardPayload = payload; },
-    });
-    const shiftLeaderboardEmbed = shiftLeaderboardPayload.embeds[0].toJSON();
-    assert.equal(shiftLeaderboardEmbed.title, '⏱️ Weekly Shift Leaderboard');
-    assert(shiftLeaderboardEmbed.description.includes(`<@${shiftTarget.id}>`));
-    assert(shiftLeaderboardEmbed.description.includes('**2h** / 2h'));
-
-    let fallbackShiftLeaderboardPayload: any = null;
-    await routeShift({
-        guildId: 'shift-guild',
-        guild: {
-            members: {
-                cache: new Collection<string, any>(),
-                fetch: async () => { throw new Error('Server Members intent unavailable'); },
-            },
-        },
-        user: shiftTarget,
-        options: { getSubcommand: () => 'leaderboard' },
-        deferReply: async () => undefined,
-        editReply: async (payload: any) => { fallbackShiftLeaderboardPayload = payload; },
-    });
-    const fallbackShiftLeaderboard = fallbackShiftLeaderboardPayload.embeds[0].toJSON();
-    assert(fallbackShiftLeaderboard.description.includes(`<@${shiftTarget.id}>`), 'leaderboard must use durable profiles when member-list fetch is unavailable');
-
-    const shiftEndReplies: string[] = [];
-    await routeShift({
-        guildId: 'shift-guild',
-        guild: shiftGuild,
-        member: shiftGuildMember,
-        user: shiftTarget,
-        options: { getSubcommand: () => 'end' },
-        deferReply: async () => undefined,
-        editReply: async (payload: string) => { shiftEndReplies.push(payload); },
-    });
-    assert(shiftEndReplies.some(reply => reply.includes('Your shift ended')));
-    assert(shiftEndReplies.some(reply => reply.includes('Quota status:** ✅ Completed')));
-    assert.equal(shiftTargetDms.length, 1, 'ending later must not duplicate an already delivered quota-completion DM');
-    assert(!shiftRoleCache.has(ACTIVE_SHIFT_ROLE_ID), '/shift end must remove the active-shift role');
-    assert(!shiftRoleCache.has(SHIFT_BREAK_ROLE_ID), '/shift end must remove the break role');
-    assert(shiftRoleEvents.includes(`add:${ACTIVE_SHIFT_ROLE_ID}`));
-    assert(shiftRoleEvents.includes(`add:${SHIFT_BREAK_ROLE_ID}`));
-
-    // A restart or database interruption can clear local timer memory while
-    // Discord still holds the active-shift role. Ending must recover instead
-    // of incorrectly reporting that no shift exists.
-    const restartStartReplies: any[] = [];
-    await routeShift({
-        guildId: 'shift-guild',
-        guild: shiftGuild,
-        member: shiftGuildMember,
-        user: shiftTarget,
-        options: { getSubcommand: () => 'start' },
-        deferReply: async () => undefined,
-        editReply: async (payload: any) => { restartStartReplies.push(payload); },
-    });
-    assert.equal(restartStartReplies[0]?.flags, MessageFlags.IsComponentsV2);
-    assert(shiftRoleCache.has(ACTIVE_SHIFT_ROLE_ID));
-    clearShiftMemory();
-    const recoveredShiftEndReplies: string[] = [];
-    await routeShift({
-        guildId: 'shift-guild',
-        guild: shiftGuild,
-        member: shiftGuildMember,
-        user: shiftTarget,
-        options: { getSubcommand: () => 'end' },
-        deferReply: async () => undefined,
-        editReply: async (payload: string) => { recoveredShiftEndReplies.push(payload); },
-    });
-    assert(recoveredShiftEndReplies.some(reply => reply.includes('Your shift ended')));
-    assert(recoveredShiftEndReplies.some(reply => reply.includes('recovered from your Discord shift-state role')));
-    assert(!shiftRoleCache.has(ACTIVE_SHIFT_ROLE_ID), 'recovered /shift end must remove the active-shift role');
-
-    clearShiftMemory();
-    const originalGuildId = process.env.GUILD_ID;
-    process.env.GUILD_ID = 'quota-scheduler-guild';
-    let quotaMemberFetches = 0;
-    let exemptInfractionChannelFetches = 0;
-    const exemptQuotaMember = {
-        id: 'quota-exempt-member',
-        user: {
-            id: 'quota-exempt-member',
-            username: 'QuotaExempt',
-            bot: false,
-            send: async () => undefined,
-        },
-        roles: {
-            cache: new Map([
-                ['1521593407795888336', { id: '1521593407795888336' }],
-                ['1521593407850680401', { id: '1521593407850680401' }],
-            ]),
-        },
-    };
-    const quotaMembers = new Collection<string, any>([[exemptQuotaMember.id, exemptQuotaMember]]);
-    const quotaSchedulerClient = {
-        user: { id: 'quota-bot' },
-        channels: {
-            fetch: async () => {
-                exemptInfractionChannelFetches += 1;
-                throw new Error('an exempt member must never reach automatic infraction creation');
-            },
-        },
-        guilds: {
-            cache: new Map([['quota-scheduler-guild', {
-                members: { fetch: async () => { quotaMemberFetches += 1; return quotaMembers; } },
-            }]]),
-        },
-    } as never;
-    await runDueShiftQuotaEvaluation(quotaSchedulerClient, new Date('2026-08-17T16:00:00.000Z'));
-    await runDueShiftQuotaEvaluation(quotaSchedulerClient, new Date('2026-08-21T14:00:01.000Z'));
-    await runDueShiftQuotaEvaluation(quotaSchedulerClient, new Date('2026-08-21T14:01:00.000Z'));
-    assert.equal(quotaMemberFetches, 1, 'the same Friday quota window must never be evaluated twice');
-    assert.equal(exemptInfractionChannelFetches, 0, 'quota-exempt roles must never reach automatic infraction creation');
-    if (originalGuildId === undefined) delete process.env.GUILD_ID;
-    else process.env.GUILD_ID = originalGuildId;
 
     const partnershipSchema = commandNamed('partnership').data.toJSON() as {
         options: Array<{ name: string; options?: Array<{ name: string }> }>;
@@ -667,7 +443,10 @@ for (const required of [
         deferReply: async () => undefined,
         editReply: async (content: string) => { complaintReplies.push(content); },
     } as never);
-    assert.equal(complaintSubmission?.embeds?.[0]?.data?.title, '📋 Staff Complaint Received');
+    assert.equal(complaintSubmission?.flags, MessageFlags.IsComponentsV2);
+    assert.equal(complaintSubmission?.embeds, undefined);
+    assert(JSON.stringify(complaintSubmission).includes('📋 Staff Complaint Received'));
+    assert(JSON.stringify(complaintSubmission).includes('attachment://underbanner.webp'));
     assert(complaintReplies.some(reply => reply.includes('submitted securely')));
 
     const trainingSchema = commandNamed('training-results').data.toJSON() as {
@@ -809,12 +588,63 @@ for (const required of [
     } as never;
     await commandNamed('movie-feedback').execute(movieInteraction);
     assert.equal(movieSends.length, 2, 'movie feedback should publish once and write one private audit');
-    const moviePublic = movieSends[0].payload.embeds[0].toJSON();
-    const movieAudit = movieSends[1].payload.embeds[0].toJSON();
-    assert.equal(moviePublic.title, '🎬 Movie Feedback');
-    assert(moviePublic.fields.some((field: any) => field.name === '⭐ Rating' && field.value === `${'⭐'.repeat(8)}\n**8/10**`));
-    assert(moviePublic.footer.text.includes('Submitted by therealstickyz_35430'));
-    assert(movieAudit.fields.some((field: any) => field.name === 'Discord ID' && field.value === '1489388257925005508'));
+    const moviePublic = JSON.stringify(movieSends[0].payload);
+    const movieAudit = JSON.stringify(movieSends[1].payload);
+    assert.equal(movieSends[0].payload.flags, MessageFlags.IsComponentsV2);
+    assert.equal(movieSends[0].payload.embeds, undefined);
+    assert(moviePublic.includes('🎬 Movie Feedback'));
+    assert(moviePublic.includes(`${'⭐'.repeat(8)}\\n**8/10**`));
+    assert(moviePublic.includes('Submitted by therealstickyz_35430'));
+    assert(movieAudit.includes('Discord ID') && movieAudit.includes('1489388257925005508'));
+
+    const staffFeedbackSends: any[] = [];
+    await commandNamed('staff-feedback').execute({
+        deferReply: async () => undefined,
+        editReply: async () => undefined,
+        options: {
+            getUser: () => ({ id: 'feedback-staff' }),
+            getInteger: () => 9,
+            getString: (name: string) => name === 'feedback' ? 'Helpful and professional.' : 'No evidence needed.',
+            getBoolean: () => false,
+        },
+        user: { id: 'feedback-author', username: 'FeedbackAuthor' },
+        client: {
+            channels: {
+                fetch: async () => ({
+                    isSendable: () => true,
+                    send: async (payload: any) => { staffFeedbackSends.push(payload); return {}; },
+                }),
+            },
+        },
+    } as never);
+    assert.equal(staffFeedbackSends.length, 2, 'staff feedback must publish publicly and write its private audit');
+    assert(staffFeedbackSends.every(payload => payload.flags === MessageFlags.IsComponentsV2));
+    assert(staffFeedbackSends.every(payload => payload.embeds === undefined));
+    assert(JSON.stringify(staffFeedbackSends[0]).includes('💬 Staff Feedback'));
+    assert(JSON.stringify(staffFeedbackSends[0]).includes('attachment://underbanner.webp'));
+
+    let trainingRequestPost: any = null;
+    await handleTrainingModal({
+        customId: 'training:request-modal',
+        user: { id: 'training-requester' },
+        fields: {
+            getTextInputValue: (name: string) => name === 'timezone' ? 'EST' : 'Saturday at 5 PM',
+        },
+        client: {
+            channels: {
+                fetch: async () => ({
+                    isSendable: () => true,
+                    send: async (payload: any) => { trainingRequestPost = payload; return {}; },
+                }),
+            },
+        },
+        deferReply: async () => undefined,
+        editReply: async () => undefined,
+    } as never);
+    assert.equal(trainingRequestPost?.flags, MessageFlags.IsComponentsV2);
+    assert.equal(trainingRequestPost?.embeds, undefined);
+    assert(JSON.stringify(trainingRequestPost).includes('🎓 Training Request'));
+    assert(JSON.stringify(trainingRequestPost).includes('attachment://underbanner.webp'));
 
     const trainingSends: any[] = [];
     const trainingUsers = {
@@ -824,6 +654,9 @@ for (const required of [
     const trainingInteraction = {
         deferReply: async () => undefined,
         editReply: async () => undefined,
+        member: {
+            roles: { cache: new Map([[TRAINING_RESULTS_AUTHORIZED_ROLE_ID, { id: TRAINING_RESULTS_AUTHORIZED_ROLE_ID }]]) },
+        },
         options: {
             getUser: (name: 'trainee' | 'trainer') => trainingUsers[name],
             getString: (name: string) => ({ department: 'California Highway Patrol', result: 'Pass', notes: 'Professional performance.' } as Record<string, string>)[name] ?? null,
@@ -849,9 +682,12 @@ for (const required of [
     } as never;
     await commandNamed('training-results').execute(trainingInteraction);
     assert.equal(trainingSends.length, 1);
-    const trainingEmbed = trainingSends[0].embeds[0].toJSON();
-    assert.equal(trainingEmbed.color, 0x22c55e, 'Pass training results must be green');
-    assert(trainingEmbed.fields.some((field: any) => field.name === 'Average' && field.value === '9.2/10'));
+    const trainingPanel = trainingSends[0].components[0].toJSON();
+    assert.equal(trainingSends[0].flags, MessageFlags.IsComponentsV2);
+    assert.equal(trainingSends[0].embeds, undefined);
+    assert.equal(trainingPanel.accent_color, 0x22c55e, 'Pass training results must be green');
+    assert(JSON.stringify(trainingPanel).includes('Average') && JSON.stringify(trainingPanel).includes('9.2/10'));
+    assert(JSON.stringify(trainingPanel).includes('attachment://underbanner.webp'));
 
     const promotionSends: any[] = [];
     const promotionDms: any[] = [];
@@ -1029,8 +865,8 @@ for (const required of [
         isSendable: () => true,
         isTextBased: () => true,
         send: async (payload: any) => {
-            const title = payload.embeds?.[0]?.toJSON?.().title;
-            if (title?.includes('Request Submitted')) freshLoaRequestPayload = payload;
+            const serialized = JSON.stringify(payload);
+            if (serialized.includes('Request Submitted')) freshLoaRequestPayload = payload;
             else freshLoaResults.push(payload);
             return { id: 'fresh-loa-request-message' };
         },
@@ -1064,13 +900,16 @@ for (const required of [
     } as never);
     assert(freshLoaRequestPayload, 'a fresh LOA submission must create its review message');
     assert(freshLoaSubmitReplies.some(reply => reply.includes('submitted for review')));
-    const freshLoaCustomId = freshLoaRequestPayload.components[0].toJSON().components[0].custom_id;
+    const freshLoaPanelComponents = freshLoaRequestPayload.components[0].toJSON().components;
+    const freshLoaReviewRow = freshLoaPanelComponents.find((component: { type: number }) => component.type === 1);
+    const freshLoaCustomId = freshLoaReviewRow.components[0].custom_id;
     const freshFirstReplies: string[] = [];
     const freshSecondReplies: string[] = [];
     const freshMessage = {
         id: 'fresh-loa-request-message',
         channelId: freshLoaChannel.id,
         embeds: [],
+        components: freshLoaRequestPayload.components,
         createdAt: new Date(),
     };
     const firstFreshApproval = handleLoaButton({
@@ -1259,6 +1098,9 @@ for (const required of [
         deferReply: async () => undefined,
         editReply: async (content: string) => { fallbackReplies.push(content); },
         user: { id: 'fallback-issuer' },
+        member: {
+            roles: { cache: new Map([[INFRACTION_AUTHORIZED_ROLE_ID, { id: INFRACTION_AUTHORIZED_ROLE_ID }]]) },
+        },
         memberPermissions: { has: () => true },
         options: {
             getSubcommand: () => 'issue',
@@ -1284,48 +1126,6 @@ for (const required of [
     assert(fallbackReplies.some(reply => reply.includes('INF-0002 has been issued successfully')));
     assert(!fallbackReplies.some(reply => reply.includes('Unable to create')));
 
-    let automaticInfraction: InfractionRecord | null = null;
-    configureInfractionPersistence({
-        nextCaseNumber: async () => 3,
-        saveInfraction: async record => { automaticInfraction = record; },
-        getInfractionByThreadId: async () => automaticInfraction,
-    });
-    const automaticPanels: any[] = [];
-    const automaticDms: any[] = [];
-    const automaticThread = {
-        id: 'automatic-infraction-thread',
-        url: 'https://discord.com/channels/guild/automatic-infraction-thread',
-        send: async () => undefined,
-    };
-    const automaticParent = {
-        id: '1526044664975851642',
-        type: ChannelType.GuildText,
-        isSendable: () => true,
-        send: async (payload: any) => {
-            automaticPanels.push(payload);
-            return {
-                id: 'automatic-infraction-message',
-                url: 'https://discord.com/channels/guild/automatic-infraction-message',
-                startThread: async () => automaticThread,
-            };
-        },
-    };
-    const automaticResult = await issueAutomaticInfraction({
-        user: { id: 'shift-quota-bot' },
-        channels: { fetch: async () => automaticParent },
-    } as never, '789699000047370261', {
-        id: 'automatic-member',
-        username: 'AutomaticMember',
-        send: async (payload: any) => { automaticDms.push(payload); },
-    } as never, {
-        reason: 'Weekly shift quota was not completed.',
-        ruleBroken: 'Weekly Shift Quota',
-    });
-    assert.equal(automaticResult.caseNumber, 'INF-0003');
-    assert.equal(automaticPanels[0].flags, 32_768, 'automatic quota infractions must use the same V2 case emblem');
-    assert.equal(automaticDms[0].flags, 32_768, 'automatic quota infractions must DM the member with the V2 emblem');
-    assert.equal((automaticInfraction as InfractionRecord | null)?.action, 'Warning');
-    assert.equal((automaticInfraction as InfractionRecord | null)?.threadId, automaticThread.id);
 
     let viewInfractionsPayload: any = null;
     let viewInfractionsDeferred = false;
@@ -1412,6 +1212,9 @@ for (const required of [
             guildId: '789699000047370261',
             channelId: 'wrong-command-channel',
             user: { id: 'session-host' },
+            member: {
+                roles: { cache: new Map([[SESSION_START_AUTHORIZED_ROLE_ID, { id: SESSION_START_AUTHORIZED_ROLE_ID }]]) },
+            },
             options: { getInteger: () => 5 },
             channel: {
                 isSendable: () => true,
@@ -1448,12 +1251,17 @@ for (const required of [
             sessionPayload.files.map((file: { name: string }) => file.name),
             [bannerName, 'underbanner.webp'],
         );
-        assert.deepEqual(sessionPayload.allowedMentions.roles, ['1521593407749754990']);
         const sessionText = sessionPanel.components
             .flatMap((component: { components?: Array<{ content?: string }> }) => component.components || [])
             .map((component: { content?: string }) => component.content || '')
             .join('\n');
-        assert(sessionText.includes('<@&1521593407749754990>'), `/${commandName} must mention the session role inside its V2 emblem`);
+        if (commandName === 'session-end') {
+            assert.equal(sessionPayload.allowedMentions.roles, undefined, '/session-end must not ping the session role');
+            assert(!sessionText.includes('<@&1521593407749754990>'), '/session-end must not mention the session role');
+        } else {
+            assert.deepEqual(sessionPayload.allowedMentions.roles, ['1521593407749754990']);
+            assert(sessionText.includes('<@&1521593407749754990>'), `/${commandName} must mention the session role inside its V2 emblem`);
+        }
         if (commandName === 'session-vote') sessionVotePayload = sessionPayload;
     }
     assert.equal(deletedSessionMessages, 2, '/session-end must delete every prior bot session announcement only');
@@ -2183,7 +1991,9 @@ for (const required of [
         deferReply: async () => undefined,
         editReply: async (content: string) => { appealSubmissionReplies.push(content); },
     } as never);
-    const approveButtonId = appealReviewPayload.components[0].toJSON().components[0].custom_id as string;
+    const appealReviewComponents = appealReviewPayload.components[0].toJSON().components;
+    const appealReviewRow = appealReviewComponents.find((component: { type: number }) => component.type === 1);
+    const approveButtonId = appealReviewRow.components[0].custom_id as string;
     const appealId = approveButtonId.split(':')[2];
     assert(appealSubmissionReplies.some(reply => reply.includes(appealId)));
 
@@ -2200,7 +2010,8 @@ for (const required of [
     } as never);
     assert.equal(approvedAppealDms.length, 1, 'approved appeals must DM the affected member');
     assert.equal(sourceAppealNotices.length, 1, 'approved appeals must update the source infraction channel');
-    assert.equal(sourceAppealNotices[0].embeds[0].toJSON().title, '✅ Infraction Appealed');
+    assert.equal(sourceAppealNotices[0].flags, MessageFlags.IsComponentsV2);
+    assert(JSON.stringify(sourceAppealNotices[0]).includes('✅ Infraction Appealed'));
     assert(appealReviewEdit, 'the staff review message must be updated after a decision');
     assert(appealReviewReplies.some(reply => reply.includes('infraction channel was updated')));
     configureInfractionPersistence(null);
@@ -2240,8 +2051,11 @@ for (const required of [
     await handleMessageModeration(moderationMessage);
     await handleMessageModeration(moderationMessage);
     assert.equal(moderationSends.length, 2, 'one message should create one profanity log and one raid log without duplicates');
-    const highThreatPayload = moderationSends.find(entry => entry.payload.content)?.payload;
-    assert.equal(highThreatPayload?.content, '<@&1523122912201277590>', 'only the High-confidence alert should ping emergency staff');
+    const highThreatPayload = moderationSends.find(entry =>
+        entry.payload.allowedMentions?.roles?.includes('1523122912201277590'),
+    )?.payload;
+    assert.equal(highThreatPayload?.flags, MessageFlags.IsComponentsV2);
+    assert(JSON.stringify(highThreatPayload).includes('<@&1523122912201277590>'), 'only the High-confidence alert should ping emergency staff');
     if (originalEmergencyRole === undefined) delete process.env.EMERGENCY_STAFF_ROLE_ID;
     else process.env.EMERGENCY_STAFF_ROLE_ID = originalEmergencyRole;
 

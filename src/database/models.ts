@@ -114,28 +114,6 @@ const auditEventSchema = new Schema({
     createdAt: { type: Date, default: Date.now },
 });
 
-export interface ActivityCheckRecord {
-    guildId: string;
-    channelId: string;
-    messageId: string;
-    startedById: string;
-    startedAt: Date;
-    endsAt?: Date;
-    active: boolean;
-    voters: Array<{ userId: string; username: string; votedAt: Date }>;
-}
-
-const activityCheckSchema = new Schema<ActivityCheckRecord>({
-    guildId: { type: String, required: true, index: true },
-    channelId: { type: String, required: true },
-    messageId: { type: String, required: true },
-    startedById: { type: String, required: true },
-    startedAt: { type: Date, default: Date.now },
-    endsAt: Date,
-    active: { type: Boolean, default: true },
-    voters: { type: [{ userId: String, username: String, votedAt: { type: Date, default: Date.now } }], default: [] },
-});
-
 export interface BanAppealRecord {
     appealId: string;
     guildId: string;
@@ -238,53 +216,6 @@ const applicationSessionSchema = new Schema<ApplicationSessionRecord>({
     promptPending: { type: Boolean, required: true, default: false },
 });
 
-export interface ShiftProfileRecord {
-    guildId: string;
-    userId: string;
-    username: string;
-    activeStartedAt?: Date;
-    breakStartedAt?: Date;
-    quotaSeconds?: number;
-    infractionExempt: boolean;
-    weeklySeconds: Record<string, number>;
-    completionDmWeeks: string[];
-    quotaInfractionWeeks: string[];
-    updatedAt: Date;
-}
-
-const shiftProfileSchema = new Schema<ShiftProfileRecord>({
-    guildId: { type: String, required: true, index: true },
-    userId: { type: String, required: true, index: true },
-    username: { type: String, required: true },
-    activeStartedAt: Date,
-    breakStartedAt: Date,
-    quotaSeconds: Number,
-    infractionExempt: { type: Boolean, default: false },
-    weeklySeconds: { type: Schema.Types.Mixed, default: {} },
-    completionDmWeeks: { type: [String], default: [] },
-    quotaInfractionWeeks: { type: [String], default: [] },
-    updatedAt: { type: Date, default: Date.now },
-});
-shiftProfileSchema.index({ guildId: 1, userId: 1 }, { unique: true });
-
-export interface ShiftQuotaEvaluationRecord {
-    guildId: string;
-    weekKey: string;
-    status: 'Processing' | 'Completed';
-    lockedUntil?: Date;
-    startedAt: Date;
-    completedAt?: Date;
-}
-
-const shiftQuotaEvaluationSchema = new Schema<ShiftQuotaEvaluationRecord>({
-    guildId: { type: String, required: true, index: true },
-    weekKey: { type: String, required: true },
-    status: { type: String, enum: ['Processing', 'Completed'], required: true },
-    lockedUntil: Date,
-    startedAt: { type: Date, default: Date.now },
-    completedAt: Date,
-});
-shiftQuotaEvaluationSchema.index({ guildId: 1, weekKey: 1 }, { unique: true });
 
 export interface LoaRequestRecord {
     pendingId: string;
@@ -333,12 +264,9 @@ const Infraction = model<InfractionRecord>('Infraction', infractionSchema);
 const ErlcState = model('ErlcState', erlcStateSchema);
 const ProhibitedWord = model('ProhibitedWord', prohibitedWordSchema);
 const AuditEvent = model('AuditEvent', auditEventSchema);
-const ActivityCheck = model<ActivityCheckRecord>('ActivityCheck', activityCheckSchema);
 const BanAppeal = model<BanAppealRecord>('BanAppeal', banAppealSchema);
 const InfractionAppeal = model<InfractionAppealRecord>('InfractionAppeal', infractionAppealSchema);
 const ApplicationSession = model<ApplicationSessionRecord>('ApplicationSession', applicationSessionSchema);
-const ShiftProfile = model<ShiftProfileRecord>('ShiftProfile', shiftProfileSchema);
-const ShiftQuotaEvaluation = model<ShiftQuotaEvaluationRecord>('ShiftQuotaEvaluation', shiftQuotaEvaluationSchema);
 const LoaRequest = model<LoaRequestRecord>('LoaRequest', loaRequestSchema);
 
 export {
@@ -349,11 +277,8 @@ export {
     ErlcState,
     ProhibitedWord,
     AuditEvent,
-    ActivityCheck,
     BanAppeal,
     InfractionAppeal,
     ApplicationSession,
-    ShiftProfile,
-    ShiftQuotaEvaluation,
     LoaRequest,
 };

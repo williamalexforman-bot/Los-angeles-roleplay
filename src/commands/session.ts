@@ -15,6 +15,7 @@ import {
 } from '../utils/embeds';
 import { markSlashCommandFailed } from '../utils/commandAudit';
 import { logger } from '../utils/logger';
+import { SESSION_START_AUTHORIZED_ROLE_ID } from '../config/constants';
 
 /* -------------------------------------------------------------------------- */
 /*  Constants                                                                  */
@@ -30,6 +31,20 @@ const SESSION_ANNOUNCEMENT_CHANNEL_ID = '1526036392147423404';
 async function getSessionAnnouncementChannel(interaction: ChatInputCommandInteraction) {
     const channel = await interaction.client.channels.fetch(SESSION_ANNOUNCEMENT_CHANNEL_ID).catch(() => null);
     return channel?.isSendable() ? channel : null;
+}
+
+function sessionMemberRoleIds(member: ChatInputCommandInteraction['member']): string[] {
+    if (!member) return [];
+    if (Array.isArray(member.roles)) return member.roles;
+    const cache = (member.roles as { cache?: { keys(): IterableIterator<string> } }).cache;
+    return cache?.keys ? [...cache.keys()] : [];
+}
+
+async function canStartSession(interaction: ChatInputCommandInteraction): Promise<boolean> {
+    if (sessionMemberRoleIds(interaction.member).includes(SESSION_START_AUTHORIZED_ROLE_ID)) return true;
+    if (!interaction.guild) return false;
+    const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
+    return Boolean(member && sessionMemberRoleIds(member).includes(SESSION_START_AUTHORIZED_ROLE_ID));
 }
 
 type SessionComponentNode = {
@@ -179,7 +194,7 @@ function buildSessionVotePanel(
 }
 
 function buildSessionEndPanel(interaction: ChatInputCommandInteraction) {
-    const description = `${SESSION_PING_MENTION}\n\nThe session has been shut down by <@${interaction.user.id}>. Please don't join or you may face punishment.`;
+    const description = `The session has been shut down by <@${interaction.user.id}>. Please don't join or you may face punishment.`;
     return createSessionPanel(
         'SESSION END',
         description,
@@ -459,6 +474,10 @@ const sessionStartCommand = {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         try {
+            if (!(await canStartSession(interaction))) {
+                await interaction.editReply(`You need <@&${SESSION_START_AUTHORIZED_ROLE_ID}> to start a session.`);
+                return;
+            }
             const channel = await getSessionAnnouncementChannel(interaction);
             if (!channel) {
                 await interaction.editReply(`The session announcement channel <#${SESSION_ANNOUNCEMENT_CHANNEL_ID}> is unavailable.`);
@@ -567,7 +586,7 @@ const sessionEndCommand = {
                 components: [buildSessionEndPanel(interaction)],
                 files: attachments,
                 flags: MessageFlags.IsComponentsV2,
-                allowedMentions: { parse: [], roles: [SESSION_PING_ROLE_ID], users: [interaction.user.id] },
+                allowedMentions: { parse: [] },
             });
 
             await interaction.editReply(

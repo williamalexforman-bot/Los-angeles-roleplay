@@ -15,7 +15,7 @@ import {
     type GuildMember,
 } from 'discord.js';
 import { BRAND } from '../config/constants';
-import { createLogoAttachment } from '../utils/embeds';
+import { legacyEmbedToV2Message } from '../utils/embeds';
 import { markSlashCommandFailed } from '../utils/commandAudit';
 import { logger } from '../utils/logger';
 import { isDatabaseAvailable } from '../database/connection';
@@ -86,6 +86,24 @@ function fieldValue(embed: RecoverableLoaEmbed, name: string): string {
     return embed.fields?.find(field => field.name.toLowerCase() === name.toLowerCase())?.value.trim() || '';
 }
 
+type LoaComponentNode = { content?: unknown; components?: readonly LoaComponentNode[] };
+
+function componentValues(interaction: ButtonInteraction): string[] {
+    const values: string[] = [];
+    const visit = (node: LoaComponentNode): void => {
+        if (typeof node.content === 'string') values.push(node.content);
+        for (const child of node.components || []) visit(child);
+    };
+    for (const component of interaction.message.components || []) visit(component.toJSON() as LoaComponentNode);
+    return values;
+}
+
+function componentField(values: readonly string[], name: string): string {
+    const prefix = `**${name}**\n`;
+    const value = values.find(candidate => candidate.toLowerCase().startsWith(prefix.toLowerCase()));
+    return value?.slice(prefix.length).trim() || '';
+}
+
 function storedDate(value: string): string {
     const discordTimestamp = value.match(/^<t:(\d+)(?::[A-Za-z])?>$/)?.[1];
     return discordTimestamp
@@ -103,20 +121,25 @@ function recoverPendingFromMessage(interaction: ButtonInteraction, pendingId: st
     const message = interaction.message;
     const embed = message.embeds.find(candidate => /LOA Request Submitted/i.test(candidate.title || ''))
         || message.embeds[0];
-    if (!embed) return null;
+    const components = componentValues(interaction);
+    if (!embed && !components.some(value => /LOA Request Submitted/i.test(value))) return null;
 
-    const requestedBy = fieldValue(embed, 'Requested By');
+    const recoverField = (name: string): string => embed
+        ? fieldValue(embed, name)
+        : componentField(components, name);
+
+    const requestedBy = recoverField('Requested By');
     const pendingUserId = pendingId.match(/^(\d{17,20})-\d+$/)?.[1];
     const embeddedUserId = requestedBy.match(/<@!?(\d{17,20})>/)?.[1];
     const userId = embeddedUserId || pendingUserId;
-    const name = fieldValue(embed, 'Name');
-    const startDate = storedDate(fieldValue(embed, 'Start Date'));
-    const endDate = storedDate(fieldValue(embed, 'End Date'));
-    const reason = fieldValue(embed, 'Reason');
+    const name = recoverField('Name');
+    const startDate = storedDate(recoverField('Start Date'));
+    const endDate = storedDate(recoverField('End Date'));
+    const reason = recoverField('Reason');
     if (!userId || !name || !startDate || !endDate || !reason || pendingUserId !== userId) return null;
 
-    const requestedAt = storedDate(fieldValue(embed, 'Submitted At'))
-        || embed.timestamp
+    const requestedAt = storedDate(recoverField('Submitted At'))
+        || embed?.timestamp
         || message.createdAt?.toISOString()
         || new Date().toISOString();
     const pending: PendingLoa = {
@@ -462,7 +485,7 @@ async function sendApprovalConfirmation(member: GuildMember, active: ActiveLoa):
             { name: 'Start Date', value: dateTimestamp(active.startDate), inline: true },
             { name: 'End Date', value: dateTimestamp(active.endDate), inline: true },
         );
-    await member.send({ embeds: [dmEmbed], files: [createLogoAttachment()] }).catch(() => {
+    await member.send(legacyEmbedToV2Message(dmEmbed)).catch(() => {
         logger.warn(`Could not send LOA approval DM to ${member.user.tag} (${member.id}).`);
     });
 }
@@ -475,7 +498,7 @@ async function sendDenialConfirmation(member: GuildMember, pending: PendingLoa, 
             { name: 'Requested End', value: dateTimestamp(pending.endDate), inline: true },
             { name: 'Reviewed By', value: `<@${reviewedBy}>`, inline: true },
         );
-    await member.send({ embeds: [dmEmbed], files: [createLogoAttachment()] }).catch(() => {
+    await member.send(legacyEmbedToV2Message(dmEmbed)).catch(() => {
         logger.warn(`Could not send LOA denial DM to ${member.user.tag} (${member.id}).`);
     });
 }
@@ -584,12 +607,10 @@ export async function handleLoaButton(interaction: ButtonInteraction): Promise<b
 
                 const channel = await interaction.client.channels.fetch(LOA_REQUEST_CHANNEL_ID).catch(() => null);
                 if (channel?.isSendable()) {
-                    await channel.send({
+                    await channel.send(legacyEmbedToV2Message(approvedEmbed(active), {
                         content: `<@${pending.userId}>`,
-                        embeds: [approvedEmbed(active)],
-                        files: [createLogoAttachment()],
                         allowedMentions: { parse: [], users: [pending.userId] },
-                    }).catch(error => {
+                    })).catch(error => {
                         logger.warn(`Could not post the approved LOA for ${pending.userId}: ${error instanceof Error ? error.message : 'Unknown'}`);
                     });
                 }
@@ -617,12 +638,10 @@ export async function handleLoaButton(interaction: ButtonInteraction): Promise<b
 
                 const channel = await interaction.client.channels.fetch(LOA_REQUEST_CHANNEL_ID).catch(() => null);
                 if (channel?.isSendable()) {
-                    await channel.send({
+                    await channel.send(legacyEmbedToV2Message(deniedEmbed(pending.memberUsername), {
                         content: `<@${pending.userId}>`,
-                        embeds: [deniedEmbed(pending.memberUsername)],
-                        files: [createLogoAttachment()],
                         allowedMentions: { parse: [], users: [pending.userId] },
-                    }).catch(error => {
+                    })).catch(error => {
                         logger.warn(`Could not post the denied LOA for ${pending.userId}: ${error instanceof Error ? error.message : 'Unknown'}`);
                     });
                 }
@@ -696,13 +715,11 @@ export async function handleLoaModal(interaction: ModalSubmitInteraction): Promi
             return true;
         }
 
-        const sent = await channel.send({
+        const sent = await channel.send(legacyEmbedToV2Message(requestEmbed(pending), {
             content: `<@${interaction.user.id}>`,
-            embeds: [requestEmbed(pending)],
-            components: reviewActionRows(pendingId),
-            files: [createLogoAttachment()],
+            actionRows: reviewActionRows(pendingId),
             allowedMentions: { parse: [], users: [interaction.user.id] },
-        });
+        }));
         pending.channelId = channel.id;
         pending.messageId = sent.id;
         await ensurePendingStored(pendingId, pending).catch(error => {

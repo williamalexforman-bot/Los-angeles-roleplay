@@ -5,7 +5,7 @@ import {
 } from 'discord.js';
 import prohibitedWords from '../config/prohibitedWords';
 import { BRAND, CHANNEL_IDS } from '../config/constants';
-import { createLogoAttachment } from '../utils/embeds';
+import { legacyEmbedToV2Message } from '../utils/embeds';
 
 const PROFANITY_LOG_CHANNEL_ID = CHANNEL_IDS.profanityLog;
 const RAID_THREAT_LOG_CHANNEL_ID = CHANNEL_IDS.raidThreatLog;
@@ -316,7 +316,7 @@ export async function handleMessageModeration(message: Message): Promise<void> {
                 )
                 .setFooter({ text: EMBED_FOOTER })
                 .setTimestamp();
-            await message.reply({ embeds: [replyEmbed], allowedMentions: { parse: [] } });
+            await message.reply(legacyEmbedToV2Message(replyEmbed, { allowedMentions: { parse: [] } }));
         } catch {
             // best-effort
         }
@@ -324,11 +324,10 @@ export async function handleMessageModeration(message: Message): Promise<void> {
 
     const detectedWords = detectProhibitedWords(message.content);
     if (detectedWords.length > 0 && reserveMessage(profanityLogDedupe, message.id)) {
-        const sent = await sendToLogChannel(message, PROFANITY_LOG_CHANNEL_ID, {
-            embeds: [buildProfanityEmbed(message, detectedWords)],
-            files: [createLogoAttachment()],
+        const sent = await sendToLogChannel(message, PROFANITY_LOG_CHANNEL_ID, legacyEmbedToV2Message(
+            buildProfanityEmbed(message, detectedWords), {
             allowedMentions: { parse: [] },
-        });
+        }));
 
         if (!sent) profanityLogDedupe.delete(message.id);
     }
@@ -339,14 +338,13 @@ export async function handleMessageModeration(message: Message): Promise<void> {
         const shouldPingEmergencyStaff = raidThreat.confidence === 'High'
             && Boolean(emergencyRoleId?.match(/^\d{17,20}$/u));
 
-        const sent = await sendToLogChannel(message, RAID_THREAT_LOG_CHANNEL_ID, {
+        const sent = await sendToLogChannel(message, RAID_THREAT_LOG_CHANNEL_ID, legacyEmbedToV2Message(
+            buildRaidThreatEmbed(message, raidThreat), {
             content: shouldPingEmergencyStaff ? `<@&${emergencyRoleId}>` : undefined,
-            embeds: [buildRaidThreatEmbed(message, raidThreat)],
-            files: [createLogoAttachment()],
             allowedMentions: shouldPingEmergencyStaff && emergencyRoleId
                 ? { roles: [emergencyRoleId] }
                 : { parse: [] },
-        });
+        }));
 
         if (!sent) raidLogDedupe.delete(message.id);
     }

@@ -22,6 +22,7 @@ import { logger } from '../utils/logger';
 
 const SUGGESTION_CHANNEL_ID = '1538693259621044264';
 const PANEL_COLOR = 0x247bf1;
+const inMemorySuggestions = new Map<string, SuggestionRecord>();
 
 type VoteDirection = 'up' | 'down';
 
@@ -55,6 +56,103 @@ function statusColor(status: SuggestionStatus): number {
 
 function votingOpen(status: SuggestionStatus): boolean {
     return status === 'Pending' || status === 'Maybe';
+}
+
+function cacheSuggestion(record: SuggestionRecord): SuggestionRecord {
+    const cached: SuggestionRecord = {
+        ...record,
+        upvotes: [...record.upvotes],
+        downvotes: [...record.downvotes],
+    };
+    inMemorySuggestions.set(cached.suggestionId, cached);
+    return cached;
+}
+
+async function findSuggestion(suggestionId: string, guildId?: string | null): Promise<SuggestionRecord | null> {
+    if (isDatabaseAvailable()) {
+        const query: { suggestionId: string; guildId?: string } = { suggestionId };
+        if (guildId) query.guildId = guildId;
+        const stored = await Suggestion.findOne(query).lean().exec().catch(() => null);
+        if (stored) return cacheSuggestion(stored as unknown as SuggestionRecord);
+    }
+
+    const cached = inMemorySuggestions.get(suggestionId) || null;
+    return cached && (!guildId || cached.guildId === guildId) ? cached : null;
+}
+
+async function createSuggestion(record: SuggestionRecord): Promise<SuggestionRecord> {
+    if (isDatabaseAvailable()) {
+        try {
+            const document = await Suggestion.create(record);
+            return cacheSuggestion(document.toObject() as SuggestionRecord);
+        } catch (error) {
+            logger.warn(`[Suggestions] MongoDB create failed for ${record.suggestionId}; using the in-memory fallback: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    }
+
+    return cacheSuggestion(record);
+}
+
+async function saveSuggestionMessageId(record: SuggestionRecord, messageId: string): Promise<SuggestionRecord> {
+    const updated = cacheSuggestion({ ...record, messageId, updatedAt: new Date() });
+    if (!isDatabaseAvailable()) return updated;
+
+    const stored = await Suggestion.findOneAndUpdate(
+        { suggestionId: record.suggestionId },
+        { $set: { messageId, updatedAt: updated.updatedAt } },
+        { new: true },
+    ).lean().exec().catch(() => null);
+    return stored ? cacheSuggestion(stored as unknown as SuggestionRecord) : updated;
+}
+
+async function removeSuggestion(suggestionId: string): Promise<void> {
+    inMemorySuggestions.delete(suggestionId);
+    if (isDatabaseAvailable()) {
+        await Suggestion.deleteOne({ suggestionId }).exec().catch(() => undefined);
+    }
+}
+
+async function saveSuggestionVotes(
+    record: SuggestionRecord,
+    upvotes: string[],
+    downvotes: string[],
+): Promise<SuggestionRecord | null> {
+    if (!votingOpen(record.status)) return null;
+    const updatedAt = new Date();
+
+    if (isDatabaseAvailable()) {
+        const stored = await Suggestion.findOneAndUpdate(
+            { suggestionId: record.suggestionId, status: { $in: ['Pending', 'Maybe'] } },
+            { $set: { upvotes, downvotes, updatedAt } },
+            { new: true },
+        ).lean().exec().catch(() => null);
+        if (stored) return cacheSuggestion(stored as unknown as SuggestionRecord);
+    }
+
+    const current = inMemorySuggestions.get(record.suggestionId);
+    if (!current || !votingOpen(current.status)) return null;
+    return cacheSuggestion({ ...current, upvotes, downvotes, updatedAt });
+}
+
+async function saveSuggestionDecision(
+    suggestionId: string,
+    guildId: string | null,
+    status: Exclude<SuggestionStatus, 'Pending'>,
+    decidedById: string,
+): Promise<SuggestionRecord | null> {
+    const decidedAt = new Date();
+    if (isDatabaseAvailable()) {
+        const stored = await Suggestion.findOneAndUpdate(
+            { suggestionId, guildId },
+            { $set: { status, decidedAt, decidedById, updatedAt: decidedAt } },
+            { new: true },
+        ).lean().exec().catch(() => null);
+        if (stored) return cacheSuggestion(stored as unknown as SuggestionRecord);
+    }
+
+    const current = inMemorySuggestions.get(suggestionId);
+    if (!current || current.guildId !== guildId) return null;
+    return cacheSuggestion({ ...current, status, decidedAt, decidedById, updatedAt: decidedAt });
 }
 
 function voteRow(record: SuggestionRecord): ActionRowBuilder<ButtonBuilder> {
@@ -112,7 +210,8 @@ function suggestionPanel(record: SuggestionRecord): ContainerBuilder {
 async function generateSuggestionId(): Promise<string> {
     for (let attempt = 0; attempt < 30; attempt += 1) {
         const id = String(randomInt(10_000_000, 100_000_000));
-        if (!await Suggestion.exists({ suggestionId: id })) return id;
+        if (inMemorySuggestions.has(id)) continue;
+        if (!isDatabaseAvailable() || !await Suggestion.exists({ suggestionId: id }).catch(() => false)) return id;
     }
     throw new Error('Could not allocate a suggestion ID.');
 }
@@ -133,8 +232,8 @@ async function editSuggestionMessage(client: ButtonInteraction['client'] | ChatI
 
 async function executeSuggestions(interaction: ChatInputCommandInteraction): Promise<void> {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    if (!interaction.guildId || !isDatabaseAvailable()) {
-        await interaction.editReply('Suggestions are temporarily unavailable because the database is offline.');
+    if (!interaction.guildId) {
+        await interaction.editReply('Suggestions can only be submitted inside the server.');
         return;
     }
 
@@ -153,7 +252,7 @@ async function executeSuggestions(interaction: ChatInputCommandInteraction): Pro
     const suggestionId = await generateSuggestionId();
     let record: SuggestionRecord;
     try {
-        const document = await Suggestion.create({
+        record = await createSuggestion({
             suggestionId,
             guildId: interaction.guildId,
             userId: interaction.user.id,
@@ -167,7 +266,6 @@ async function executeSuggestions(interaction: ChatInputCommandInteraction): Pro
             createdAt: new Date(),
             updatedAt: new Date(),
         });
-        record = document.toObject() as SuggestionRecord;
 
         const message = await channel.send({
             components: [suggestionPanel(record)],
@@ -175,14 +273,9 @@ async function executeSuggestions(interaction: ChatInputCommandInteraction): Pro
             flags: MessageFlags.IsComponentsV2,
             allowedMentions: { parse: [] },
         });
-        const updated = await Suggestion.findOneAndUpdate(
-            { suggestionId },
-            { $set: { messageId: message.id, updatedAt: new Date() } },
-            { new: true },
-        ).lean().exec();
-        record = updated as unknown as SuggestionRecord;
+        record = await saveSuggestionMessageId(record, message.id);
     } catch (error) {
-        await Suggestion.deleteOne({ suggestionId }).exec().catch(() => undefined);
+        await removeSuggestion(suggestionId);
         logger.warn(`[Suggestions] Could not create ${suggestionId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
         await interaction.editReply('I could not post your suggestion. Please try again.');
         return;
@@ -196,19 +289,13 @@ export async function handleSuggestionButton(interaction: ButtonInteraction): Pr
     if (!match) return false;
     await interaction.deferUpdate();
 
-    if (!isDatabaseAvailable()) {
-        await interaction.followUp({ content: 'Voting is temporarily unavailable.', flags: MessageFlags.Ephemeral });
-        return true;
-    }
-
     const direction = match[1] as VoteDirection;
     const suggestionId = match[2];
-    const raw = await Suggestion.findOne({ suggestionId }).lean().exec().catch(() => null);
-    if (!raw) {
+    const record = await findSuggestion(suggestionId, interaction.guildId);
+    if (!record) {
         await interaction.followUp({ content: 'That suggestion no longer exists.', flags: MessageFlags.Ephemeral });
         return true;
     }
-    const record = raw as unknown as SuggestionRecord;
     if (!votingOpen(record.status)) {
         await interaction.followUp({ content: `Voting is closed because this suggestion is ${record.status.toLowerCase()}.`, flags: MessageFlags.Ephemeral });
         return true;
@@ -237,17 +324,12 @@ export async function handleSuggestionButton(interaction: ButtonInteraction): Pr
         action = 'Your downvote was recorded.';
     }
 
-    const updatedRaw = await Suggestion.findOneAndUpdate(
-        { suggestionId, status: { $in: ['Pending', 'Maybe'] } },
-        { $set: { upvotes: [...up], downvotes: [...down], updatedAt: new Date() } },
-        { new: true },
-    ).lean().exec().catch(() => null);
-    if (!updatedRaw) {
+    const updated = await saveSuggestionVotes(record, [...up], [...down]);
+    if (!updated) {
         await interaction.followUp({ content: 'The suggestion changed while you were voting. Please try again.', flags: MessageFlags.Ephemeral });
         return true;
     }
 
-    const updated = updatedRaw as unknown as SuggestionRecord;
     await interaction.message.edit({
         components: [suggestionPanel(updated)],
         flags: MessageFlags.IsComponentsV2,
@@ -263,30 +345,18 @@ async function executeDecision(interaction: ChatInputCommandInteraction, status:
         await interaction.editReply('Only the Discord server owner can make an official suggestion decision.');
         return;
     }
-    if (!isDatabaseAvailable()) {
-        await interaction.editReply('Suggestion decisions are temporarily unavailable because the database is offline.');
-        return;
-    }
 
     const suggestionId = interaction.options.getString('suggestion-id', true).replace(/[^0-9]/g, '');
-    const updatedRaw = await Suggestion.findOneAndUpdate(
-        { suggestionId, guildId: interaction.guildId },
-        {
-            $set: {
-                status,
-                decidedAt: new Date(),
-                decidedById: interaction.user.id,
-                updatedAt: new Date(),
-            },
-        },
-        { new: true },
-    ).lean().exec().catch(() => null);
-    if (!updatedRaw) {
+    const record = await saveSuggestionDecision(
+        suggestionId,
+        interaction.guildId,
+        status,
+        interaction.user.id,
+    );
+    if (!record) {
         await interaction.editReply(`I could not find suggestion \`${suggestionId || 'unknown'}\` in this server.`);
         return;
     }
-
-    const record = updatedRaw as unknown as SuggestionRecord;
     await editSuggestionMessage(interaction.client, record).catch(() => false);
 
     const dmText = status === 'Approved'

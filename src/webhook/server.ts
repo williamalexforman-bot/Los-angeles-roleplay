@@ -4,7 +4,7 @@ import { get as httpsGet } from 'https';
 import { Client, EmbedBuilder } from 'discord.js';
 import { isDatabaseAvailable } from '../database/connection';
 import { BRAND, CHANNEL_IDS } from '../config/constants';
-import { createLogoAttachment } from '../utils/embeds';
+import { legacyEmbedToV2Message } from '../utils/embeds';
 import { logger } from '../utils/logger';
 
 const MAX_BODY_BYTES = 1_000_000;
@@ -53,7 +53,7 @@ async function sendEmbed(client: Client, channelId: string, embed: EmbedBuilder)
     const channel = await client.channels.fetch(channelId).catch(() => null);
     if (!channel?.isSendable()) throw new WebhookDeliveryError(`Discord destination ${channelId} is unavailable.`);
     try {
-        await channel.send({ embeds: [embed], files: [createLogoAttachment()], allowedMentions: { parse: [] } });
+        await channel.send(legacyEmbedToV2Message(embed, { allowedMentions: { parse: [] } }));
     } catch {
         throw new WebhookDeliveryError(`Discord delivery to ${channelId} failed.`);
     }

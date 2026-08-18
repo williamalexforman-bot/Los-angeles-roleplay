@@ -1,4 +1,5 @@
 import { Client, type MessageCreateOptions, EmbedBuilder } from 'discord.js';
+import { legacyEmbedToV2Message } from './embeds';
 
 export async function sendToChannel(client: Client, channelId: string, content: string | MessageCreateOptions | EmbedBuilder) {
     try {
@@ -11,7 +12,7 @@ export async function sendToChannel(client: Client, channelId: string, content: 
         }
 
         if (content instanceof EmbedBuilder) {
-            await channel.send({ embeds: [content], allowedMentions: { parse: ['users'] } });
+            await channel.send(legacyEmbedToV2Message(content, { allowedMentions: { parse: ['users'] } }));
             return;
         }
 
@@ -26,4 +27,3 @@ export async function sendToChannel(client: Client, channelId: string, content: 
 }
 
 export default sendToChannel;
-
