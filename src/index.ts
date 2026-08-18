@@ -79,6 +79,7 @@ function createConfiguredClient(privilegedIntents: boolean): Client {
     // application and appeal flows and are safe to enable in both modes.
     const intents = [
         GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildModeration,
         GatewayIntentBits.DirectMessages,
         GatewayIntentBits.DirectMessageReactions,
     ];
@@ -87,7 +88,6 @@ function createConfiguredClient(privilegedIntents: boolean): Client {
             GatewayIntentBits.GuildMembers,
             GatewayIntentBits.GuildMessages,
             GatewayIntentBits.MessageContent,
-            GatewayIntentBits.GuildBans,
         );
     } else {
         logger.warn('Running without privileged intents; message moderation and member events are disabled until enabled in the Discord Developer Portal.');

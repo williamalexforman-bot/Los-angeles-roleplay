@@ -2,6 +2,18 @@
 
 A Discord.js v14 management bot for California State Roleplay, with staff workflows, message safety alerts, command auditing, ER:LC v2 monitoring, and utility commands.
 
+## Server security guard
+
+The bot protects the server from unauthorized bot additions, webhook creation or edits, and integration creation or edits. It uses Discord audit-log events for attribution and gateway events plus startup snapshots as a fallback. Existing webhooks and integrations are preserved when the bot starts; newly detected resources fail closed when no trusted executor can be verified.
+
+High-confidence targeted bullying is also removed automatically and the author is timed out for 10 minutes by default. Set `BULLYING_TIMEOUT_MINUTES` to change the duration. Detection requires direct second-person abuse or an abusive phrase aimed through a Discord mention/reply, reducing false actions on ordinary conversation. Automatic enforcement requires **Message Content Intent**, **Manage Messages**, and **Moderate Members**, with the bot role above the member being timed out.
+
+Only the server owner, this bot, IDs in `SECURITY_TRUSTED_USER_IDS`, and members with a role in `SECURITY_TRUSTED_ROLE_IDS` may authorize new protected resources. Individual resources can also be allowlisted with `SECURITY_ALLOWED_BOT_IDS`, `SECURITY_ALLOWED_WEBHOOK_IDS`, and `SECURITY_ALLOWED_INTEGRATION_IDS`. All lists are comma-separated Discord IDs.
+
+Allowlisting a bot permits that bot to remain in the server but does not automatically trust it to create webhooks or integrations. Add its user ID to `SECURITY_TRUSTED_USER_IDS` only if it genuinely requires those capabilities.
+
+For full enforcement, grant the bot **View Audit Log**, **Ban Members** (or Kick Members when configured), **Manage Webhooks**, and **Manage Server**, and place its role above bots it may need to remove. Security alerts use `SECURITY_LOG_CHANNEL_ID` and optionally ping `SECURITY_ALERT_ROLE_ID`; both fall back to the existing raid-security settings when omitted.
+
 ## Setup
 
 1. Install Node.js 20 or newer.

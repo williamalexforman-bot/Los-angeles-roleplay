@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
-import { ChannelType, Collection, MessageFlags, PermissionFlagsBits, TextChannel } from 'discord.js';
+import { AuditLogEvent, ChannelType, Collection, MessageFlags, PermissionFlagsBits, TextChannel } from 'discord.js';
 import { commandDefinitions } from '../src/commands/registry';
 import { staffCommands } from '../src/commands/staff';
-import { detectProhibitedWords, detectRaidThreat, handleMessageModeration } from '../src/events/messageModeration';
+import { detectBullying, detectProhibitedWords, detectRaidThreat, handleMessageModeration } from '../src/events/messageModeration';
 import {
     configureInfractionPersistence,
     handleStaffManagementButton,
@@ -37,6 +37,11 @@ import {
 import { handleLoaButton, handleLoaModal } from '../src/commands/loa';
 import { handleTrainingModal } from '../src/commands/requestTraining';
 import { handleSuggestionButton } from '../src/commands/suggestions';
+import {
+    handleSecurityAuditEntry,
+    resetServerSecurityStateForTests,
+    type ServerSecurityPolicy,
+} from '../src/events/serverSecurity';
 import { interactionCreate } from '../src/handlers/interactionCreate';
 import { sanitizedCommandOptions } from '../src/utils/commandAudit';
 import { fetchErlcServer, type ErlcServerSnapshot } from '../src/services/erlcService';
@@ -60,6 +65,133 @@ async function run(): Promise<void> {
     assert.equal(INFRACTION_AUTHORIZED_ROLE_ID, '1523121675007426692');
     assert.equal(PROMOTION_AUTHORIZED_ROLE_ID, '1523121617079767151');
     assert.equal(TRAINING_RESULTS_AUTHORIZED_ROLE_ID, '1521593407795888330');
+
+    const securityPolicy = (): ServerSecurityPolicy => ({
+        enabled: true,
+        trustedUserIds: new Set(),
+        trustedRoleIds: new Set(),
+        allowedBotIds: new Set(),
+        allowedWebhookIds: new Set(),
+        allowedIntegrationIds: new Set(),
+        botAction: 'ban',
+        logChannelId: 'security-log',
+        alertRoleId: 'security-alert-role',
+    });
+    const securityClient = {
+        user: { id: 'security-guardian' },
+        channels: { fetch: async () => null },
+    };
+    const untrustedExecutor = {
+        id: 'untrusted-executor',
+        roles: { cache: new Collection<string, any>() },
+    };
+
+    resetServerSecurityStateForTests();
+    let unauthorizedBotBans = 0;
+    const unauthorizedBot: any = {
+        id: 'unauthorized-bot',
+        client: securityClient,
+        user: { id: 'unauthorized-bot', bot: true, tag: 'UnauthorizedBot#0001' },
+        ban: async () => { unauthorizedBotBans += 1; },
+        kick: async () => { throw new Error('the default security policy should ban'); },
+    };
+    const botSecurityGuild: any = {
+        id: 'bot-security-guild',
+        name: 'Bot Security Guild',
+        ownerId: 'guild-owner',
+        client: securityClient,
+        members: {
+            fetch: async (id: string) => id === unauthorizedBot.id ? unauthorizedBot : untrustedExecutor,
+        },
+        fetchWebhooks: async () => new Collection(),
+        fetchIntegrations: async () => new Collection(),
+    };
+    unauthorizedBot.guild = botSecurityGuild;
+    await handleSecurityAuditEntry({
+        id: 'bot-add-audit',
+        action: AuditLogEvent.BotAdd,
+        targetId: unauthorizedBot.id,
+        executorId: untrustedExecutor.id,
+        createdTimestamp: Date.now(),
+    } as never, botSecurityGuild, securityPolicy());
+    assert.equal(unauthorizedBotBans, 1, 'an unauthorized bot addition must be removed immediately');
+    await handleSecurityAuditEntry({
+        id: 'bot-add-audit',
+        action: AuditLogEvent.BotAdd,
+        targetId: unauthorizedBot.id,
+        executorId: untrustedExecutor.id,
+        createdTimestamp: Date.now(),
+    } as never, botSecurityGuild, securityPolicy());
+    assert.equal(unauthorizedBotBans, 1, 'duplicate gateway delivery must not repeat a security action');
+
+    resetServerSecurityStateForTests();
+    let ownerAddedBotBans = 0;
+    const ownerAddedBot: any = {
+        id: 'owner-added-bot',
+        client: securityClient,
+        user: { id: 'owner-added-bot', bot: true, tag: 'OwnerAddedBot#0001' },
+        guild: botSecurityGuild,
+        ban: async () => { ownerAddedBotBans += 1; },
+    };
+    botSecurityGuild.members.fetch = async (id: string) => id === ownerAddedBot.id ? ownerAddedBot : untrustedExecutor;
+    await handleSecurityAuditEntry({
+        id: 'owner-bot-add-audit',
+        action: AuditLogEvent.BotAdd,
+        targetId: ownerAddedBot.id,
+        executorId: botSecurityGuild.ownerId,
+        createdTimestamp: Date.now(),
+    } as never, botSecurityGuild, securityPolicy());
+    assert.equal(ownerAddedBotBans, 0, 'the server owner must remain able to authorize a bot');
+
+    resetServerSecurityStateForTests();
+    let webhookDeletes = 0;
+    const unauthorizedWebhook = {
+        id: 'unauthorized-webhook',
+        name: 'Unauthorized Webhook',
+        delete: async () => { webhookDeletes += 1; },
+    };
+    const webhookSecurityGuild: any = {
+        id: 'webhook-security-guild',
+        name: 'Webhook Security Guild',
+        ownerId: 'guild-owner',
+        client: securityClient,
+        members: { fetch: async () => untrustedExecutor },
+        fetchWebhooks: async () => new Collection([[unauthorizedWebhook.id, unauthorizedWebhook]]),
+        fetchIntegrations: async () => new Collection(),
+    };
+    await handleSecurityAuditEntry({
+        id: 'webhook-create-audit',
+        action: AuditLogEvent.WebhookCreate,
+        targetId: unauthorizedWebhook.id,
+        executorId: untrustedExecutor.id,
+        createdTimestamp: Date.now(),
+    } as never, webhookSecurityGuild, securityPolicy());
+    assert.equal(webhookDeletes, 1, 'an unauthorized webhook must be deleted immediately');
+
+    resetServerSecurityStateForTests();
+    let integrationDeletes = 0;
+    const unauthorizedIntegration = {
+        id: 'unauthorized-integration',
+        name: 'Unauthorized Integration',
+        delete: async () => { integrationDeletes += 1; },
+    };
+    const integrationSecurityGuild: any = {
+        id: 'integration-security-guild',
+        name: 'Integration Security Guild',
+        ownerId: 'guild-owner',
+        client: securityClient,
+        members: { fetch: async () => untrustedExecutor },
+        fetchWebhooks: async () => new Collection(),
+        fetchIntegrations: async () => new Collection([[unauthorizedIntegration.id, unauthorizedIntegration]]),
+    };
+    await handleSecurityAuditEntry({
+        id: 'integration-create-audit',
+        action: AuditLogEvent.IntegrationCreate,
+        targetId: unauthorizedIntegration.id,
+        executorId: untrustedExecutor.id,
+        createdTimestamp: Date.now(),
+    } as never, integrationSecurityGuild, securityPolicy());
+    assert.equal(integrationDeletes, 1, 'an unauthorized server integration must be deleted immediately');
 
     const names = commandDefinitions.map(command => command.data.name);
     assert.equal(new Set(names).size, names.length, 'slash command names must be unique');
@@ -2015,6 +2147,61 @@ for (const required of [
     assert(appealReviewEdit, 'the staff review message must be updated after a decision');
     assert(appealReviewReplies.some(reply => reply.includes('infraction channel was updated')));
     configureInfractionPersistence(null);
+
+    assert(detectBullying('You are a worthless loser.'), 'direct targeted abuse must be detected');
+    assert(detectBullying('You suck.'), 'direct harassment must be detected');
+    assert(detectBullying('Fuck you.'), 'direct targeted profanity must be detected');
+    assert(detectBullying('Pathetic loser.', true), 'an insult in a reply or explicit mention must be detected');
+    assert.equal(detectBullying('That game was stupid.', true), null, 'criticism of a thing must not be treated as bullying');
+    assert.equal(detectBullying('They said you are stupid.'), null, 'reporting someone else\'s abuse must not punish the reporter');
+
+    const originalBullyingTimeout = process.env.BULLYING_TIMEOUT_MINUTES;
+    process.env.BULLYING_TIMEOUT_MINUTES = '10';
+    let bullyingTimeoutMs = 0;
+    let bullyingDeletes = 0;
+    const bullyingLogs: any[] = [];
+    const bullyingMessage = {
+        guild: { members: { fetch: async () => null } },
+        guildId: 'bullying-guild',
+        channelId: 'bullying-channel',
+        id: 'bullying-message',
+        url: 'https://discord.com/channels/bullying-guild/bullying-channel/bullying-message',
+        content: 'You are a worthless loser.',
+        webhookId: null,
+        createdTimestamp: Date.now(),
+        createdAt: new Date(),
+        author: {
+            id: 'bullying-author',
+            bot: false,
+            displayAvatarURL: () => 'https://cdn.example/bullying-author.png',
+        },
+        member: {
+            moderatable: true,
+            timeout: async (duration: number) => { bullyingTimeoutMs = duration; },
+        },
+        mentions: {
+            users: new Collection<string, any>(),
+            repliedUser: { id: 'bullying-target' },
+        },
+        delete: async () => { bullyingDeletes += 1; },
+        client: {
+            channels: {
+                fetch: async () => ({
+                    isSendable: () => true,
+                    send: async (payload: any) => { bullyingLogs.push(payload); },
+                }),
+            },
+        },
+    } as never;
+    await handleMessageModeration(bullyingMessage);
+    await handleMessageModeration(bullyingMessage);
+    assert.equal(bullyingTimeoutMs, 10 * 60 * 1000, 'detected bullying must apply the configured timeout');
+    assert.equal(bullyingDeletes, 1, 'detected bullying must delete the source message exactly once');
+    assert.equal(bullyingLogs.length, 1, 'detected bullying must produce one deduplicated moderation log');
+    assert.equal(bullyingLogs[0].flags, MessageFlags.IsComponentsV2);
+    assert(JSON.stringify(bullyingLogs[0]).includes('Targeted Bullying Automatically Actioned'));
+    if (originalBullyingTimeout === undefined) delete process.env.BULLYING_TIMEOUT_MINUTES;
+    else process.env.BULLYING_TIMEOUT_MINUTES = originalBullyingTimeout;
 
     assert.deepEqual(detectProhibitedWords('That class assignment is fine.', ['ass']), []);
     assert.deepEqual(detectProhibitedWords('This is shit.', ['shit']), ['shit']);

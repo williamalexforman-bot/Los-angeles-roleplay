@@ -13,6 +13,9 @@ const EMBED_COLOR = 0x3b82f6;
 const EMBED_FOOTER = 'Los Angeles Roleplay | Realism at its Finest';
 const DEDUPE_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_DEDUPE_ENTRIES = 10_000;
+const DEFAULT_BULLYING_TIMEOUT_MS = 10 * 60 * 1000;
+const MIN_BULLYING_TIMEOUT_MS = 60 * 1000;
+const MAX_BULLYING_TIMEOUT_MS = 28 * 24 * 60 * 60 * 1000;
 
 // Staff application help channel (auto-response)
 const STAFF_APPLY_CHANNEL_ID = '1526035041593856182';
@@ -39,6 +42,12 @@ export type RaidThreatConfidence = 'Low' | 'Medium' | 'High';
 export interface RaidThreatDetection {
     confidence: RaidThreatConfidence;
     triggerPhrase: string;
+}
+
+export interface BullyingDetection {
+    confidence: 'High';
+    triggerPhrase: string;
+    targetSignal: 'direct-address' | 'mention-or-reply';
 }
 
 interface RaidThreatRule {
@@ -92,8 +101,32 @@ const RAID_THREAT_RULES: readonly RaidThreatRule[] = [
     },
 ];
 
+// These rules intentionally require direct second-person abuse, a serious
+// harassment phrase, or an explicit mention/reply target. Generic criticism
+// such as "that game was stupid" is not enough to punish a member.
+const DIRECT_BULLYING_PATTERNS: readonly RegExp[] = [
+    /\b(?:you(?:['’]?re|\s+are)|u\s+r)\s+(?:(?:so|really)\s+|such\s+(?:an?\s+)?|an?\s+)?(?:worthless|pathetic|disgusting|ugly|stupid|dumb|idiot(?:ic)?|loser|trash|garbage|freak|failure|fat|retarded?)\b/iu,
+    /\b(?:you|u)\s+(?:worthless|pathetic|idiot|loser|trash|garbage|freak|failure|retard)\b/iu,
+    /\b(?:you|u)\s+suck\b/iu,
+    /\b(?:fuck|screw)\s+(?:you|u)\b/iu,
+    /\b(?:you(?:['’]?re|\s+are)|u\s+r)\s+(?:an?\s+)?(?:asshole|bitch|cunt|pussy)\b/iu,
+    /\b(?:sybau|syfm)\b/iu,
+    /\b(?:you|u)\s+(?:look|sound|act)\s+(?:(?:so|really)\s+)?(?:disgusting|ugly|stupid|dumb|pathetic|worthless|fat|retarded?)\b/iu,
+    /\b(?:kill\s+yourself|kys|go\s+die|you\s+should\s+die)\b/iu,
+    /\b(?:nobody|no\s+one)\s+(?:likes|wants|cares\s+about)\s+you\b/iu,
+    /\beveryone\s+(?:hates|is\s+sick\s+of)\s+you\b/iu,
+    /\b(?:i(?:['’]ll|\s+will|['’]m\s+going\s+to)|we(?:['’]ll|\s+will|['’]re\s+going\s+to))\s+(?:hurt|beat|jump|dox)\s+you\b/iu,
+];
+
+const EXPLICIT_TARGET_ABUSE_PATTERNS: readonly RegExp[] = [
+    /^(?:(?:hey\s+)?<@!?\d{15,22}>\s*[,;:—-]?\s*)?(?:(?:you(?:['’]?re|\s+are)|u\s+r)\s+)?(?:(?:such\s+)?an?\s+)?(?:worthless|pathetic|disgusting|ugly|stupid|dumb|idiot(?:ic)?|loser|trash|garbage|freak|failure|fat|retarded?|asshole|bitch|cunt|pussy|bozo)(?:\s+(?:idiot|loser|trash|freak|failure|bozo))?[.!?]*$/iu,
+    /\b(?:shut\s+up|get\s+lost|go\s+away)\b/iu,
+    /\b(?:kill\s+yourself|kys|go\s+die)\b/iu,
+];
+
 const profanityLogDedupe = new Map<string, number>();
 const raidLogDedupe = new Map<string, number>();
+const bullyingDedupe = new Map<string, number>();
 
 function escapeRegExp(value: string): string {
     return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -158,6 +191,37 @@ export function detectRaidThreat(content: string): RaidThreatDetection | null {
                     confidence: rule.confidence,
                     triggerPhrase: match[0].trim(),
                 };
+            }
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Detects high-confidence targeted bullying. An explicit Discord mention or
+ * reply allows shorter insults to count, while un-targeted messages must use a
+ * direct second-person harassment phrase.
+ */
+export function detectBullying(content: string, hasExplicitTarget = false): BullyingDetection | null {
+    const normalized = content.trim();
+    if (!normalized) return null;
+
+    for (const pattern of DIRECT_BULLYING_PATTERNS) {
+        const match = pattern.exec(normalized);
+        if (match?.[0]) {
+            const beforeMatch = normalized.slice(Math.max(0, (match.index || 0) - 80), match.index || 0);
+            const looksLikeReportingOrNegation = /\b(?:(?:said|says|say|saying|wrote|typed|quoted)|told\s+(?:me|us|them)(?:\s+to)?|(?:the\s+)?(?:phrase|words?|example)|(?:don['’]?t|do\s+not)\s+(?:think|believe))\s*[:,'"“”]*\s*$/iu.test(beforeMatch);
+            if (looksLikeReportingOrNegation) continue;
+            return { confidence: 'High', triggerPhrase: match[0].trim(), targetSignal: 'direct-address' };
+        }
+    }
+
+    if (hasExplicitTarget) {
+        for (const pattern of EXPLICIT_TARGET_ABUSE_PATTERNS) {
+            const match = pattern.exec(normalized);
+            if (match?.[0]) {
+                return { confidence: 'High', triggerPhrase: match[0].trim(), targetSignal: 'mention-or-reply' };
             }
         }
     }
@@ -291,6 +355,85 @@ function buildRaidThreatEmbed(message: Message, detection: RaidThreatDetection):
         .setTimestamp(message.createdAt);
 }
 
+function bullyingTimeoutMs(): number {
+    const configuredMinutes = Number(process.env.BULLYING_TIMEOUT_MINUTES || 10);
+    if (!Number.isFinite(configuredMinutes)) return DEFAULT_BULLYING_TIMEOUT_MS;
+    return Math.min(MAX_BULLYING_TIMEOUT_MS, Math.max(MIN_BULLYING_TIMEOUT_MS, configuredMinutes * 60_000));
+}
+
+function bullyingTargetIds(message: Message): string[] {
+    const targets = new Set<string>();
+    const mentionedUsers = message.mentions?.users;
+    if (mentionedUsers) {
+        for (const userId of mentionedUsers.keys()) {
+            if (userId !== message.author.id) targets.add(userId);
+        }
+    }
+    const repliedUserId = message.mentions?.repliedUser?.id;
+    if (repliedUserId && repliedUserId !== message.author.id) targets.add(repliedUserId);
+    return [...targets];
+}
+
+async function timeoutBullyingMember(message: Message, durationMs: number): Promise<boolean> {
+    const member = message.member || await message.guild?.members.fetch(message.author.id).catch(() => null);
+    if (!member?.moderatable) return false;
+    try {
+        await member.timeout(durationMs, 'Automatic moderation: targeted bullying or harassment');
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+function buildBullyingEmbed(
+    message: Message,
+    detection: BullyingDetection,
+    targetIds: readonly string[],
+    timedOut: boolean,
+    deleted: boolean,
+    durationMs: number,
+): EmbedBuilder {
+    const embed = new EmbedBuilder()
+        .setColor(0xef4444)
+        .setAuthor({ name: 'LARP Anti-Bullying Protection', iconURL: message.author.displayAvatarURL() })
+        .setTitle('Targeted Bullying Automatically Actioned')
+        .setThumbnail(BRAND.logoUrl)
+        .setDescription('High-confidence targeted abuse was detected and automatically moderated.')
+        .addFields(
+            { name: 'Member', value: `<@${message.author.id}>`, inline: true },
+            { name: 'Channel', value: `<#${message.channelId}>`, inline: true },
+            { name: 'Target', value: targetIds.length ? targetIds.map(id => `<@${id}>`).join(', ') : 'Direct second-person target', inline: true },
+            { name: 'Trigger', value: detection.triggerPhrase.slice(0, 1_000), inline: false },
+            { name: 'Target Signal', value: detection.targetSignal, inline: true },
+            { name: 'Message Deleted', value: deleted ? 'Yes' : 'No — check Manage Messages permission', inline: true },
+            {
+                name: 'Automatic Action',
+                value: timedOut
+                    ? `${Math.round(durationMs / 60_000)}-minute timeout applied`
+                    : 'Timeout could not be applied; check Moderate Members permission and role hierarchy',
+                inline: false,
+            },
+        );
+    addFullMessageFields(embed, message.content);
+    return embed.setFooter({ text: EMBED_FOOTER }).setTimestamp(message.createdAt);
+}
+
+async function handleBullying(message: Message): Promise<void> {
+    const targetIds = bullyingTargetIds(message);
+    const detection = detectBullying(message.content, targetIds.length > 0);
+    if (!detection || !reserveMessage(bullyingDedupe, message.id)) return;
+
+    const durationMs = bullyingTimeoutMs();
+    const [timedOut, deleted] = await Promise.all([
+        timeoutBullyingMember(message, durationMs),
+        message.delete().then(() => true).catch(() => false),
+    ]);
+    await sendToLogChannel(message, PROFANITY_LOG_CHANNEL_ID, legacyEmbedToV2Message(
+        buildBullyingEmbed(message, detection, targetIds, timedOut, deleted, durationMs),
+        { allowedMentions: { parse: [] } },
+    ));
+}
+
 /**
  * Detects if a message is asking for help with applying to staff and replies
  * with the application channel location.
@@ -300,9 +443,11 @@ export function detectStaffApplyHelp(content: string): boolean {
     return STAFF_APPLY_PATTERN.test(content);
 }
 
-/** Handles profanity and raid-threat logging for one Discord message. */
+/** Handles bullying enforcement plus profanity and raid-threat logging for one Discord message. */
 export async function handleMessageModeration(message: Message): Promise<void> {
     if (!message.guild || message.author.bot || message.webhookId) return;
+
+    await handleBullying(message);
 
     // Auto-reply when someone asks how to apply for staff
     if (detectStaffApplyHelp(message.content) && reserveStaffApply(message.author.id)) {

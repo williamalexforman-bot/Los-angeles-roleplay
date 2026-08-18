@@ -7,6 +7,7 @@ import { startAdvancedPaidAdScheduler } from '../commands/advancedPaidAds';
 import { registerTicketRobloxInfo } from './ticketRobloxInfo';
 import { registerJoinAccountDateCorrection } from './joinAccountDateCorrection';
 import { registerRaidProtection } from './raidProtection';
+import { registerServerSecurity } from './serverSecurity';
 
 const MEMBER_COUNT_REFRESH_MS = 5 * 60 * 1000;
 let memberCountPresenceTimer: ReturnType<typeof setInterval> | null = null;
@@ -46,6 +47,7 @@ export const onReady = async (client: Client): Promise<void> => {
     registerTicketRobloxInfo(client);
     registerJoinAccountDateCorrection(client);
     registerRaidProtection(client);
+    await registerServerSecurity(client);
 
     const uniqueNames = new Set<string>();
     const commands = commandDefinitions.map(command => {
