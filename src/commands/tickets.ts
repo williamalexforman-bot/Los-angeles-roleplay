@@ -28,6 +28,7 @@ import {
     type TextChannel,
 } from 'discord.js';
 import { BRAND } from '../config/constants';
+import { legacyEmbedToV2Message } from '../utils/embeds';
 import { logger } from '../utils/logger';
 
 const ASSISTANCE_BANNER_NAME = 'assistance-banner.png';
@@ -424,7 +425,7 @@ async function writeCloseLogs(
             )
             .setFooter({ text: BRAND.footer })
             .setTimestamp();
-        await logChannel.send({ embeds: [embed], allowedMentions: { parse: [] } }).catch(() => undefined);
+        await logChannel.send(legacyEmbedToV2Message(embed, { allowedMentions: { parse: [] } })).catch(() => undefined);
     }
 }
 

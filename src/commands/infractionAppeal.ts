@@ -5,7 +5,6 @@ import {
     ButtonStyle,
     Client,
     EmbedBuilder,
-    type MessageCreateOptions,
     MessageFlags,
     ModalBuilder,
     ModalSubmitInteraction,
@@ -16,7 +15,7 @@ import {
 import { BRAND, INFRACTION_AUTHORIZED_ROLE_ID } from '../config/constants';
 import { Infraction, InfractionAppeal, type InfractionAppealRecord } from '../database/models';
 import { isDatabaseAvailable } from '../database/connection';
-import { createLogoAttachment } from '../utils/embeds';
+import { legacyEmbedToV2Message } from '../utils/embeds';
 import { getInfractionByThreadIdPublic, recoverInfractionByThreadId, type InfractionRecord } from '../commands/staffManagement';
 import { logger } from '../utils/logger';
 
@@ -151,18 +150,15 @@ async function postApprovedAppealNotice(
     reviewedById: string,
     reviewReason: string,
 ): Promise<boolean> {
-    const notice: MessageCreateOptions = {
-        embeds: [brandedEmbed('✅ Infraction Appealed', 0x22c55e)
-            .setDescription(`Infraction **${record.infractionCaseNumber}** was appealed and the appeal was **approved**.`)
-            .addFields(
-                { name: 'Member', value: `<@${record.userId}>`, inline: true },
-                { name: 'Appeal ID', value: record.appealId, inline: true },
-                { name: 'Approved By', value: `<@${reviewedById}>`, inline: true },
-                { name: 'Reason', value: reviewReason },
-            )],
-        files: [createLogoAttachment()],
-        allowedMentions: { parse: [] },
-    };
+    const noticeEmbed = brandedEmbed('✅ Infraction Appealed', 0x22c55e)
+        .setDescription(`Infraction **${record.infractionCaseNumber}** was appealed and the appeal was **approved**.`)
+        .addFields(
+            { name: 'Member', value: `<@${record.userId}>`, inline: true },
+            { name: 'Appeal ID', value: record.appealId, inline: true },
+            { name: 'Approved By', value: `<@${reviewedById}>`, inline: true },
+            { name: 'Reason', value: reviewReason },
+        );
+    const notice = legacyEmbedToV2Message(noticeEmbed, { allowedMentions: { parse: [] } });
 
     const source = await client.channels.fetch(record.infractionThreadId).catch(() => null);
     if (!source) return false;
@@ -185,10 +181,10 @@ async function postApprovedAppealNotice(
             ? await client.channels.fetch(source.parentId).catch(() => null)
             : null);
         if (parent?.isSendable()) {
-            const fallbackNotice = {
-                ...notice,
+            const fallbackNotice = legacyEmbedToV2Message(noticeEmbed, {
                 content: `Appeal approved for [${record.infractionCaseNumber}](${record.infractionLink}).`,
-            };
+                allowedMentions: { parse: [] },
+            });
             return parent.send(fallbackNotice).then(() => true).catch(() => false);
         }
         return false;
@@ -402,12 +398,10 @@ export async function handleInfractionAppealModal(interaction: ModalSubmitIntera
             return true;
         }
 
-        const reviewMessage = await channel.send({
-            embeds: [embed],
-            components: reviewButtons(appealId),
-            files: [createLogoAttachment()],
+        const reviewMessage = await channel.send(legacyEmbedToV2Message(embed, {
+            actionRows: reviewButtons(appealId),
             allowedMentions: { parse: [] },
-        });
+        }));
 
         const now = new Date();
         const appealRecord: InfractionAppealRecord = {
@@ -515,7 +509,7 @@ export async function handleInfractionAppealModal(interaction: ModalSubmitIntera
         let memberNotified = false;
         try {
             const user = await interaction.client.users.fetch(record.userId);
-            await user.send({ embeds: [resultEmbed], files: [createLogoAttachment()] });
+            await user.send(legacyEmbedToV2Message(resultEmbed));
             memberNotified = true;
         } catch (error) {
             logger.warn(`[InfractionAppeal] Could not DM ${record.userId}: ${error instanceof Error ? error.message : 'Unknown'}`);
@@ -549,7 +543,12 @@ export async function handleInfractionAppealModal(interaction: ModalSubmitIntera
                             { name: 'Review Reason', value: reviewReason },
                             { name: 'Reviewed By', value: `<@${interaction.user.id}>`, inline: true },
                         );
-                    await reviewMessage.edit({ embeds: [updatedEmbed], components: [] });
+                    await reviewMessage.edit({
+                        ...legacyEmbedToV2Message(updatedEmbed),
+                        content: null,
+                        embeds: [],
+                        attachments: [],
+                    });
                 }
             }
         } catch (error) {

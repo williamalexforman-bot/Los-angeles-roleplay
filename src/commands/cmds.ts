@@ -1,6 +1,6 @@
-import { ChatInputCommandInteraction, EmbedBuilder, SlashCommandBuilder } from 'discord.js';
+import { ChatInputCommandInteraction, EmbedBuilder, MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { BRAND } from '../config/constants';
-import { createLogoAttachment } from '../utils/embeds';
+import { createUnderbannerAttachment, legacyEmbedToV2Panel } from '../utils/embeds';
 
 interface CommandEntry {
     name: string;
@@ -58,9 +58,6 @@ const COMMANDS: CommandEntry[] = [
     // ── Utility ──
     { name: '/cmds', description: 'Show this list of all available commands and their descriptions', category: 'Utility' },
     { name: '/roleplay-log', description: 'Log a roleplay session with details', category: 'Utility' },
-    { name: '/activitycheck start', description: 'Start a staff activity check', category: 'Utility' },
-    { name: '/activitycheck view', description: 'View activity check results', category: 'Utility' },
-    { name: '/activitycheck end', description: 'End the current activity check', category: 'Utility' },
     { name: '/request-training', description: 'Request a training session (Training Dept only)', category: 'Utility' },
     { name: '/view-infractions', description: 'View your own infraction count and history', category: 'Utility' },
     { name: '/rename', description: 'Rename a channel (emoji allowed)', category: 'Utility' },
@@ -132,7 +129,11 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
         embeds.push(currentEmbed);
 
-        await interaction.editReply({ embeds, files: [createLogoAttachment()] });
+        await interaction.editReply({
+            components: embeds.map(embed => legacyEmbedToV2Panel(embed)),
+            files: [createUnderbannerAttachment()],
+            flags: MessageFlags.IsComponentsV2,
+        });
     } catch (error) {
         console.error('[Cmds] Failed to generate command list.', error);
         await interaction.editReply({ content: 'Unable to generate the command list right now. Please try again later.' });

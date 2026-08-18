@@ -27,7 +27,7 @@ import {
 } from 'discord.js';
 import { markSlashCommandFailed } from '../utils/commandAudit';
 import { BRAND, CHANNEL_IDS, PARTNERSHIP_ROLE_ID } from '../config/constants';
-import { createLogoAttachment } from '../utils/embeds';
+import { legacyEmbedToV2Message } from '../utils/embeds';
 
 const BRAND_COLOR = BRAND.color;
 const BRAND_FOOTER = BRAND.footer;
@@ -53,10 +53,6 @@ function brandedEmbed(title?: string, description?: string, color: ColorResolvab
     if (title) embed.setTitle(title);
     if (description) embed.setDescription(description);
     return embed;
-}
-
-function logoAttachment() {
-    return createLogoAttachment();
 }
 
 async function getSendableChannel(
@@ -86,7 +82,7 @@ async function sendPrivateAudit(
     );
 
     try {
-        await channel.send({ embeds: [auditEmbed], allowedMentions: { parse: [] } });
+        await channel.send(legacyEmbedToV2Message(auditEmbed, { allowedMentions: { parse: [] } }));
         return true;
     } catch (error) {
         console.error('[Community] Unable to write the private submission audit.', error);
@@ -159,11 +155,9 @@ const movieFeedbackCommand = {
                     { name: '⭐ Rating', value: `${'⭐'.repeat(rating)}\n**${rating}/10**` },
                 );
 
-            await destination.send({
-                embeds: [publicEmbed],
-                files: [logoAttachment()],
+            await destination.send(legacyEmbedToV2Message(publicEmbed, {
                 allowedMentions: { parse: [] },
-            });
+            }));
 
             await sendPrivateAudit(
                 interaction,
@@ -250,12 +244,10 @@ const staffFeedbackCommand = {
                 { name: 'Submitted', value: `<t:${submittedAt}:F>` },
             );
 
-            await destination.send({
+            await destination.send(legacyEmbedToV2Message(publicEmbed, {
                 content: `📬 Staff Feedback for <@${staffMember.id}>`,
-                embeds: [publicEmbed],
-                files: [logoAttachment()],
                 allowedMentions: { users: [staffMember.id], parse: [] },
-            });
+            }));
 
             const auditWritten = await sendPrivateAudit(
                 interaction,
@@ -616,10 +608,9 @@ const staffComplaintCommand = {
                     { name: 'Submitted By', value: `<@${interaction.user.id}>`, inline: false },
                 );
 
-            await destination.send({
-                embeds: [complaintEmbed],
+            await destination.send(legacyEmbedToV2Message(complaintEmbed, {
                 allowedMentions: { parse: [] },
-            });
+            }));
             await interaction.editReply('Your staff complaint has been submitted securely to the review team.');
         } catch (error) {
             markSlashCommandFailed(interaction, error);
@@ -688,7 +679,11 @@ export async function handleCommunityButton(interaction: ButtonInteraction): Pro
         } else {
             const currentEmbed = EmbedBuilder.from(sourceMessage.embeds[0]);
             currentEmbed.setColor(0x22c55e).setFooter({ text: `✅ Approved by ${interaction.user.tag} • ${BRAND_FOOTER}` });
-            await sourceMessage.edit({ embeds: [currentEmbed], components: partnershipReviewComponents(submitterId, true) });
+            await sourceMessage.edit({
+                ...legacyEmbedToV2Message(currentEmbed, { actionRows: partnershipReviewComponents(submitterId, true) }),
+                content: null,
+                embeds: [],
+            });
         }
 
         await interaction.editReply(roleMessage);
@@ -704,7 +699,11 @@ export async function handleCommunityButton(interaction: ButtonInteraction): Pro
     } else {
         const currentEmbed = EmbedBuilder.from(sourceMessage.embeds[0]);
         currentEmbed.setColor(0xef4444).setFooter({ text: `❌ Denied by ${interaction.user.tag} • ${BRAND_FOOTER}` });
-        await sourceMessage.edit({ embeds: [currentEmbed], components: partnershipReviewComponents(submitterId, true) });
+        await sourceMessage.edit({
+            ...legacyEmbedToV2Message(currentEmbed, { actionRows: partnershipReviewComponents(submitterId, true) }),
+            content: null,
+            embeds: [],
+        });
     }
     await interaction.editReply('The partnership request was denied.');
     return true;

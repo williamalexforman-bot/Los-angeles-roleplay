@@ -22,7 +22,7 @@ import { startErlcMonitor, type ErlcMonitor } from './monitors/erlcMonitor';
 import { fetchErlcMonitorSnapshotWith911 } from './services/erlcMonitorFetchWith911';
 import { MongoErlcMonitorStateStore } from './database/erlcStateStore';
 import { BRAND, CHANNEL_IDS, INFRACTION_AUTHORIZED_ROLE_ID } from './config/constants';
-import { createLogoAttachment } from './utils/embeds';
+import { legacyEmbedToV2Message } from './utils/embeds';
 import { logger } from './utils/logger';
 import { configureInfractionAuthorization } from './commands/staffManagement';
 import { getDiscordBotToken } from './config/env';
@@ -208,7 +208,7 @@ function createConfiguredClient(privilegedIntents: boolean): Client {
                 .setTimestamp();
 
             if (joinChannel?.isSendable()) {
-                await joinChannel.send({ embeds: [embed], files: [createLogoAttachment()] }).catch(() => undefined);
+                await joinChannel.send(legacyEmbedToV2Message(embed)).catch(() => undefined);
             }
 
             const now = Date.now();
@@ -233,12 +233,10 @@ function createConfiguredClient(privilegedIntents: boolean): Client {
                 )
                 .setFooter({ text: BRAND.footer })
                 .setTimestamp();
-            await raidChannel.send({
+            await raidChannel.send(legacyEmbedToV2Message(alertEmbed, {
                 content: emergencyRoleId ? `<@&${emergencyRoleId}>` : undefined,
-                embeds: [alertEmbed],
-                files: [createLogoAttachment()],
                 allowedMentions: emergencyRoleId ? { roles: [emergencyRoleId] } : { parse: [] },
-            }).catch(() => undefined);
+            })).catch(() => undefined);
         });
 
         bot.on('guildMemberRemove', async member => {
@@ -260,7 +258,7 @@ function createConfiguredClient(privilegedIntents: boolean): Client {
                 .setFooter({ text: BRAND.footer })
                 .setTimestamp();
             if (leaveChannel?.isSendable()) {
-                await leaveChannel.send({ embeds: [leaveEmbed], files: [createLogoAttachment()] }).catch(() => undefined);
+                await leaveChannel.send(legacyEmbedToV2Message(leaveEmbed)).catch(() => undefined);
             }
 
             try {
@@ -284,7 +282,7 @@ function createConfiguredClient(privilegedIntents: boolean): Client {
                     )
                     .setFooter({ text: BRAND.footer })
                     .setTimestamp();
-                await kickChannel.send({ embeds: [kickEmbed], files: [createLogoAttachment()] }).catch(() => undefined);
+                await kickChannel.send(legacyEmbedToV2Message(kickEmbed)).catch(() => undefined);
 
                 // DM the kicked user
                 await sendPunishmentDm(bot, member.id, 'kick', entry.reason || 'No reason provided.', member.guild.name).catch(() => undefined);
@@ -335,7 +333,7 @@ function createConfiguredClient(privilegedIntents: boolean): Client {
                 .setFooter({ text: BRAND.footer })
                 .setTimestamp();
 
-            await channel.send({ embeds: [banEmbed], files: [createLogoAttachment()] }).catch(() => undefined);
+            await channel.send(legacyEmbedToV2Message(banEmbed)).catch(() => undefined);
         });
 
     }

@@ -1,12 +1,26 @@
 import { ChatInputCommandInteraction, GuildMember, MessageFlags } from 'discord.js';
-import { SHIFT_QUOTA_BY_ROLE_ID } from '../commands/shift';
 import { fetchErlcServer, type ErlcPlayer } from './erlcService';
 import { resolveDockRobloxProfile, type DockRobloxProfile } from './dockService';
+import { runErlcCommand } from './erlcCommandService';
 import { logger } from '../utils/logger';
 
 const ERLC_COMMAND_ENDPOINT = 'https://api.erlc.gg/v1/server/command';
-const MODERATOR_ROLE_ID = '1521593407795888336';
-const SHIFT_ROLE_IDS = new Set(Object.keys(SHIFT_QUOTA_BY_ROLE_ID));
+const MOD_SHIFT_ROLE_IDS = new Set([
+    '1521593407795888336', // Moderation Team
+    '1521593407804280967', // Administration Team
+    '1521593407816990811', // Internal Affairs Team
+    '1521593407816990819', // Supervisor Team
+]);
+const ADMIN_SHIFT_ROLE_IDS = new Set([
+    '1521593407741362259', // Management Team
+    '1521593407833640981', // Assistant Head Of Staff
+    '1523164030448173206', // Head Of Staff
+    '1534538735037972510', // Community Manager
+    '1523111129696702584', // Board Of Executives
+    '1521593407833640986', // Board of Directors
+    '1521598108226818288', // Ownership Team
+    '1521593407850680401', // Owner
+]);
 const CHECK_TIMEOUT_MS = 1_800;
 const COMMAND_TIMEOUT_MS = 4_000;
 
@@ -26,10 +40,18 @@ export interface ShiftGameAccessFailure {
 
 export type ShiftGameAccessResult = ShiftGameAccessSuccess | ShiftGameAccessFailure;
 
+export interface ShiftGamePermissionDependencies {
+    resolveDock?: typeof resolveDockRobloxProfile;
+    fetchServer?: typeof fetchErlcServer;
+    runCommand?: typeof runErlcCommand;
+}
+
 function roleIds(member: ChatInputCommandInteraction['member'] | GuildMember | null): string[] {
     if (!member) return [];
     if (member instanceof GuildMember) return [...member.roles.cache.keys()];
     if (Array.isArray(member.roles)) return member.roles;
+    const cache = (member.roles as { cache?: { keys(): IterableIterator<string> } }).cache;
+    if (cache?.keys) return [...cache.keys()];
     return [];
 }
 
@@ -40,9 +62,11 @@ async function currentRoleIds(interaction: ChatInputCommandInteraction): Promise
     return Array.from(new Set([...fromInteraction, ...roleIds(fetched)]));
 }
 
-function requestedPermission(memberRoleIds: readonly string[]): InGameShiftPermission | null {
-    if (memberRoleIds.includes(MODERATOR_ROLE_ID)) return 'mod';
-    if (memberRoleIds.some(id => SHIFT_ROLE_IDS.has(id))) return 'admin';
+export function shiftGamePermissionForRoleIds(memberRoleIds: readonly string[]): InGameShiftPermission | null {
+    // Management and higher can retain lower staff roles after promotion, so
+    // admin must win when roles from both sides of the cutoff are present.
+    if (memberRoleIds.some(id => ADMIN_SHIFT_ROLE_IDS.has(id))) return 'admin';
+    if (memberRoleIds.some(id => MOD_SHIFT_ROLE_IDS.has(id))) return 'mod';
     return null;
 }
 
@@ -57,7 +81,7 @@ export async function verifyShiftGameAccess(
     if (!interaction.guildId) return { ok: false, message: 'This command can only be used in the server.' };
 
     const memberRoleIds = await currentRoleIds(interaction);
-    const permission = requestedPermission(memberRoleIds);
+    const permission = shiftGamePermissionForRoleIds(memberRoleIds);
     if (!permission) {
         return { ok: false, message: 'You do not have a staff role that is configured for shift access.' };
     }
@@ -163,4 +187,76 @@ export async function grantShiftGamePermission(
     } finally {
         clearTimeout(timer);
     }
+}
+
+/** Removes the shift-granted ER:LC permission after a successful /shift end. */
+export async function revokeShiftGamePermission(
+    interaction: ChatInputCommandInteraction,
+    dependencies: ShiftGamePermissionDependencies = {},
+): Promise<void> {
+    if (!interaction.guildId) return;
+
+    const memberRoleIds = await currentRoleIds(interaction);
+    const rankedPermission = shiftGamePermissionForRoleIds(memberRoleIds);
+    if (!rankedPermission) return;
+
+    const resolveDock = dependencies.resolveDock || resolveDockRobloxProfile;
+    const fetchServer = dependencies.fetchServer || fetchErlcServer;
+    const runCommand = dependencies.runCommand || runErlcCommand;
+
+    const [dock, erlc] = await Promise.all([
+        resolveDock(interaction.guildId, interaction.user.id, { timeoutMs: CHECK_TIMEOUT_MS }),
+        fetchServer({ timeoutMs: CHECK_TIMEOUT_MS }),
+    ]);
+    if (!dock.ok) {
+        logger.warn(`[Shift] Could not resolve Dock account while removing ER:LC permission for ${interaction.user.id}: ${dock.status}.`);
+        await interaction.followUp({
+            content: '⚠️ Your shift ended, but I could not resolve your Dock account to remove your in-game permission automatically.',
+            flags: MessageFlags.Ephemeral,
+        }).catch(() => undefined);
+        return;
+    }
+
+    const player = erlc.ok
+        ? erlc.data.players.find(candidate => candidate.player.robloxId === dock.profile.robloxId)
+        : null;
+    const playerName = player?.player.name || dock.profile.username;
+    if (!playerName) {
+        await interaction.followUp({
+            content: '⚠️ Your shift ended, but your Roblox username was unavailable, so I could not remove your in-game permission automatically.',
+            flags: MessageFlags.Ephemeral,
+        }).catch(() => undefined);
+        return;
+    }
+
+    const currentPermission = player?.permission.toLowerCase() || '';
+    if (currentPermission.includes('owner')) {
+        await interaction.followUp({
+            content: '🎮 Your shift ended. ER:LC owner permission was left unchanged.',
+            flags: MessageFlags.Ephemeral,
+        }).catch(() => undefined);
+        return;
+    }
+
+    const permission: InGameShiftPermission = currentPermission.includes('admin')
+        ? 'admin'
+        : currentPermission.includes('mod')
+            ? 'mod'
+            : rankedPermission;
+    const command = permission === 'admin' ? `:unadmin ${playerName}` : `:unmod ${playerName}`;
+    const result = await runCommand(command);
+    if (!result.ok) {
+        logger.warn(`[Shift] Could not remove ER:LC ${permission} permission from ${interaction.user.id}: ${result.message}`);
+        await interaction.followUp({
+            content: `⚠️ Your shift ended, but I could not remove your ER:LC **${permission === 'admin' ? 'Administrator' : 'Moderator'}** permission automatically.`,
+            flags: MessageFlags.Ephemeral,
+        }).catch(() => undefined);
+        return;
+    }
+
+    await interaction.followUp({
+        content: `🎮 Removed ER:LC **${permission === 'admin' ? 'Administrator' : 'Moderator'}** permission from **${playerName}** because your shift ended.`,
+        flags: MessageFlags.Ephemeral,
+        allowedMentions: { parse: [] },
+    }).catch(() => undefined);
 }

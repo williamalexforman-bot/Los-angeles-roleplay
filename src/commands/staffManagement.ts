@@ -32,6 +32,7 @@ import {
 } from 'discord.js';
 import { INFRACTION_AUTHORIZED_ROLE_ID, PROMOTION_AUTHORIZED_ROLE_ID } from '../config/constants';
 import { markSlashCommandFailed } from '../utils/commandAudit';
+import { legacyEmbedToV2Message } from '../utils/embeds';
 import { logger } from '../utils/logger';
 
 const BRAND_COLOR = 0x3b82f6;
@@ -756,12 +757,10 @@ function trainingResultCommand() {
                     { name: 'Submitted', value: discordTimestamp() },
                 );
 
-                await destination.send({
+                await destination.send(legacyEmbedToV2Message(embed, {
                     content: `<@${trainee.id}> — Training Result`,
-                    embeds: [embed],
-                    files: [logoAttachment()],
                     allowedMentions: { users: [trainee.id], parse: [] },
-                });
+                }));
                 await interaction.editReply('The training result has been published successfully.');
             } catch (error) {
                 console.error('[Staff Management] Training result submission failed.', error);
@@ -1254,11 +1253,9 @@ function singleInputModal(
 }
 
 async function threadEventEmbed(thread: ThreadChannel, title: string, description: string): Promise<void> {
-    await thread.send({
-        embeds: [brandedEmbed(title).setDescription(description)],
-        files: [logoAttachment()],
+    await thread.send(legacyEmbedToV2Message(brandedEmbed(title).setDescription(description), {
         allowedMentions: { parse: [] },
-    });
+    }));
 }
 
 /**

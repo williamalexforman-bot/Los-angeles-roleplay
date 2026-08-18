@@ -1,7 +1,7 @@
 import { ChatInputCommandInteraction, EmbedBuilder, SlashCommandBuilder } from 'discord.js';
 import { sendToChannel } from '../utils/notify';
 import { BRAND } from '../config/constants';
-import { createLogoAttachment } from '../utils/embeds';
+import { legacyEmbedToV2Message } from '../utils/embeds';
 
 export const gameCommands = [
     {
@@ -30,11 +30,9 @@ export const gameCommands = [
                 .setFooter({ text: BRAND.footer })
                 .setTimestamp();
 
-            await sendToChannel(interaction.client, '1528917232153923635', {
-                embeds: [embed],
-                files: [createLogoAttachment()],
+            await sendToChannel(interaction.client, '1528917232153923635', legacyEmbedToV2Message(embed, {
                 allowedMentions: { parse: [] },
-            });
+            }));
             await interaction.reply({ content: `Reported team switch for ${user?.username}.`, ephemeral: true });
         },
     },

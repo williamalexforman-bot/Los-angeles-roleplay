@@ -7,10 +7,11 @@ import {
     GuildMember,
     Message,
     PermissionFlagsBits,
+    type PartialGuildMember,
 } from 'discord.js';
 import sharp from 'sharp';
 import { BRAND, CHANNEL_IDS } from '../config/constants';
-import { createLogoAttachment } from '../utils/embeds';
+import { legacyEmbedToV2Message } from '../utils/embeds';
 import { logger } from '../utils/logger';
 
 const RAID_CHANNEL_ID = CHANNEL_IDS.raidThreatLog;
@@ -60,12 +61,11 @@ async function sendRaidAlert(client: Client, embed: EmbedBuilder, files: Attachm
     const channel = await client.channels.fetch(RAID_CHANNEL_ID).catch(() => null);
     if (!channel?.isSendable()) return;
     const roleId = emergencyRoleId();
-    await channel.send({
+    await channel.send(legacyEmbedToV2Message(embed, {
         content: roleId ? `<@&${roleId}>` : undefined,
-        embeds: [embed],
-        files: [...files, createLogoAttachment()],
+        files,
         allowedMentions: roleId ? { roles: [roleId] } : { parse: [] },
-    }).catch(error => {
+    })).catch(error => {
         logger.warn(`[Raid Protection] Could not send raid alert: ${error instanceof Error ? error.message : 'Unknown error'}`);
     });
 }
@@ -138,7 +138,7 @@ async function fetchMatchingAuditEntry(
     return { executorId: entry.executor?.id || null };
 }
 
-async function handleMemberRemoved(member: GuildMember): Promise<void> {
+async function handleMemberRemoved(member: GuildMember | PartialGuildMember): Promise<void> {
     const audit = await fetchMatchingAuditEntry(member.guild, AuditLogEvent.MemberKick, member.id);
     if (!audit) return;
     await recordModerationAction(member.client, member.guild.id, {

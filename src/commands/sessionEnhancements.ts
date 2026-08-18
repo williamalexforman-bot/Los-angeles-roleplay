@@ -497,16 +497,13 @@ export async function handleEnhancedSessionButton(interaction: ButtonInteraction
 
     await withVoteLock(interaction.message.id, async () => {
         const result = await addVoter(interaction.message.id, interaction.user.id, interaction.user.username);
-        if (result.status === 'duplicate') {
-            await feedback('You have already voted for this session.');
-            return;
-        }
-        if (result.status === 'closed') {
-            await feedback('This session vote is no longer active.');
-            return;
-        }
-        if (result.status === 'missing') {
-            await feedback('I could not load this session vote. Please ask staff to start a new vote.');
+        if (result.status !== 'added') {
+            const message = result.status === 'duplicate'
+                ? 'You have already voted for this session.'
+                : result.status === 'closed'
+                    ? 'This session vote is no longer active.'
+                    : 'I could not load this session vote. Please ask staff to start a new vote.';
+            await feedback(message);
             return;
         }
 

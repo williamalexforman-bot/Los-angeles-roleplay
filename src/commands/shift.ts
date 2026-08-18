@@ -18,7 +18,7 @@ import { isDatabaseAvailable } from '../database/connection';
 import { ShiftProfile as ShiftProfileModel, ShiftQuotaEvaluation } from '../database/models';
 import { issueAutomaticInfraction } from './staffManagement';
 import { logger } from '../utils/logger';
-import { BOTTOM_UNDERBANNER, SESSION_UNDERBANNER_PATH } from '../utils/embeds';
+import { BOTTOM_UNDERBANNER, SESSION_UNDERBANNER_PATH, legacyEmbedToV2Message } from '../utils/embeds';
 
 const EASTERN_TIME_ZONE = 'America/New_York';
 const SCHEDULER_INTERVAL_MS = 60_000;
@@ -541,11 +541,12 @@ async function currentGuildMember(interaction: ChatInputCommandInteraction): Pro
     return interaction.guild.members.fetch(interaction.user.id).catch(() => null);
 }
 
-async function executeShiftStart(interaction: ChatInputCommandInteraction): Promise<void> {
+async function executeShiftStart(interaction: ChatInputCommandInteraction): Promise<boolean> {
     if (!interaction.guildId) {
         await interaction.editReply('This command can only be used in a server.');
-        return;
+        return false;
     }
+    let started = false;
     const now = new Date();
     await withProfileLock(interaction.guildId, interaction.user.id, async () => {
         const profile = await loadProfile(interaction.guildId!, interaction.user.id, interaction.user.username);
@@ -566,6 +567,7 @@ async function executeShiftStart(interaction: ChatInputCommandInteraction): Prom
             return;
         }
         profile.activeStartedAt = now;
+        started = true;
         profile.breakStartedAt = null;
         refreshProfileQuotaSnapshot(profile, member || interaction.member);
         const rolesUpdated = member
@@ -580,6 +582,7 @@ async function executeShiftStart(interaction: ChatInputCommandInteraction): Prom
             rolesUpdated ? `You received the <@&${ACTIVE_SHIFT_ROLE_ID}> role.` : 'Warning: I could not update your active-shift role. Staff time is still being tracked.',
         ], 0x22c55e));
     });
+    return started;
 }
 
 async function executeShiftBreak(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -636,11 +639,12 @@ async function executeShiftBreak(interaction: ChatInputCommandInteraction): Prom
     });
 }
 
-async function executeShiftEnd(interaction: ChatInputCommandInteraction): Promise<void> {
+async function executeShiftEnd(interaction: ChatInputCommandInteraction): Promise<boolean> {
     if (!interaction.guildId) {
         await interaction.editReply('This command can only be used in a server.');
-        return;
+        return false;
     }
+    let ended = false;
     const now = new Date();
     await withProfileLock(interaction.guildId, interaction.user.id, async () => {
         const profile = await loadProfile(interaction.guildId!, interaction.user.id, interaction.user.username);
@@ -656,6 +660,7 @@ async function executeShiftEnd(interaction: ChatInputCommandInteraction): Promis
         const endedFromBreak = Boolean(profile.breakStartedAt);
         profile.activeStartedAt = null;
         profile.breakStartedAt = null;
+        ended = true;
         const weekKey = shiftQuotaWeekKey(now);
         const total = profile.weeklySeconds[weekKey] || 0;
         refreshProfileQuotaSnapshot(profile, member || interaction.member);
@@ -679,6 +684,7 @@ async function executeShiftEnd(interaction: ChatInputCommandInteraction): Promis
             rolesUpdated ? 'Your active-shift and break roles were removed.' : 'Warning: I could not remove one or more shift-state roles.',
         ].filter(Boolean).join('\n'));
     });
+    return ended;
 }
 
 async function executeQuotaView(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -795,7 +801,7 @@ async function executeShiftLeaderboard(interaction: ChatInputCommandInteraction)
         )
         .setFooter({ text: 'Los Angeles Roleplay | Shift Management' })
         .setTimestamp();
-    await interaction.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
+    await interaction.editReply(legacyEmbedToV2Message(embed, { allowedMentions: { parse: [] } }));
 }
 
 async function executeShiftManage(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -914,20 +920,22 @@ export const shiftCommand = {
             .setName('end')
             .setDescription('End your active staff shift')),
 
-    async execute(interaction: ChatInputCommandInteraction): Promise<void> {
+    async execute(interaction: ChatInputCommandInteraction): Promise<boolean> {
         const subcommand = interaction.options.getSubcommand(true);
         if (subcommand === 'leaderboard') await interaction.deferReply();
         else await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         try {
-            if (subcommand === 'start') await executeShiftStart(interaction);
-            else if (subcommand === 'break') await executeShiftBreak(interaction);
-            else if (subcommand === 'end') await executeShiftEnd(interaction);
+            if (subcommand === 'start') return await executeShiftStart(interaction);
+            if (subcommand === 'end') return await executeShiftEnd(interaction);
+            if (subcommand === 'break') await executeShiftBreak(interaction);
             else if (subcommand === 'leaderboard') await executeShiftLeaderboard(interaction);
             else if (subcommand === 'manage') await executeShiftManage(interaction);
             else await interaction.editReply('That shift command is unavailable.');
+            return true;
         } catch (error) {
             logger.error(`[Shift] Command failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
             await interaction.editReply('Unable to complete that shift command right now. Please try again.').catch(() => undefined);
+            return false;
         }
     },
 };

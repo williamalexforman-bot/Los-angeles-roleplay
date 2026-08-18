@@ -114,28 +114,6 @@ const auditEventSchema = new Schema({
     createdAt: { type: Date, default: Date.now },
 });
 
-export interface ActivityCheckRecord {
-    guildId: string;
-    channelId: string;
-    messageId: string;
-    startedById: string;
-    startedAt: Date;
-    endsAt?: Date;
-    active: boolean;
-    voters: Array<{ userId: string; username: string; votedAt: Date }>;
-}
-
-const activityCheckSchema = new Schema<ActivityCheckRecord>({
-    guildId: { type: String, required: true, index: true },
-    channelId: { type: String, required: true },
-    messageId: { type: String, required: true },
-    startedById: { type: String, required: true },
-    startedAt: { type: Date, default: Date.now },
-    endsAt: Date,
-    active: { type: Boolean, default: true },
-    voters: { type: [{ userId: String, username: String, votedAt: { type: Date, default: Date.now } }], default: [] },
-});
-
 export interface BanAppealRecord {
     appealId: string;
     guildId: string;
@@ -333,7 +311,6 @@ const Infraction = model<InfractionRecord>('Infraction', infractionSchema);
 const ErlcState = model('ErlcState', erlcStateSchema);
 const ProhibitedWord = model('ProhibitedWord', prohibitedWordSchema);
 const AuditEvent = model('AuditEvent', auditEventSchema);
-const ActivityCheck = model<ActivityCheckRecord>('ActivityCheck', activityCheckSchema);
 const BanAppeal = model<BanAppealRecord>('BanAppeal', banAppealSchema);
 const InfractionAppeal = model<InfractionAppealRecord>('InfractionAppeal', infractionAppealSchema);
 const ApplicationSession = model<ApplicationSessionRecord>('ApplicationSession', applicationSessionSchema);
@@ -349,7 +326,6 @@ export {
     ErlcState,
     ProhibitedWord,
     AuditEvent,
-    ActivityCheck,
     BanAppeal,
     InfractionAppeal,
     ApplicationSession,

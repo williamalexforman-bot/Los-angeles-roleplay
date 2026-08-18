@@ -9,7 +9,6 @@ import {
 import { commandHandlers } from '../commands/registry';
 import { handleStaffManagementButton, handleStaffManagementModal } from '../commands/staffManagement';
 import { handleCommunityButton, handleCommunityModal } from '../commands/community';
-import { handleActivityCheckButton } from '../commands/activityCheck';
 import { handleTrainingModal } from '../commands/requestTraining';
 import { handleLoaButton, handleLoaModal } from '../commands/loa';
 import { handleBanAppealButton, handleBanAppealModal } from '../commands/banAppeal';
@@ -29,7 +28,7 @@ import {
 import { handleApplicationButton, handleApplicationModal, handleApplicationSelect } from '../commands/applications';
 import { roleCommand } from '../commands/role';
 import { shiftCommand, viewCommand } from '../commands/shift';
-import { grantShiftGamePermission, verifyShiftGameAccess } from '../services/shiftGameAccess';
+import { grantShiftGamePermission, revokeShiftGamePermission, verifyShiftGameAccess } from '../services/shiftGameAccess';
 // economy module removed
 import { INFRACTION_AUTHORIZED_ROLE_ID, PROMOTION_AUTHORIZED_ROLE_ID } from '../config/constants';
 import { logger } from '../utils/logger';
@@ -180,17 +179,19 @@ async function handleChatCommand(interaction: ChatInputCommandInteraction): Prom
             return;
         }
         if (interaction.commandName === 'shift') {
-            if (interaction.options.getSubcommand(true) === 'start') {
+            const subcommand = interaction.options.getSubcommand(true);
+            if (subcommand === 'start') {
                 const access = await verifyShiftGameAccess(interaction);
                 if (!access.ok) {
                     await interaction.reply({ content: access.message, flags: MessageFlags.Ephemeral });
                     return;
                 }
-                await shiftCommand.execute(interaction);
-                await grantShiftGamePermission(interaction, access);
+                const started = await shiftCommand.execute(interaction);
+                if (started) await grantShiftGamePermission(interaction, access);
                 return;
             }
-            await shiftCommand.execute(interaction);
+            const completed = await shiftCommand.execute(interaction);
+            if (subcommand === 'end' && completed) await revokeShiftGamePermission(interaction);
             return;
         }
         if (interaction.commandName === 'view') {
@@ -232,7 +233,6 @@ export const interactionCreate = async (interaction: Interaction): Promise<void>
             if (await handlePaidAdButton(interaction)) return;
             if (await handleTicketButton(interaction)) return;
             if (await handleApplicationButton(interaction)) return;
-            if (await handleActivityCheckButton(interaction)) return;
             if (await handleCommunityButton(interaction)) return;
             if (await handleStaffManagementButton(interaction)) return;
             if (await handleLoaButton(interaction)) return;
@@ -261,7 +261,7 @@ export const interactionCreate = async (interaction: Interaction): Promise<void>
             return;
         }
 
-        if (interaction.isUserSelectMenu()) return;
+        if ('isUserSelectMenu' in interaction && interaction.isUserSelectMenu()) return;
 
         if (interaction.isStringSelectMenu()) {
             if (await handleAdvancedPaidAdSelect(interaction)) return;

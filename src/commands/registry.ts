@@ -11,7 +11,6 @@ import { sayCommand } from './say';
 import { punishmentCommands } from './punishment';
 import { data as cmdsCommandData, execute as executeCmds } from './cmds';
 import { roleplayLogCommand } from './roleplayLog';
-import { activityCheckCommand } from './activityCheck';
 import { requestTrainingCommand } from './requestTraining';
 import { viewInfractionsCommand } from './viewInfractions';
 import { loaCommand } from './loa';
@@ -58,7 +57,6 @@ export const commandDefinitions: CommandDefinition[] = [
     prohibitedWordCommand,
     ...punishmentCommands,
     roleplayLogCommand,
-    activityCheckCommand,
     requestTrainingCommand,
     viewInfractionsCommand,
     loaCommand,

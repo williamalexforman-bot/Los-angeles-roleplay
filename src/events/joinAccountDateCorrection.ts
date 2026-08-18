@@ -1,4 +1,5 @@
 import { Client, EmbedBuilder } from 'discord.js';
+import { legacyEmbedToV2Message } from '../utils/embeds';
 import { logger } from '../utils/logger';
 
 const registeredClients = new WeakSet<Client>();
@@ -45,8 +46,10 @@ export function registerJoinAccountDateCorrection(client: Client): void {
             corrected.setFields(fields);
 
             await message.edit({
-                embeds: [corrected],
-                attachments: Array.from(message.attachments.values()),
+                ...legacyEmbedToV2Message(corrected),
+                content: null,
+                embeds: [],
+                attachments: [],
             });
         })().catch(error => {
             logger.warn(`[JoinLog] Could not correct account creation date: ${error instanceof Error ? error.message : 'Unknown error'}`);

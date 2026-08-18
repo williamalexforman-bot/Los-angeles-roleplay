@@ -11,10 +11,12 @@ import {
     EmbedBuilder,
     MediaGalleryBuilder,
     MediaGalleryItemBuilder,
+    MessageFlags,
     SectionBuilder,
     SeparatorBuilder,
     SeparatorSpacingSize,
     TextDisplayBuilder,
+    type MessageMentionOptions,
 } from 'discord.js';
 import { BRAND } from '../config/constants';
 
@@ -49,6 +51,9 @@ export const SESSION_BACKGROUND_NAME = 'los_angeles_roleplay_4.webp';
 export const SESSION_BACKGROUND_PATH = path.resolve(process.cwd(), 'assets', SESSION_BACKGROUND_NAME);
 export const SESSION_BACKGROUND_URL = `attachment://${SESSION_BACKGROUND_NAME}`;
 export const SESSION_UNDERBANNER_PATH = path.resolve(process.cwd(), 'assets', SESSION_UNDERBANNER_NAME);
+
+export const createUnderbannerAttachment = () =>
+    new AttachmentBuilder(SESSION_UNDERBANNER_PATH, { name: SESSION_UNDERBANNER_NAME });
 
 /**
  * Map a session type to its TOP banner image filename.
@@ -102,6 +107,14 @@ export const SESSION_FOOTER = 'Los Angeles Roleplay | Realism at its Finest';
 // Matches the blue Components V2 side rail used by the infraction panels.
 export const SESSION_ACCENT_COLOR = 0x3b82f6;
 
+export interface LegacyEmbedV2Options {
+    /** Legacy message content is moved inside the V2 container. */
+    content?: string;
+    actionRows?: readonly ActionRowBuilder<ButtonBuilder>[];
+    files?: readonly AttachmentBuilder[];
+    allowedMentions?: MessageMentionOptions;
+}
+
 export const createEmbed = (title: string, description: string, color: ColorResolvable = BRAND.color) => {
     return new EmbedBuilder()
         .setColor(color)
@@ -119,6 +132,92 @@ function panelSeparator(): SeparatorBuilder {
     return new SeparatorBuilder()
         .setDivider(true)
         .setSpacing(SeparatorSpacingSize.Small);
+}
+
+function textChunks(value: string, maxLength = 3_900): string[] {
+    const clean = value.trim();
+    if (!clean) return [];
+    const chunks: string[] = [];
+    let remaining = clean;
+    while (remaining.length > maxLength) {
+        let splitAt = remaining.lastIndexOf('\n', maxLength);
+        if (splitAt < Math.floor(maxLength / 2)) splitAt = maxLength;
+        chunks.push(remaining.slice(0, splitAt).trim());
+        remaining = remaining.slice(splitAt).trim();
+    }
+    if (remaining) chunks.push(remaining);
+    return chunks;
+}
+
+function addV2Text(panel: ContainerBuilder, value: string): void {
+    for (const chunk of textChunks(value)) {
+        panel.addTextDisplayComponents(new TextDisplayBuilder().setContent(chunk));
+    }
+}
+
+/**
+ * Converts a remaining legacy EmbedBuilder into a Components V2 container.
+ * Existing native V2 panels do not use this adapter and remain unchanged.
+ * With no supplied artwork, only the shared underbanner is rendered.
+ */
+export function legacyEmbedToV2Panel(
+    embed: EmbedBuilder,
+    options: LegacyEmbedV2Options = {},
+): ContainerBuilder {
+    const data = embed.toJSON();
+    const panel = new ContainerBuilder().setAccentColor(data.color ?? SESSION_ACCENT_COLOR);
+
+    if (options.content) addV2Text(panel, options.content);
+
+    const heading = [
+        data.author?.name ? `**${data.author.name}**` : '',
+        data.title ? `## ${data.title}` : '',
+        data.description || '',
+    ].filter(Boolean).join('\n');
+    if (heading) addV2Text(panel, heading);
+
+    if (data.fields?.length) {
+        panel.addSeparatorComponents(panelSeparator());
+        for (const field of data.fields) {
+            addV2Text(panel, `**${field.name}**\n${field.value}`);
+        }
+    }
+
+    if (data.image?.url) {
+        panel.addSeparatorComponents(panelSeparator());
+        panel.addMediaGalleryComponents(
+            new MediaGalleryBuilder().addItems(
+                new MediaGalleryItemBuilder().setURL(data.image.url),
+            ),
+        );
+    }
+
+    const footerParts: string[] = [];
+    if (data.footer?.text) footerParts.push(data.footer.text);
+    if (data.timestamp) {
+        const timestamp = Date.parse(data.timestamp);
+        if (Number.isFinite(timestamp)) footerParts.push(`<t:${Math.floor(timestamp / 1_000)}:F>`);
+    }
+    if (footerParts.length) addV2Text(panel, `-# ${footerParts.join(' • ')}`);
+
+    for (const row of options.actionRows || []) panel.addActionRowComponents(row);
+
+    return panel
+        .addSeparatorComponents(panelSeparator())
+        .addMediaGalleryComponents(sessionBanner(SESSION_UNDERBANNER_NAME));
+}
+
+/** Creates a complete send/edit payload for a migrated legacy embed. */
+export function legacyEmbedToV2Message(
+    embed: EmbedBuilder,
+    options: LegacyEmbedV2Options = {},
+) {
+    return {
+        components: [legacyEmbedToV2Panel(embed, options)],
+        files: [...(options.files || []), createUnderbannerAttachment()],
+        flags: MessageFlags.IsComponentsV2 as MessageFlags.IsComponentsV2,
+        allowedMentions: options.allowedMentions || { parse: [] as [] },
+    };
 }
 
 /**
@@ -225,10 +324,14 @@ export const createInfoEmbed = (infoMessage: string) => {
 
 export const sendEmbed = async (interaction: ChatInputCommandInteraction, message: string) => {
     const embed = createEmbed('Bot Update', message);
+    const payload = legacyEmbedToV2Message(embed);
 
     if (interaction.replied || interaction.deferred) {
-        return interaction.followUp({ embeds: [embed], files: [createLogoAttachment()] });
+        return interaction.followUp(payload);
     }
 
-    return interaction.reply({ embeds: [embed], files: [createLogoAttachment()], ephemeral: true });
+    return interaction.reply({
+        ...payload,
+        flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
+    });
 };

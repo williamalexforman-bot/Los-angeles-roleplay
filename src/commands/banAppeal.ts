@@ -11,12 +11,11 @@ import {
     ModalSubmitInteraction,
     TextInputBuilder,
     TextInputStyle,
-    type MessageCreateOptions,
 } from 'discord.js';
 import { BRAND } from '../config/constants';
 import { BanAppeal } from '../database/models';
 import { isDatabaseAvailable } from '../database/connection';
-import { createLogoAttachment } from '../utils/embeds';
+import { createLogoAttachment, legacyEmbedToV2Message } from '../utils/embeds';
 import { logger } from '../utils/logger';
 
 const BAN_APPEAL_CHANNEL_ID = process.env.BAN_APPEAL_CHANNEL_ID || '1529286560271306995';
@@ -143,21 +142,9 @@ export async function sendPunishmentDm(
                 { name: 'Server', value: guildName, inline: true },
             );
 
-        const options: MessageCreateOptions = {
-            embeds: [embed],
-            files: [createLogoAttachment()],
-        };
-        if (kind === 'ban') options.components = [appealButton()];
-
-        try {
-            await user.send(options);
-        } catch {
-            // If the attachment fails (e.g., logo missing on host), retry without it
-            // so the ban/kick DM is still delivered.
-            const fallbackOptions: MessageCreateOptions = { embeds: [embed] };
-            if (kind === 'ban') fallbackOptions.components = [appealButton()];
-            await user.send(fallbackOptions);
-        }
+        await user.send(legacyEmbedToV2Message(embed, {
+            actionRows: kind === 'ban' ? [appealButton()] : [],
+        }));
         return true;
     } catch {
         return false;
@@ -241,12 +228,10 @@ async function submitAppeal(session: AppealSession): Promise<void> {
             return;
         }
 
-        const reviewMessage = await channel.send({
-            embeds: [embed],
-            components: reviewButtons(appealId),
-            files: [createLogoAttachment()],
+        const reviewMessage = await channel.send(legacyEmbedToV2Message(embed, {
+            actionRows: reviewButtons(appealId),
             allowedMentions: { parse: [] },
-        });
+        }));
 
         if (isDatabaseAvailable()) {
             await BanAppeal.create({
@@ -333,7 +318,7 @@ export async function handleBanAppealButton(interaction: ButtonInteraction): Pro
                 { name: 'Reviewed By', value: `<@${interaction.user.id}>`, inline: true },
             );
         await interaction.client.users.fetch(record.userId).then(user =>
-            user.send({ embeds: [approvedEmbed], files: [createLogoAttachment()] }),
+            user.send(legacyEmbedToV2Message(approvedEmbed)),
         ).then(() =>
             interaction.client.users.fetch(record.userId).then(user =>
                 user.send({ content: INVITE_LINK }),
@@ -353,7 +338,12 @@ export async function handleBanAppealButton(interaction: ButtonInteraction): Pro
                         { name: 'Status', value: '✅ Approved', inline: true },
                         { name: 'Reviewed By', value: `<@${interaction.user.id}>`, inline: true },
                     );
-                await reviewMessage.edit({ embeds: [updatedEmbed], components: [] });
+                await reviewMessage.edit({
+                    ...legacyEmbedToV2Message(updatedEmbed),
+                    content: null,
+                    embeds: [],
+                    attachments: [],
+                });
             }
         }
 
@@ -404,7 +394,7 @@ export async function handleBanAppealModal(interaction: ModalSubmitInteraction):
             { name: 'Reviewed By', value: `<@${interaction.user.id}>`, inline: true },
         );
     await interaction.client.users.fetch(record.userId).then(user =>
-        user.send({ embeds: [deniedEmbed], files: [createLogoAttachment()] }),
+        user.send(legacyEmbedToV2Message(deniedEmbed)),
     ).catch(() => undefined);
 
     // Update the review message
@@ -421,7 +411,12 @@ export async function handleBanAppealModal(interaction: ModalSubmitInteraction):
                     { name: 'Denial Reason', value: reason },
                     { name: 'Reviewed By', value: `<@${interaction.user.id}>`, inline: true },
                 );
-            await reviewMessage.edit({ embeds: [updatedEmbed], components: [] });
+            await reviewMessage.edit({
+                ...legacyEmbedToV2Message(updatedEmbed),
+                content: null,
+                embeds: [],
+                attachments: [],
+            });
         }
     }
 

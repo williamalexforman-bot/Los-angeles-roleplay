@@ -1,6 +1,6 @@
 import { ChatInputCommandInteraction, EmbedBuilder, type CommandInteractionOption } from 'discord.js';
 import { BRAND, CHANNEL_IDS } from '../config/constants';
-import { createLogoAttachment } from './embeds';
+import { legacyEmbedToV2Message } from './embeds';
 import { logger } from './logger';
 
 const SECRET_OPTION_PATTERN = /(token|api.?key|password|passwd|secret|credential|private|internal.?notes?|evidence|proof)/i;
@@ -87,7 +87,7 @@ export async function logSlashCommand(
             .setTimestamp();
         if (!success && safeFailure) embed.addFields({ name: 'Failure', value: safeFailure });
 
-        await channel.send({ embeds: [embed], files: [createLogoAttachment()], allowedMentions: { parse: [] } });
+        await channel.send(legacyEmbedToV2Message(embed, { allowedMentions: { parse: [] } }));
     } catch (loggingError) {
         logger.warn(`Slash-command audit log unavailable: ${loggingError instanceof Error ? loggingError.message : 'Unknown error'}`);
     }

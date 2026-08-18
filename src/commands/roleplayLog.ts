@@ -6,7 +6,7 @@ import {
     MessageFlags,
 } from 'discord.js';
 import { BRAND } from '../config/constants';
-import { createLogoAttachment } from '../utils/embeds';
+import { legacyEmbedToV2Message } from '../utils/embeds';
 import { markSlashCommandFailed } from '../utils/commandAudit';
 
 const ROLEPLAY_LOG_CHANNEL_ID = '1532141552108048514';
@@ -74,11 +74,9 @@ export const roleplayLogCommand = {
                 .setFooter({ text: BRAND.footer })
                 .setTimestamp();
 
-            await channel.send({
-                embeds: [embed],
-                files: [createLogoAttachment()],
+            await channel.send(legacyEmbedToV2Message(embed, {
                 allowedMentions: { parse: [] },
-            });
+            }));
 
             await interaction.editReply('✅ Roleplay log has been posted successfully.');
         } catch (error) {
@@ -88,4 +86,3 @@ export const roleplayLogCommand = {
         }
     },
 };
-

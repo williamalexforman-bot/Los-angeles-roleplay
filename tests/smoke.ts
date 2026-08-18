@@ -31,6 +31,8 @@ import {
     type ApplicationSession,
 } from '../src/commands/applications';
 import { handleLoaButton, handleLoaModal } from '../src/commands/loa';
+import { handleTrainingModal } from '../src/commands/requestTraining';
+import { handleSuggestionButton } from '../src/commands/suggestions';
 import { interactionCreate } from '../src/handlers/interactionCreate';
 import {
     ACTIVE_SHIFT_ROLE_ID,
@@ -47,6 +49,10 @@ import {
 } from '../src/commands/shift';
 import { sanitizedCommandOptions } from '../src/utils/commandAudit';
 import { fetchErlcServer, type ErlcServerSnapshot } from '../src/services/erlcService';
+import {
+    revokeShiftGamePermission,
+    shiftGamePermissionForRoleIds,
+} from '../src/services/shiftGameAccess';
 import {
     ErlcMonitor,
     MemoryErlcMonitorStateStore,
@@ -69,9 +75,10 @@ async function run(): Promise<void> {
 for (const required of [
         'movie-feedback', 'staff-feedback', 'partnership', 'staff-complaint', 'training-results',
         'promotion', 'infraction', 'view-infractions', 'session-start', 'session-vote', 'session-end',
-        'session-boost', 'session-full', 'prohibited-word', 'say', 'loa', 'activitycheck',
+        'session-boost', 'session-full', 'prohibited-word', 'say', 'loa',
         'request-training', 'roleplay-log', 'rename', 'ticket', 'ticket-panel', 'ticketpanel', 'close', 'closerequest',
-        'applications-panel', 'unclaim', 'role', 'shift', 'view',
+        'applications-panel', 'unclaim', 'role', 'shift', 'view', 'suggestions',
+        'suggestion-approved', 'suggestion-denied', 'suggestion-maybe',
     ]) {
         assert(names.includes(required), `missing /${required}`);
     }
@@ -82,6 +89,68 @@ for (const required of [
         assert(command, `missing command implementation for /${name}`);
         return command;
     };
+
+    let suggestionPost: any = null;
+    let suggestionEdit: any = null;
+    const suggestionReceipts: string[] = [];
+    const suggestionFollowUps: any[] = [];
+    const suggestionDms: any[] = [];
+    const suggestionMessage = {
+        id: 'suggestion-message',
+        edit: async (payload: any) => { suggestionEdit = payload; },
+    };
+    const suggestionChannel = {
+        isSendable: () => true,
+        isTextBased: () => true,
+        send: async (payload: any) => {
+            suggestionPost = payload;
+            return suggestionMessage;
+        },
+        messages: { fetch: async () => suggestionMessage },
+    };
+    const suggestionClient = {
+        channels: { fetch: async () => suggestionChannel },
+        users: { fetch: async () => ({ send: async (payload: any) => { suggestionDms.push(payload); } }) },
+    };
+    await commandNamed('suggestions').execute({
+        guildId: 'suggestion-guild',
+        user: { id: 'suggestion-author', username: 'SuggestionAuthor' },
+        options: { getString: () => 'Please add more community events.' },
+        client: suggestionClient,
+        deferReply: async () => undefined,
+        editReply: async (content: string) => { suggestionReceipts.push(content); },
+    } as never);
+    assert.equal(suggestionPost?.flags, MessageFlags.IsComponentsV2, 'suggestions must post even when MongoDB is offline');
+    const suggestionComponents = suggestionPost.components[0].toJSON().components;
+    const suggestionVoteRow = suggestionComponents.find((component: { type: number }) => component.type === 1);
+    const suggestionVoteId = suggestionVoteRow.components[0].custom_id as string;
+    const suggestionId = suggestionVoteId.split(':').at(-1)!;
+    assert(suggestionReceipts.some(receipt => receipt.includes(suggestionId)));
+
+    await handleSuggestionButton({
+        customId: suggestionVoteId,
+        guildId: 'suggestion-guild',
+        user: { id: 'suggestion-voter', username: 'SuggestionVoter' },
+        message: suggestionMessage,
+        deferUpdate: async () => undefined,
+        followUp: async (payload: any) => { suggestionFollowUps.push(payload); },
+    } as never);
+    assert.equal(suggestionEdit?.flags, MessageFlags.IsComponentsV2);
+    assert(suggestionFollowUps.some(reply => String(reply.content).includes('upvote was recorded')));
+
+    const suggestionDecisionReplies: string[] = [];
+    await commandNamed('suggestion-approved').execute({
+        guildId: 'suggestion-guild',
+        guild: { ownerId: 'suggestion-owner' },
+        user: { id: 'suggestion-owner' },
+        options: { getString: () => suggestionId },
+        client: suggestionClient,
+        deferReply: async () => undefined,
+        editReply: async (content: string) => { suggestionDecisionReplies.push(content); },
+    } as never);
+    assert(suggestionDecisionReplies.some(reply => reply.includes('Approved')));
+    assert(suggestionDms.length === 1, 'an in-memory suggestion decision must still notify its author');
+    assert(JSON.stringify(suggestionEdit).includes('Approved'));
 
     const movieSchema = commandNamed('movie-feedback').data.toJSON() as {
         options: Array<{ name: string; required?: boolean; min_value?: number; max_value?: number }>;
@@ -180,6 +249,7 @@ for (const required of [
         options: { getSubcommand: () => 'all', getRole: () => assignableRole },
         isButton: () => false,
         isModalSubmit: () => false,
+        isUserSelectMenu: () => false,
         isStringSelectMenu: () => false,
         isChatInputCommand: () => true,
         isRepliable: () => true,
@@ -225,6 +295,60 @@ for (const required of [
         7_200,
         'members with multiple quota roles must receive the highest requirement',
     );
+    assert.equal(shiftGamePermissionForRoleIds(['1521593407795888336']), 'mod');
+    assert.equal(
+        shiftGamePermissionForRoleIds(['1521593407795888336', '1521593407804280967']),
+        'mod',
+        'Administration is below Management and must retain Moderator access',
+    );
+    assert.equal(shiftGamePermissionForRoleIds(['1521593407816990819']), 'mod');
+    assert.equal(shiftGamePermissionForRoleIds(['1521593407741362259']), 'admin');
+    assert.equal(
+        shiftGamePermissionForRoleIds(['1521593407795888336', '1521598108226818288']),
+        'admin',
+        'a Management-or-higher role must override a retained lower staff role',
+    );
+    assert.equal(shiftGamePermissionForRoleIds(['not-a-staff-role']), null);
+    let shiftRemovalCommand = '';
+    const shiftRemovalReplies: any[] = [];
+    const shiftRemovalMember = { roles: { cache: new Map([['1521593407795888336', {}]]) } };
+    await revokeShiftGamePermission({
+        guildId: 'shift-guild',
+        guild: { members: { fetch: async () => shiftRemovalMember } },
+        member: shiftRemovalMember,
+        user: { id: 'shift-moderator' },
+        followUp: async (payload: any) => { shiftRemovalReplies.push(payload); },
+    } as never, {
+        resolveDock: (async () => ({
+            ok: true,
+            status: 'ok',
+            profile: {
+                discordId: 'shift-moderator',
+                robloxId: '123',
+                username: 'ShiftModerator',
+                displayName: 'Shift Moderator',
+                createdAt: null,
+                description: null,
+                isBanned: null,
+                hasVerifiedBadge: null,
+            },
+        })) as never,
+        fetchServer: (async () => ({
+            ok: true,
+            data: {
+                players: [{
+                    player: { name: 'ShiftModerator', robloxId: '123' },
+                    permission: 'Moderator',
+                }],
+            },
+        })) as never,
+        runCommand: (async (command: string) => {
+            shiftRemovalCommand = command;
+            return { ok: true, message: 'Success' };
+        }) as never,
+    });
+    assert.equal(shiftRemovalCommand, ':unmod ShiftModerator');
+    assert(shiftRemovalReplies.some(reply => String(reply.content).includes('Removed ER:LC')));
     assert.equal(shiftQuotaBoundary(new Date('2026-01-09T15:00:00.000Z')).toISOString(), '2026-01-09T15:00:00.000Z');
     assert.equal(shiftQuotaBoundary(new Date('2026-08-14T14:00:00.000Z')).toISOString(), '2026-08-14T14:00:00.000Z');
     assert.equal(shiftQuotaWeekKey(new Date('2026-08-14T13:59:59.000Z')), '2026-08-07');
@@ -263,30 +387,22 @@ for (const required of [
             fetch: async (memberId?: string) => memberId ? shiftGuildMember : shiftMemberCollection,
         },
     };
-    const routeShift = async (payload: Record<string, unknown>): Promise<void> => interactionCreate({
-        commandName: 'shift',
-        isButton: () => false,
-        isModalSubmit: () => false,
-        isStringSelectMenu: () => false,
-        isChatInputCommand: () => true,
-        isRepliable: () => true,
-        reply: async () => undefined,
-        ...payload,
-    } as never);
+    const routeShift = async (payload: Record<string, unknown>): Promise<void> => {
+        await commandNamed('shift').execute({
+            commandName: 'shift',
+            reply: async () => undefined,
+            ...payload,
+        } as never);
+    };
     const shiftStartDefers: any[] = [];
     const shiftStartReplies: any[] = [];
-    await interactionCreate({
+    await commandNamed('shift').execute({
         commandName: 'shift',
         guildId: 'shift-guild',
         guild: shiftGuild,
         member: shiftGuildMember,
         user: shiftTarget,
         options: { getSubcommand: () => 'start' },
-        isButton: () => false,
-        isModalSubmit: () => false,
-        isStringSelectMenu: () => false,
-        isChatInputCommand: () => true,
-        isRepliable: () => true,
         deferReply: async (payload: any) => { shiftStartDefers.push(payload); },
         editReply: async (payload: any) => { shiftStartReplies.push(payload); },
         reply: async (payload: any) => { shiftStartReplies.push(payload); },
@@ -398,10 +514,11 @@ for (const required of [
         deferReply: async () => undefined,
         editReply: async (payload: any) => { shiftLeaderboardPayload = payload; },
     });
-    const shiftLeaderboardEmbed = shiftLeaderboardPayload.embeds[0].toJSON();
-    assert.equal(shiftLeaderboardEmbed.title, '⏱️ Weekly Shift Leaderboard');
-    assert(shiftLeaderboardEmbed.description.includes(`<@${shiftTarget.id}>`));
-    assert(shiftLeaderboardEmbed.description.includes('**2h** / 2h'));
+    const shiftLeaderboardText = JSON.stringify(shiftLeaderboardPayload);
+    assert.equal(shiftLeaderboardPayload.flags, MessageFlags.IsComponentsV2);
+    assert(shiftLeaderboardText.includes('⏱️ Weekly Shift Leaderboard'));
+    assert(shiftLeaderboardText.includes(`<@${shiftTarget.id}>`));
+    assert(shiftLeaderboardText.includes('**2h** / 2h'));
 
     let fallbackShiftLeaderboardPayload: any = null;
     await routeShift({
@@ -417,8 +534,8 @@ for (const required of [
         deferReply: async () => undefined,
         editReply: async (payload: any) => { fallbackShiftLeaderboardPayload = payload; },
     });
-    const fallbackShiftLeaderboard = fallbackShiftLeaderboardPayload.embeds[0].toJSON();
-    assert(fallbackShiftLeaderboard.description.includes(`<@${shiftTarget.id}>`), 'leaderboard must use durable profiles when member-list fetch is unavailable');
+    const fallbackShiftLeaderboard = JSON.stringify(fallbackShiftLeaderboardPayload);
+    assert(fallbackShiftLeaderboard.includes(`<@${shiftTarget.id}>`), 'leaderboard must use durable profiles when member-list fetch is unavailable');
 
     const shiftEndReplies: string[] = [];
     await routeShift({
@@ -667,7 +784,10 @@ for (const required of [
         deferReply: async () => undefined,
         editReply: async (content: string) => { complaintReplies.push(content); },
     } as never);
-    assert.equal(complaintSubmission?.embeds?.[0]?.data?.title, '📋 Staff Complaint Received');
+    assert.equal(complaintSubmission?.flags, MessageFlags.IsComponentsV2);
+    assert.equal(complaintSubmission?.embeds, undefined);
+    assert(JSON.stringify(complaintSubmission).includes('📋 Staff Complaint Received'));
+    assert(JSON.stringify(complaintSubmission).includes('attachment://underbanner.webp'));
     assert(complaintReplies.some(reply => reply.includes('submitted securely')));
 
     const trainingSchema = commandNamed('training-results').data.toJSON() as {
@@ -809,12 +929,63 @@ for (const required of [
     } as never;
     await commandNamed('movie-feedback').execute(movieInteraction);
     assert.equal(movieSends.length, 2, 'movie feedback should publish once and write one private audit');
-    const moviePublic = movieSends[0].payload.embeds[0].toJSON();
-    const movieAudit = movieSends[1].payload.embeds[0].toJSON();
-    assert.equal(moviePublic.title, '🎬 Movie Feedback');
-    assert(moviePublic.fields.some((field: any) => field.name === '⭐ Rating' && field.value === `${'⭐'.repeat(8)}\n**8/10**`));
-    assert(moviePublic.footer.text.includes('Submitted by therealstickyz_35430'));
-    assert(movieAudit.fields.some((field: any) => field.name === 'Discord ID' && field.value === '1489388257925005508'));
+    const moviePublic = JSON.stringify(movieSends[0].payload);
+    const movieAudit = JSON.stringify(movieSends[1].payload);
+    assert.equal(movieSends[0].payload.flags, MessageFlags.IsComponentsV2);
+    assert.equal(movieSends[0].payload.embeds, undefined);
+    assert(moviePublic.includes('🎬 Movie Feedback'));
+    assert(moviePublic.includes(`${'⭐'.repeat(8)}\\n**8/10**`));
+    assert(moviePublic.includes('Submitted by therealstickyz_35430'));
+    assert(movieAudit.includes('Discord ID') && movieAudit.includes('1489388257925005508'));
+
+    const staffFeedbackSends: any[] = [];
+    await commandNamed('staff-feedback').execute({
+        deferReply: async () => undefined,
+        editReply: async () => undefined,
+        options: {
+            getUser: () => ({ id: 'feedback-staff' }),
+            getInteger: () => 9,
+            getString: (name: string) => name === 'feedback' ? 'Helpful and professional.' : 'No evidence needed.',
+            getBoolean: () => false,
+        },
+        user: { id: 'feedback-author', username: 'FeedbackAuthor' },
+        client: {
+            channels: {
+                fetch: async () => ({
+                    isSendable: () => true,
+                    send: async (payload: any) => { staffFeedbackSends.push(payload); return {}; },
+                }),
+            },
+        },
+    } as never);
+    assert.equal(staffFeedbackSends.length, 2, 'staff feedback must publish publicly and write its private audit');
+    assert(staffFeedbackSends.every(payload => payload.flags === MessageFlags.IsComponentsV2));
+    assert(staffFeedbackSends.every(payload => payload.embeds === undefined));
+    assert(JSON.stringify(staffFeedbackSends[0]).includes('💬 Staff Feedback'));
+    assert(JSON.stringify(staffFeedbackSends[0]).includes('attachment://underbanner.webp'));
+
+    let trainingRequestPost: any = null;
+    await handleTrainingModal({
+        customId: 'training:request-modal',
+        user: { id: 'training-requester' },
+        fields: {
+            getTextInputValue: (name: string) => name === 'timezone' ? 'EST' : 'Saturday at 5 PM',
+        },
+        client: {
+            channels: {
+                fetch: async () => ({
+                    isSendable: () => true,
+                    send: async (payload: any) => { trainingRequestPost = payload; return {}; },
+                }),
+            },
+        },
+        deferReply: async () => undefined,
+        editReply: async () => undefined,
+    } as never);
+    assert.equal(trainingRequestPost?.flags, MessageFlags.IsComponentsV2);
+    assert.equal(trainingRequestPost?.embeds, undefined);
+    assert(JSON.stringify(trainingRequestPost).includes('🎓 Training Request'));
+    assert(JSON.stringify(trainingRequestPost).includes('attachment://underbanner.webp'));
 
     const trainingSends: any[] = [];
     const trainingUsers = {
@@ -849,9 +1020,12 @@ for (const required of [
     } as never;
     await commandNamed('training-results').execute(trainingInteraction);
     assert.equal(trainingSends.length, 1);
-    const trainingEmbed = trainingSends[0].embeds[0].toJSON();
-    assert.equal(trainingEmbed.color, 0x22c55e, 'Pass training results must be green');
-    assert(trainingEmbed.fields.some((field: any) => field.name === 'Average' && field.value === '9.2/10'));
+    const trainingPanel = trainingSends[0].components[0].toJSON();
+    assert.equal(trainingSends[0].flags, MessageFlags.IsComponentsV2);
+    assert.equal(trainingSends[0].embeds, undefined);
+    assert.equal(trainingPanel.accent_color, 0x22c55e, 'Pass training results must be green');
+    assert(JSON.stringify(trainingPanel).includes('Average') && JSON.stringify(trainingPanel).includes('9.2/10'));
+    assert(JSON.stringify(trainingPanel).includes('attachment://underbanner.webp'));
 
     const promotionSends: any[] = [];
     const promotionDms: any[] = [];
@@ -1029,8 +1203,8 @@ for (const required of [
         isSendable: () => true,
         isTextBased: () => true,
         send: async (payload: any) => {
-            const title = payload.embeds?.[0]?.toJSON?.().title;
-            if (title?.includes('Request Submitted')) freshLoaRequestPayload = payload;
+            const serialized = JSON.stringify(payload);
+            if (serialized.includes('Request Submitted')) freshLoaRequestPayload = payload;
             else freshLoaResults.push(payload);
             return { id: 'fresh-loa-request-message' };
         },
@@ -1064,13 +1238,16 @@ for (const required of [
     } as never);
     assert(freshLoaRequestPayload, 'a fresh LOA submission must create its review message');
     assert(freshLoaSubmitReplies.some(reply => reply.includes('submitted for review')));
-    const freshLoaCustomId = freshLoaRequestPayload.components[0].toJSON().components[0].custom_id;
+    const freshLoaPanelComponents = freshLoaRequestPayload.components[0].toJSON().components;
+    const freshLoaReviewRow = freshLoaPanelComponents.find((component: { type: number }) => component.type === 1);
+    const freshLoaCustomId = freshLoaReviewRow.components[0].custom_id;
     const freshFirstReplies: string[] = [];
     const freshSecondReplies: string[] = [];
     const freshMessage = {
         id: 'fresh-loa-request-message',
         channelId: freshLoaChannel.id,
         embeds: [],
+        components: freshLoaRequestPayload.components,
         createdAt: new Date(),
     };
     const firstFreshApproval = handleLoaButton({
@@ -2183,7 +2360,9 @@ for (const required of [
         deferReply: async () => undefined,
         editReply: async (content: string) => { appealSubmissionReplies.push(content); },
     } as never);
-    const approveButtonId = appealReviewPayload.components[0].toJSON().components[0].custom_id as string;
+    const appealReviewComponents = appealReviewPayload.components[0].toJSON().components;
+    const appealReviewRow = appealReviewComponents.find((component: { type: number }) => component.type === 1);
+    const approveButtonId = appealReviewRow.components[0].custom_id as string;
     const appealId = approveButtonId.split(':')[2];
     assert(appealSubmissionReplies.some(reply => reply.includes(appealId)));
 
@@ -2200,7 +2379,8 @@ for (const required of [
     } as never);
     assert.equal(approvedAppealDms.length, 1, 'approved appeals must DM the affected member');
     assert.equal(sourceAppealNotices.length, 1, 'approved appeals must update the source infraction channel');
-    assert.equal(sourceAppealNotices[0].embeds[0].toJSON().title, '✅ Infraction Appealed');
+    assert.equal(sourceAppealNotices[0].flags, MessageFlags.IsComponentsV2);
+    assert(JSON.stringify(sourceAppealNotices[0]).includes('✅ Infraction Appealed'));
     assert(appealReviewEdit, 'the staff review message must be updated after a decision');
     assert(appealReviewReplies.some(reply => reply.includes('infraction channel was updated')));
     configureInfractionPersistence(null);
@@ -2240,8 +2420,11 @@ for (const required of [
     await handleMessageModeration(moderationMessage);
     await handleMessageModeration(moderationMessage);
     assert.equal(moderationSends.length, 2, 'one message should create one profanity log and one raid log without duplicates');
-    const highThreatPayload = moderationSends.find(entry => entry.payload.content)?.payload;
-    assert.equal(highThreatPayload?.content, '<@&1523122912201277590>', 'only the High-confidence alert should ping emergency staff');
+    const highThreatPayload = moderationSends.find(entry =>
+        entry.payload.allowedMentions?.roles?.includes('1523122912201277590'),
+    )?.payload;
+    assert.equal(highThreatPayload?.flags, MessageFlags.IsComponentsV2);
+    assert(JSON.stringify(highThreatPayload).includes('<@&1523122912201277590>'), 'only the High-confidence alert should ping emergency staff');
     if (originalEmergencyRole === undefined) delete process.env.EMERGENCY_STAFF_ROLE_ID;
     else process.env.EMERGENCY_STAFF_ROLE_ID = originalEmergencyRole;
 
