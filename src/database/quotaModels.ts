@@ -139,6 +139,13 @@ const quotaWeekSchema = new Schema<MessageQuotaWeekRecord>({
     updatedAt: { type: Date, default: Date.now },
 });
 quotaWeekSchema.index({ guildId: 1, weekKey: 1 }, { unique: true });
+// A failed/retried Friday evaluation must never open a second simultaneous
+// quota week for the same guild. MongoDB enforces that invariant even across
+// multiple bot instances or a Render restart in the middle of finalization.
+quotaWeekSchema.index(
+    { guildId: 1 },
+    { unique: true, partialFilterExpression: { status: 'Active' } },
+);
 
 export interface QuotaMessageEventRecord {
     messageId: string;
