@@ -15,6 +15,7 @@ if (!token) {
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
     GatewayIntentBits.DirectMessages,
   ],
   partials: [Partials.Channel],
@@ -28,42 +29,76 @@ client.on('shardDisconnect', (event, shardId) => {
   console.warn(`[Discord] Shard ${shardId} disconnected (${event?.code ?? 'unknown'}).`);
 });
 
-// IMPORTANT: install one tiny interaction bridge BEFORE login.
-// It lazy-loads the real router only when Discord sends an interaction. This means
-// a broken optional command module can never prevent the Discord client from logging in.
-// If the router itself fails to load, users still receive an immediate response instead
-// of Discord's "This application did not respond" timeout.
+// Attach ONE interaction bridge before login. The heavy command/ticket router is
+// loaded lazily only when Discord actually sends an interaction. Before the
+// router loads, install ticket lifecycle enhancements so claim/close DMs and
+// feedback work, without letting those modules block Discord startup.
+let routerPromise = null;
+async function loadInteractionRouter() {
+  if (!routerPromise) {
+    routerPromise = Promise.resolve().then(() => {
+      try {
+        const ticketModule = require('./src/commands/tickets.ts');
+        const { installTicketLifecycleEnhancements } = require('./src/commands/ticketLifecycleEnhancements.ts');
+        installTicketLifecycleEnhancements(ticketModule);
+        console.log('[Tickets] Lifecycle enhancements installed lazily.');
+      } catch (error) {
+        console.warn('[Tickets] Lifecycle enhancements unavailable:', error instanceof Error ? error.stack || error.message : String(error));
+      }
+
+      const router = require('./src/handlers/interactionCreate.ts');
+      if (!router || typeof router.interactionCreate !== 'function') {
+        throw new Error('interactionCreate export is unavailable.');
+      }
+      console.log('[Discord] Interaction router lazy-loaded successfully.');
+      return router.interactionCreate;
+    });
+  }
+  return routerPromise;
+}
+
 client.on(Events.InteractionCreate, async interaction => {
   try {
-    const router = require('./src/handlers/interactionCreate.ts');
-    if (!router || typeof router.interactionCreate !== 'function') {
-      throw new Error('interactionCreate export is unavailable');
-    }
-    await router.interactionCreate(interaction);
+    const interactionCreate = await loadInteractionRouter();
+    await interactionCreate(interaction);
   } catch (error) {
-    console.error('[Interaction] Router failed:', error instanceof Error ? error.stack || error.message : String(error));
+    console.error('[Discord] Interaction bridge failed:', error instanceof Error ? error.stack || error.message : String(error));
     if (!interaction.isRepliable()) return;
-    const content = 'The bot hit a command-system error. Staff have been notified; please try again in a moment.';
     try {
-      if (interaction.deferred) {
-        await interaction.editReply({ content });
-      } else if (interaction.replied) {
-        await interaction.followUp({ content, flags: MessageFlags.Ephemeral });
-      } else {
-        await interaction.reply({ content, flags: MessageFlags.Ephemeral });
-      }
-    } catch (replyError) {
-      console.error('[Interaction] Emergency reply failed:', replyError instanceof Error ? replyError.message : String(replyError));
+      const content = 'The command system hit an internal error. Please try again in a moment.';
+      if (interaction.deferred) await interaction.editReply({ content });
+      else if (interaction.replied) await interaction.followUp({ content, flags: MessageFlags.Ephemeral });
+      else await interaction.reply({ content, flags: MessageFlags.Ephemeral });
+    } catch {
+      // Discord may already have expired the interaction.
     }
   }
 });
 
 client.once(Events.ClientReady, async readyClient => {
   console.log(`[Discord] READY as ${readyClient.user.tag} (${readyClient.user.id})`);
-  console.log('[Discord] Interaction bridge active.');
 
-  // Register slash commands / ready-time systems. Failure here no longer removes
-  // the interaction bridge, so already-existing Discord commands still respond.
+  // Ticket AI systems are independent from slash-command registration. Register
+  // them directly here so a failure in onReady/command registration cannot stop
+  // ticket auto-response or priority naming.
+  try {
+    const { registerTicketAiTriage } = require('./src/events/ticketAiTriage.ts');
+    registerTicketAiTriage(readyClient);
+    console.log('[Tickets] Pre-claim AI triage registered.');
+  } catch (error) {
+    console.warn('[Tickets] AI triage failed to register:', error instanceof Error ? error.stack || error.message : String(error));
+  }
+
+  try {
+    const { registerTicketPriority } = require('./src/events/ticketPriority.ts');
+    registerTicketPriority(readyClient);
+    console.log('[Tickets] Priority channel naming registered.');
+  } catch (error) {
+    console.warn('[Tickets] Priority naming failed to register:', error instanceof Error ? error.stack || error.message : String(error));
+  }
+
+  // Register slash commands / ready-time systems. The ticket AI registrations
+  // above are idempotent, so onReady can safely call them again.
   try {
     const { onReady } = require('./src/events/ready.ts');
     await onReady(readyClient);
