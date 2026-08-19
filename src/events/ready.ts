@@ -59,21 +59,37 @@ export const onReady = async (client: Client): Promise<void> => {
     });
 
     const rest = new REST({ version: '10' }).setToken(token);
-    const guildId = process.env.GUILD_ID || client.guilds.cache.firstKey();
     try {
-        if (guildId) {
-            const legacyGlobalCommands = await rest.get(
-                Routes.applicationCommands(client.application.id),
-            ) as Array<{ id: string; name: string }>;
-            if (legacyGlobalCommands.length > 0) {
-                await rest.put(Routes.applicationCommands(client.application.id), { body: [] });
-                logger.info(`Removed ${legacyGlobalCommands.length} legacy global slash commands.`);
-            }
-            await rest.put(Routes.applicationGuildCommands(client.application.id, guildId), { body: commands });
-            logger.info(`Registered ${commands.length} guild slash commands in ${guildId}: ${[...uniqueNames].join(', ')}`);
-        } else {
+        const legacyGlobalCommands = await rest.get(
+            Routes.applicationCommands(client.application.id),
+        ) as Array<{ id: string; name: string }>;
+        if (legacyGlobalCommands.length > 0) {
+            await rest.put(Routes.applicationCommands(client.application.id), { body: [] });
+            logger.info(`Removed ${legacyGlobalCommands.length} legacy global slash commands.`);
+        }
+
+        const configuredGuildId = process.env.GUILD_ID?.trim();
+        const guildIds = configuredGuildId
+            ? [configuredGuildId]
+            : [...client.guilds.cache.keys()];
+
+        if (guildIds.length === 0) {
             await rest.put(Routes.applicationCommands(client.application.id), { body: commands });
             logger.info(`Registered ${commands.length} global slash commands because no connected guild was available.`);
+        } else {
+            for (const guildId of guildIds) {
+                const registered = await rest.put(
+                    Routes.applicationGuildCommands(client.application.id, guildId),
+                    { body: commands },
+                ) as Array<{ id: string; name: string }>;
+                const registeredNames = registered.map(command => command.name);
+                logger.info(`Registered ${registered.length} guild slash commands in ${guildId}: ${registeredNames.join(', ')}`);
+                for (const requiredName of ['activity-check', 'view-activity-check', 'end-activity-check', 'void-activity-check']) {
+                    if (!registeredNames.includes(requiredName)) {
+                        logger.error(`[SlashCommands] Discord did not return required command ${requiredName} for guild ${guildId}.`);
+                    }
+                }
+            }
         }
     } catch (error) {
         const details = error instanceof Error ? (error.stack || error.message) : String(error);
