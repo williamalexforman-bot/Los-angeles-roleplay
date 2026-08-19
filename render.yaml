@@ -1,8 +1,8 @@
 # Render Blueprint Configuration
 # Deploy on Render: https://render.com
 #
-# IMPORTANT: add your private environment variables in the Render Dashboard
-# (BOT_TOKEN, MONGODB_URI, ERLC_SERVER_KEY, OPENAI_API_KEY, etc.). Never commit live secrets.
+# IMPORTANT: add private environment values in the Render Dashboard.
+# Never commit live secrets.
 
 services:
   - type: web
@@ -20,8 +20,24 @@ services:
         value: production
       - key: BOT_TOKEN
         sync: false
+
+      # Recommended MongoDB Atlas setup for Render. Keeping the username,
+      # password, and host separate lets the bot safely URL-encode credentials
+      # instead of relying on a hand-built connection string.
+      - key: MONGODB_USERNAME
+        sync: false
+      - key: MONGODB_PASSWORD
+        sync: false
+      - key: MONGODB_HOST
+        sync: false
+      - key: MONGODB_DATABASE
+        value: "discordbot"
+
+      # Backwards-compatible fallback. You can leave this unset when the three
+      # variables above are configured.
       - key: MONGODB_URI
         sync: false
+
       - key: OPENAI_API_KEY
         sync: false
       - key: TICKET_RECAP_MODEL
