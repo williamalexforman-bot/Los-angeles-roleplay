@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "A professional Discord management bot for a Roblox roleplay community.",
   "main": "index.js",
+  "engines": {
+    "node": ">=22.22.0 <23"
+  },
   "scripts": {
     "start": "node index.js",
     "build": "node -e \"console.log('No compile step required; index.js uses ts-node transpileOnly at runtime.')\"",
