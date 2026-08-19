@@ -31,6 +31,7 @@ const ASSISTANCE_BANNER_PATH = resolve(__dirname, '..', '..', 'assets', ASSISTAN
 const UNDERBANNER_PATH = resolve(__dirname, '..', '..', 'assets', UNDERBANNER_NAME);
 const INFRACTION_BANNER_PATH = resolve(__dirname, '..', '..', 'assets', INFRACTION_BANNER_NAME);
 const INFRACTION_PARENT_CHANNEL_ID = CHANNEL_IDS.infractionParent;
+const DEFAULT_STAFF_TEAM_ROLE_ID = '1521593407791825036';
 
 const DURATION_CHOICES = [
     { name: 'No Scheduled End', value: 'none' },
@@ -64,7 +65,7 @@ type ActivityCheckState = {
     activeMemberIds: string[];
     startedAt: Date;
     endsAt?: Date;
-    status: 'active' | 'ended';
+    status: 'active' | 'ended' | 'voided';
     endedAt?: Date;
     endedById?: string;
 };
@@ -80,7 +81,7 @@ const ActivityCheckSchema = new mongoose.Schema<ActivityCheckState>({
     activeMemberIds: { type: [String], required: true, default: [] },
     startedAt: { type: Date, required: true },
     endsAt: { type: Date, required: false },
-    status: { type: String, required: true, enum: ['active', 'ended'], index: true },
+    status: { type: String, required: true, enum: ['active', 'ended', 'voided'], index: true },
     endedAt: { type: Date, required: false },
     endedById: { type: String, required: false },
 }, { collection: 'activity_checks' });
@@ -128,11 +129,16 @@ function checkPanel(check: ActivityCheckState, ended = false): ContainerBuilder 
         ? `<t:${Math.floor(check.endsAt.getTime() / 1000)}:F> • <t:${Math.floor(check.endsAt.getTime() / 1000)}:R>`
         : 'No automatic end scheduled';
     const missing = check.requiredMemberIds.filter(id => !check.activeMemberIds.includes(id)).length;
-    const text = [
-        `## ${ended ? '✅ Activity Check Ended' : '🟢 Staff Activity Check'}`,
-        ended
+    const voided = check.status === 'voided';
+    const title = voided ? '🛑 Activity Check Voided' : ended ? '✅ Activity Check Ended' : '🟢 Staff Activity Check';
+    const description = voided
+        ? 'This activity check was cancelled. **No automatic infractions were issued.**'
+        : ended
             ? 'This activity check is now closed. The button can no longer be used.'
-            : 'Staff members with the pinged role must press **I’m Active** before this check ends.',
+            : 'Staff members with the pinged role must press **I’m Active** before this check ends.';
+    const text = [
+        `## ${title}`,
+        description,
         '',
         `> **Staff Role:** <@&${check.roleId}>`,
         `> **Started By:** <@${check.createdById}>`,
@@ -141,7 +147,8 @@ function checkPanel(check: ActivityCheckState, ended = false): ContainerBuilder 
         `> **Required Staff:** ${check.requiredMemberIds.length}`,
         `> **Marked Active:** ${check.activeMemberIds.length}`,
         `> **Still Missing:** ${missing}`,
-        ended && check.endedAt ? `> **Ended:** <t:${Math.floor(check.endedAt.getTime() / 1000)}:F>` : '',
+        ended && check.endedAt ? `> **${voided ? 'Voided' : 'Ended'}:** <t:${Math.floor(check.endedAt.getTime() / 1000)}:F>` : '',
+        voided && check.endedById ? `> **Voided By:** <@${check.endedById}>` : '',
     ].filter(Boolean).join('\n');
 
     const panel = new ContainerBuilder()
@@ -304,6 +311,16 @@ async function finishCheck(client: Client, check: ActivityCheckState, endedById:
     return { missing, infractions };
 }
 
+async function voidCheck(client: Client, check: ActivityCheckState, voidedById: string): Promise<void> {
+    if (check.status !== 'active') return;
+    check.status = 'voided';
+    check.endedAt = new Date();
+    check.endedById = voidedById;
+    await saveCheck(check);
+    await editOriginalCheck(client, check);
+    logger.info(`[ActivityCheck] ${check.checkId} was voided by ${voidedById}; no infractions were issued.`);
+}
+
 async function startCommand(interaction: ChatInputCommandInteraction): Promise<void> {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     if (!interaction.guild || !interaction.channel || interaction.channel.type !== ChannelType.GuildText) {
@@ -315,17 +332,17 @@ async function startCommand(interaction: ChatInputCommandInteraction): Promise<v
         return;
     }
     if (await currentCheck(interaction.guild.id)) {
-        await interaction.editReply('There is already an active activity check. End it before starting another one.');
+        await interaction.editReply('There is already an active activity check. End or void it before starting another one.');
         return;
     }
 
     const selectedRole = interaction.options.getRole('staff-role');
-    const configuredRoleId = process.env.STAFF_TEAM_ROLE_ID?.trim();
+    const configuredRoleId = process.env.STAFF_TEAM_ROLE_ID?.trim() || DEFAULT_STAFF_TEAM_ROLE_ID;
     const role = selectedRole instanceof Role
         ? selectedRole
-        : configuredRoleId ? await interaction.guild.roles.fetch(configuredRoleId).catch(() => null) : null;
+        : await interaction.guild.roles.fetch(configuredRoleId).catch(() => null);
     if (!role) {
-        await interaction.editReply('Choose the staff role when running this command, or configure STAFF_TEAM_ROLE_ID.');
+        await interaction.editReply(`The configured Staff Team role <@&${configuredRoleId}> could not be loaded.`);
         return;
     }
 
@@ -403,6 +420,21 @@ async function endCommand(interaction: ChatInputCommandInteraction): Promise<voi
     await interaction.editReply(`✅ Activity check ended. **${check.activeMemberIds.length}** responded, **${result.missing.length}** did not, and **${result.infractions}** automatic warning infraction(s) were posted.`);
 }
 
+async function voidCommand(interaction: ChatInputCommandInteraction): Promise<void> {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    if (!interaction.guildId || !canManage(interaction)) {
+        await interaction.editReply('You do not have permission to void an activity check.');
+        return;
+    }
+    const check = await currentCheck(interaction.guildId);
+    if (!check) {
+        await interaction.editReply('There is no active activity check to void.');
+        return;
+    }
+    await voidCheck(interaction.client, check, interaction.user.id);
+    await interaction.editReply(`🛑 ${check.checkId} has been **voided**. The activity check was cancelled and **no automatic infractions were issued**.`);
+}
+
 export const activityCheckCommands = [
     {
         data: new SlashCommandBuilder()
@@ -410,7 +442,7 @@ export const activityCheckCommands = [
             .setDescription('Start a V2 staff activity check.')
             .addRoleOption(option => option
                 .setName('staff-role')
-                .setDescription('Staff role required to respond. Uses STAFF_TEAM_ROLE_ID when omitted.')
+                .setDescription('Optional override. Defaults to the configured Staff Team role.')
                 .setRequired(false))
             .addStringOption(option => option
                 .setName('scheduled-end')
@@ -431,6 +463,12 @@ export const activityCheckCommands = [
             .setDescription('End the current activity check immediately and process non-responders.'),
         execute: endCommand,
     },
+    {
+        data: new SlashCommandBuilder()
+            .setName('void-activity-check')
+            .setDescription('Cancel the current activity check without issuing any infractions.'),
+        execute: voidCommand,
+    },
 ];
 
 export async function handleActivityCheckButton(interaction: ButtonInteraction): Promise<boolean> {
@@ -439,7 +477,7 @@ export async function handleActivityCheckButton(interaction: ButtonInteraction):
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const check = await loadCheck(match[1]);
     if (!check || check.status !== 'active') {
-        await interaction.editReply('This activity check has already ended or could not be loaded.');
+        await interaction.editReply('This activity check has already ended, was voided, or could not be loaded.');
         return true;
     }
     if (!check.requiredMemberIds.includes(interaction.user.id)) {
