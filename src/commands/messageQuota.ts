@@ -769,7 +769,7 @@ function buildQuotaAppealReviewPanel(appeal: QuotaAppealRecord): ContainerBuilde
             `> **Reason:** ${safeText(appeal.reason, 1_500)}`,
             appeal.reviewedById ? `> **Reviewed By:** <@${appeal.reviewedById}>` : null,
             appeal.reviewReason ? `> **Review Reason:** ${safeText(appeal.reviewReason, 1_000)}` : null,
-        ].filter(Boolean).join('\n'));
+        ].filter(Boolean).join('\n')));
 
     if (appeal.status === 'Pending') {
         panel.addActionRowComponents(
