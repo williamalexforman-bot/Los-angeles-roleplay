@@ -2,7 +2,7 @@ import path from 'path';
 
 export const BRAND = {
     name: 'Los Angeles Roleplay',
-    color: 0x247BF1,
+    color: 0x247BF1 as number,
     footer: 'Los Angeles Roleplay | Realism at its Finest',
     panelFooter: 'Realism at its Finest',
     logoName: 'larp-logo.png',
