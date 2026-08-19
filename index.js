@@ -3,15 +3,13 @@
 // during npm install (which causes OOM on memory-constrained hosts).
 require('ts-node').register({ transpileOnly: true, project: require('path').join(__dirname, 'tsconfig.json') });
 
-// Do NOT force privileged gateway intents from code. If Discord has not enabled
-// Guild Members / Message Content for this application, forcing them makes the
-// bot account stay offline even though Render's /health endpoint is healthy.
-// Render may explicitly set ENABLE_PRIVILEGED_INTENTS=true after those intents
-// are enabled in the Discord Developer Portal. Otherwise the bot starts safely
-// with commands, tickets, applications, and session interactions available.
-if (!process.env.ENABLE_PRIVILEGED_INTENTS) {
-    process.env.ENABLE_PRIVILEGED_INTENTS = 'false';
-}
+// Emergency stability mode: force reduced gateway intents so Discord cannot
+// reject the bot login because of a stale Render environment value or a
+// privileged-intent setting that is not enabled in the Developer Portal.
+// Slash commands, tickets, applications, session interactions, appeals, and
+// other interaction-based features remain available. Message-quota/member
+// monitoring can be re-enabled after the privileged intents are confirmed.
+process.env.ENABLE_PRIVILEGED_INTENTS = 'false';
 
 // Install restart-safe recovery before the main interaction router imports the
 // appeal module. This lets old INF-#### appeal buttons recover their original
