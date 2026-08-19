@@ -4,7 +4,7 @@
 require('ts-node').register({ transpileOnly: true, project: require('path').join(__dirname, 'tsconfig.json') });
 require('dotenv').config();
 
-const { Client, Events, GatewayIntentBits, Partials } = require('discord.js');
+const { Client, Events, GatewayIntentBits, Partials, MessageFlags } = require('discord.js');
 
 const token = (process.env.BOT_TOKEN || process.env.TOKEN || '').trim();
 if (!token) {
@@ -28,19 +28,42 @@ client.on('shardDisconnect', (event, shardId) => {
   console.warn(`[Discord] Shard ${shardId} disconnected (${event?.code ?? 'unknown'}).`);
 });
 
+// IMPORTANT: install one tiny interaction bridge BEFORE login.
+// It lazy-loads the real router only when Discord sends an interaction. This means
+// a broken optional command module can never prevent the Discord client from logging in.
+// If the router itself fails to load, users still receive an immediate response instead
+// of Discord's "This application did not respond" timeout.
+client.on(Events.InteractionCreate, async interaction => {
+  try {
+    const router = require('./src/handlers/interactionCreate.ts');
+    if (!router || typeof router.interactionCreate !== 'function') {
+      throw new Error('interactionCreate export is unavailable');
+    }
+    await router.interactionCreate(interaction);
+  } catch (error) {
+    console.error('[Interaction] Router failed:', error instanceof Error ? error.stack || error.message : String(error));
+    if (!interaction.isRepliable()) return;
+    const content = 'The bot hit a command-system error. Staff have been notified; please try again in a moment.';
+    try {
+      if (interaction.deferred) {
+        await interaction.editReply({ content });
+      } else if (interaction.replied) {
+        await interaction.followUp({ content, flags: MessageFlags.Ephemeral });
+      } else {
+        await interaction.reply({ content, flags: MessageFlags.Ephemeral });
+      }
+    } catch (replyError) {
+      console.error('[Interaction] Emergency reply failed:', replyError instanceof Error ? replyError.message : String(replyError));
+    }
+  }
+});
+
 client.once(Events.ClientReady, async readyClient => {
   console.log(`[Discord] READY as ${readyClient.user.tag} (${readyClient.user.id})`);
+  console.log('[Discord] Interaction bridge active.');
 
-  // Load the interaction router only AFTER Discord is online.
-  try {
-    const { interactionCreate } = require('./src/handlers/interactionCreate.ts');
-    readyClient.on(Events.InteractionCreate, interactionCreate);
-    console.log('[Discord] Interaction router loaded.');
-  } catch (error) {
-    console.error('[Discord] Interaction router failed to load:', error instanceof Error ? error.stack || error.message : String(error));
-  }
-
-  // Register slash commands / ready-time systems after the router is attached.
+  // Register slash commands / ready-time systems. Failure here no longer removes
+  // the interaction bridge, so already-existing Discord commands still respond.
   try {
     const { onReady } = require('./src/events/ready.ts');
     await onReady(readyClient);
