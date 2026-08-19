@@ -4,6 +4,36 @@
 require('ts-node').register({ transpileOnly: true, project: require('path').join(__dirname, 'tsconfig.json') });
 require('dotenv').config();
 
+// Render web services must bind to the assigned PORT or the deployment never
+// becomes Live. Keep this tiny health server completely independent of Discord
+// and MongoDB so a blocked database can never stop Render from going healthy.
+const http = require('http');
+const renderPort = Number(process.env.PORT || process.env.WEBHOOK_PORT || 10000);
+const healthServer = http.createServer((req, res) => {
+  if (req.url === '/health' || req.url === '/') {
+    const discordClient = globalThis.__discordClient;
+    const payload = JSON.stringify({
+      ok: true,
+      discordReady: Boolean(discordClient?.isReady?.()),
+      uptimeSeconds: Math.floor(process.uptime()),
+    });
+    res.writeHead(200, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Content-Length': Buffer.byteLength(payload),
+    });
+    res.end(payload);
+    return;
+  }
+  res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+  res.end('Not found');
+});
+healthServer.on('error', error => {
+  console.error('[Health] Server error:', error instanceof Error ? error.message : String(error));
+});
+healthServer.listen(renderPort, '0.0.0.0', () => {
+  console.log(`[Health] Listening on 0.0.0.0:${renderPort}`);
+});
+
 const { Client, Events, GatewayIntentBits, Partials, MessageFlags } = require('discord.js');
 
 const token = (process.env.BOT_TOKEN || process.env.TOKEN || '').trim();
