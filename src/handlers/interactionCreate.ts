@@ -14,6 +14,7 @@ import { handleLoaButton, handleLoaModal } from '../commands/loa';
 import { handleBanAppealButton, handleBanAppealModal } from '../commands/banAppeal';
 import { handleInfractionAppealButton, handleInfractionAppealModal } from '../commands/infractionAppeal';
 import { handleMessageQuotaButton, handleMessageQuotaModal } from '../commands/messageQuota';
+import { handleActivityCheckButton } from '../commands/activityCheck';
 import { handleSessionButton } from '../commands/session';
 import { handleEnhancedSessionButton, handleEnhancedSessionCommand } from '../commands/sessionEnhancements';
 import { handlePaidAdButton, handlePaidAdModal, handlePaidAdSelect } from '../commands/paidAds';
@@ -28,7 +29,6 @@ import {
 } from '../commands/tickets';
 import { handleApplicationButton, handleApplicationModal, handleApplicationSelect } from '../commands/applications';
 import { roleCommand } from '../commands/role';
-// economy module removed
 import {
     INFRACTION_AUTHORIZED_ROLE_ID,
     PROMOTION_AUTHORIZED_ROLE_ID,
@@ -127,15 +127,13 @@ async function hasManagementCommandPermission(interaction: ChatInputCommandInter
     let roles = new Set(interactionRoleIds(interaction));
     if (requiredRoles.some(roleId => roles.has(roleId))) return true;
 
-    // Always refresh once before denying. This avoids stale Discord member
-    // cache data causing authorized trainers/managers to be rejected.
     try {
         const guild = interaction.guild;
         if (!guild) return false;
         const fetched = await guild.members.fetch(interaction.user.id);
         roles = new Set([...roles, ...fetched.roles.cache.keys()]);
     } catch {
-        // Fall through with whatever roles were already available.
+        // Fall through with cached roles.
     }
     return requiredRoles.some(roleId => roles.has(roleId));
 }
@@ -166,7 +164,7 @@ async function reportInteractionError(interaction: Interaction, error: unknown):
         else if (interaction.replied) await interaction.followUp({ content: message, ephemeral: true });
         else await interaction.reply({ content: message, ephemeral: true });
     } catch {
-        // The interaction may have expired while an external service was unavailable.
+        // Interaction may have expired.
     }
     const errorName = error instanceof Error ? error.name : 'UnknownError';
     logger.error(`Interaction handling failed (${errorName}); details were withheld from logs to protect credentials.`);
@@ -236,6 +234,7 @@ async function handleChatCommand(interaction: ChatInputCommandInteraction): Prom
 export const interactionCreate = async (interaction: Interaction): Promise<void> => {
     try {
         if (interaction.isButton()) {
+            if (await handleActivityCheckButton(interaction)) return;
             if (await handleMessageQuotaButton(interaction)) return;
             if (await handleSuggestionButton(interaction)) return;
             if (await handlePaidAdButton(interaction)) return;
