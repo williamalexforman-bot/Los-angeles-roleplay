@@ -21,7 +21,6 @@ import {
     TextDisplayBuilder,
     TextInputBuilder,
     TextInputStyle,
-    type Attachment,
 } from 'discord.js';
 import { BRAND, INFRACTION_AUTHORIZED_ROLE_ID } from '../config/constants';
 import { isDatabaseAvailable } from '../database/connection';
@@ -47,10 +46,9 @@ const QUOTA_MANAGEMENT_ROLE_ID = '1521593407850680401';
 const OWNERSHIP_ROLE_ID = '1521598108226818288';
 const EXEMPT_AUTO_INFRACTION_ROLE_ID = '1521593407795888329';
 
-// The user supplied 1539477750757466133 for both the quota log channel and the
-// Mod role. A Discord snowflake cannot represent both objects. Keep that value
-// as the requested log channel and use the previously configured Mod role as a
-// safe fallback. QUOTA_MOD_ROLE_ID can override it without a code change.
+// 1539477750757466133 was supplied as both the quota log channel and Mod role.
+// Keep it as the requested log channel and use the previous Moderator role until
+// QUOTA_MOD_ROLE_ID is configured with the corrected role ID.
 const MOD_ROLE_ID = process.env.QUOTA_MOD_ROLE_ID || '1521593407795888336';
 
 const UNDERBANNER_NAME = 'underbanner.webp';
@@ -64,6 +62,7 @@ const DUPLICATE_WINDOW_MS = 5 * 60_000;
 const BURST_WINDOW_MS = 60_000;
 const MIN_COUNTED_GAP_MS = 3_000;
 const MAX_COUNTED_PER_MINUTE = 5;
+
 let schedulerTimer: ReturnType<typeof setInterval> | null = null;
 const finalizingGuilds = new Set<string>();
 
@@ -74,25 +73,25 @@ interface QuotaRoleRule {
     autoInfractionExempt?: boolean;
 }
 
-/**
- * Ordered from highest/senior-most to lowest so members who retain lower staff
- * roles are evaluated against their current senior rank rather than the maximum
- * message requirement across every role they happen to have.
- */
+interface ResolvedQuotaRule extends QuotaRoleRule {
+    teamRules: QuotaRoleRule[];
+}
+
+/** Every configured team has its own valid-message requirement. */
 export function quotaRoleRules(): QuotaRoleRule[] {
     return [
-        { roleId: OWNERSHIP_ROLE_ID, roleName: 'Ownership', required: 30, autoInfractionExempt: true },
-        { roleId: '1521593407833640986', roleName: 'Board of Directors', required: 75 },
-        { roleId: '1523111129696702584', roleName: 'Board of Executives', required: 100 },
+        { roleId: MOD_ROLE_ID, roleName: 'Moderator', required: 150 },
+        { roleId: '1530363357423468706', roleName: 'Discord Moderation Team', required: 150 },
+        { roleId: '1521593407804280967', roleName: 'Admin Team', required: 150 },
+        { roleId: '1521593407816990811', roleName: 'Internal Affairs', required: 125 },
+        { roleId: '1521593407816990819', roleName: 'Supervisory Team', required: 125 },
+        { roleId: '1521593407741362259', roleName: 'Management', required: 125 },
         { roleId: '1521593407833640981', roleName: 'Head of Staff', required: 115 },
         { roleId: '1523164030448173206', roleName: 'Assistant Head of Staff', required: 115 },
         { roleId: '1534538735037972510', roleName: 'Community Manager', required: 115 },
-        { roleId: '1521593407741362259', roleName: 'Management', required: 125 },
-        { roleId: '1521593407816990819', roleName: 'Supervisory Team', required: 125 },
-        { roleId: '1521593407816990811', roleName: 'Internal Affairs', required: 125 },
-        { roleId: '1521593407804280967', roleName: 'Admin Team', required: 150 },
-        { roleId: '1530363357423468706', roleName: 'Discord Moderation Team', required: 150 },
-        { roleId: MOD_ROLE_ID, roleName: 'Moderator', required: 150 },
+        { roleId: '1523111129696702584', roleName: 'Board of Executives', required: 100 },
+        { roleId: '1521593407833640986', roleName: 'Board of Directors', required: 75 },
+        { roleId: OWNERSHIP_ROLE_ID, roleName: 'Ownership', required: 30, autoInfractionExempt: true },
     ];
 }
 
@@ -140,7 +139,6 @@ function shiftLocalDate(year: number, month: number, day: number, days: number):
     };
 }
 
-/** Converts a New York wall-clock time to UTC, including DST. */
 function easternWallClockToUtc(parts: EasternParts): Date {
     const target = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
     let guess = target;
@@ -163,8 +161,8 @@ function easternWallClockToUtc(parts: EasternParts): Date {
 
 function nextFridayNineAmEastern(after: Date): Date {
     const local = easternParts(after);
-    const localWeekday = new Date(Date.UTC(local.year, local.month - 1, local.day)).getUTCDay();
-    const daysUntilFriday = (5 - localWeekday + 7) % 7;
+    const weekday = new Date(Date.UTC(local.year, local.month - 1, local.day)).getUTCDay();
+    const daysUntilFriday = (5 - weekday + 7) % 7;
     let friday = shiftLocalDate(local.year, local.month, local.day, daysUntilFriday);
     let candidate = easternWallClockToUtc({ ...friday, hour: 9, minute: 0, second: 0 });
     if (candidate.getTime() <= after.getTime()) {
@@ -253,17 +251,43 @@ function progressBar(count: number, required: number): string {
     return `${'▰'.repeat(filled)}${'▱'.repeat(total - filled)}`;
 }
 
-function quotaRequirementForMember(member: GuildMember): QuotaRoleRule | null {
-    for (const rule of quotaRoleRules()) {
-        if (member.roles.cache.has(rule.roleId)) return rule;
-    }
-    return null;
+/**
+ * A user's valid Discord message total counts toward every quota-team role they
+ * hold. The effective total is the highest requirement among those teams,
+ * because reaching that number necessarily completes every lower requirement.
+ */
+function quotaRequirementForMember(member: GuildMember): ResolvedQuotaRule | null {
+    const teamRules = quotaRoleRules().filter(rule => member.roles.cache.has(rule.roleId));
+    if (!teamRules.length) return null;
+
+    const required = Math.max(...teamRules.map(rule => rule.required));
+    return {
+        roleId: teamRules.map(rule => rule.roleId).join(','),
+        roleName: teamRules.map(rule => rule.roleName).join(' • '),
+        required,
+        autoInfractionExempt: teamRules.some(rule => rule.autoInfractionExempt),
+        teamRules,
+    };
 }
 
-function isAutoInfractionExempt(member: GuildMember, rule: QuotaRoleRule): boolean {
+function isAutoInfractionExempt(member: GuildMember, rule: ResolvedQuotaRule): boolean {
     return Boolean(rule.autoInfractionExempt)
         || member.roles.cache.has(OWNERSHIP_ROLE_ID)
         || member.roles.cache.has(EXEMPT_AUTO_INFRACTION_ROLE_ID);
+}
+
+function teamRequirementLines(rule: ResolvedQuotaRule, count: number): string[] {
+    return rule.teamRules.map(team => {
+        const complete = count >= team.required;
+        return `${complete ? '✅' : '🕒'} **${team.roleName}:** ${count}/${team.required} valid messages`;
+    });
+}
+
+function incompleteTeamSummary(rule: ResolvedQuotaRule, count: number): string {
+    return rule.teamRules
+        .filter(team => count < team.required)
+        .map(team => `${team.roleName} (${count}/${team.required})`)
+        .join(' • ');
 }
 
 function normalizeForQuotaHash(content: string): string {
@@ -287,7 +311,7 @@ function highConfidenceTosViolation(content: string): boolean {
     const patterns = [
         /\b(?:doxx(?:ing)?|leak(?:ing)?\s+(?:someone(?:'s)?|their|your)\s+(?:address|phone|ip|private\s+info))\b/iu,
         /\b(?:token\s*grabber|phishing\s+link|steal(?:ing)?\s+(?:an?\s+)?account)\b/iu,
-        /\b(?:credible\s+death\s+threat|threaten(?:ing)?\s+to\s+(?:seriously\s+)?harm\s+someone)\b/iu,
+        /\b(?:threaten(?:ing)?\s+to\s+(?:seriously\s+)?harm\s+someone)\b/iu,
         /\b(?:share|post|send)\s+(?:private|personal)\s+(?:information|address|phone\s+number)\s+without\s+permission\b/iu,
     ];
     return patterns.some(pattern => pattern.test(content));
@@ -361,12 +385,13 @@ async function createNewWeek(client: Client, guildId: string, now: Date): Promis
                 `**Week:** \`${weekKey}\``,
                 `**Started:** ${discordTimestamp(now)}`,
                 `**Deadline:** ${discordTimestamp(deadline)} (${EASTERN_TIME_ZONE})`,
-                '**Tracking:** Valid Discord messages only. Spam, prohibited language, high-confidence TOS violations, raid content, command farming, and low-quality filler do not count.',
+                '**Every Team Counts:** every quota-team role a staff member holds is evaluated from their valid Discord message total.',
+                '**Validity:** spam, prohibited language, high-confidence TOS violations, raid content, command farming, and low-quality filler do not count.',
             ].join('\n'),
         );
         return record;
     } catch (error) {
-        const existing = await MessageQuotaWeek.findOne({ guildId, weekKey, status: 'Active' }).lean().exec().catch(() => null);
+        const existing = await MessageQuotaWeek.findOne({ guildId, status: 'Active' }).sort({ startedAt: -1 }).lean().exec().catch(() => null);
         if (existing) return existing as unknown as MessageQuotaWeekRecord;
         logger.warn(`[Quota] Could not create week ${weekKey}: ${error instanceof Error ? error.message : 'Unknown error'}`);
         return null;
@@ -392,7 +417,15 @@ async function ensureActiveWeek(client: Client, guildId: string, now = new Date(
     }
 
     if (active?.status === 'Active' && new Date(active.deadlineAt).getTime() <= now.getTime()) {
-        await finalizeQuotaWeek(client, guildId, active.weekKey, client.user?.id || 'system', 'Scheduled weekly quota deadline reached.', false);
+        const ended = await finalizeQuotaWeek(
+            client,
+            guildId,
+            active.weekKey,
+            client.user?.id || 'system',
+            'Scheduled weekly quota deadline reached.',
+            false,
+        );
+        if (!ended || ended.status !== 'Ended') return null;
         active = null;
     }
 
@@ -411,7 +444,7 @@ async function loadOrCreateProfile(
     userId: string,
     username: string,
     weekKey: string,
-    rule: QuotaRoleRule,
+    rule: ResolvedQuotaRule,
 ): Promise<MessageQuotaProfileRecord | null> {
     const now = new Date();
     const profile = await MessageQuotaProfile.findOneAndUpdate(
@@ -483,34 +516,56 @@ async function maybeNotifyCompletion(
     client: Client,
     profile: MessageQuotaProfileRecord,
     week: MessageQuotaWeekRecord,
+    rule?: ResolvedQuotaRule,
 ): Promise<void> {
     if (profile.count < profile.required) return;
 
-    if ((profile.completionNotifiedRequirement || 0) < profile.required) {
-        const user = await client.users.fetch(profile.userId).catch(() => null);
-        if (user) {
-            const delivered = await user.send({
-                components: [buildSimpleQuotaPanel(
-                    '✅ Weekly Quota Completed',
-                    [
-                        `You completed your **${profile.roleName}** message quota for week \`${profile.weekKey}\`.`,
-                        `**Progress:** ${profile.count}/${profile.required} valid messages`,
-                        `**Deadline:** ${discordTimestamp(new Date(week.deadlineAt))}`,
-                        '',
-                        'Only valid messages were counted. Spam, prohibited language, TOS violations, raid content, and message farming were excluded.',
-                    ].join('\n'),
-                    0x22c55e,
-                )],
-                files: [underbannerAttachment()],
-                flags: MessageFlags.IsComponentsV2,
-                allowedMentions: { parse: [] },
-            }).then(() => true).catch(() => false);
+    const roleBreakdown = rule
+        ? teamRequirementLines(rule, profile.count)
+        : [`✅ **Tracked Teams:** ${profile.roleName}`];
 
-            if (delivered) {
-                await MessageQuotaProfile.updateOne(
-                    { guildId: profile.guildId, userId: profile.userId, weekKey: profile.weekKey },
-                    { $max: { completionNotifiedRequirement: profile.required }, $set: { updatedAt: new Date() } },
-                ).exec().catch(() => undefined);
+    if ((profile.completionNotifiedRequirement || 0) < profile.required) {
+        const claimed = await MessageQuotaProfile.findOneAndUpdate(
+            {
+                guildId: profile.guildId,
+                userId: profile.userId,
+                weekKey: profile.weekKey,
+                completionNotifiedRequirement: { $lt: profile.required },
+            },
+            { $set: { completionNotifiedRequirement: profile.required, updatedAt: new Date() } },
+            { new: true },
+        ).lean().exec().catch(() => null);
+
+        if (claimed) {
+            const user = await client.users.fetch(profile.userId).catch(() => null);
+            if (user) {
+                const delivered = await user.send({
+                    components: [buildSimpleQuotaPanel(
+                        '✅ All Team Quotas Completed',
+                        [
+                            `You completed **every weekly message quota team you currently hold** for week \`${profile.weekKey}\`.`,
+                            '',
+                            ...roleBreakdown,
+                            '',
+                            `**Valid Messages:** ${profile.count}`,
+                            `**Required to satisfy all teams:** ${profile.required}`,
+                            `**Deadline:** ${discordTimestamp(new Date(week.deadlineAt))}`,
+                            '',
+                            'Only valid messages counted. Spam, prohibited language, TOS violations, raid content, commands, and message farming were excluded.',
+                        ].join('\n'),
+                        0x22c55e,
+                    )],
+                    files: [underbannerAttachment()],
+                    flags: MessageFlags.IsComponentsV2,
+                    allowedMentions: { parse: [] },
+                }).then(() => true).catch(() => false);
+
+                if (!delivered) {
+                    await MessageQuotaProfile.updateOne(
+                        { guildId: profile.guildId, userId: profile.userId, weekKey: profile.weekKey, completionNotifiedRequirement: profile.required },
+                        { $set: { completionNotifiedRequirement: 0, updatedAt: new Date() } },
+                    ).exec().catch(() => undefined);
+                }
             }
         }
     }
@@ -529,10 +584,10 @@ async function maybeNotifyCompletion(
         if (claimed) {
             await sendQuotaLog(
                 client,
-                '✅ Staff Quota Completed',
+                '✅ Staff Completed Every Team Quota',
                 [
                     `**Member:** <@${profile.userId}>`,
-                    `**Role:** ${profile.roleName}`,
+                    `**Teams:** ${profile.roleName}`,
                     `**Week:** \`${profile.weekKey}\``,
                     `**Valid Messages:** ${profile.count}/${profile.required}`,
                     `**Completed:** ${discordTimestamp(new Date())}`,
@@ -543,14 +598,10 @@ async function maybeNotifyCompletion(
     }
 }
 
-/**
- * Counts one Discord message toward the current weekly quota when it is valid.
- * Every decision is stored by message ID so reconnects cannot double-count.
- */
+/** Counts a valid Discord message once; that count applies to every team the member holds. */
 export async function handleQuotaMessage(message: Message): Promise<void> {
     if (!message.guild || message.author.bot || message.webhookId || !message.content.trim()) return;
-    if (message.channelId === QUOTA_LOG_CHANNEL_ID) return;
-    if (!isDatabaseAvailable()) return;
+    if (message.channelId === QUOTA_LOG_CHANNEL_ID || !isDatabaseAvailable()) return;
 
     const member = message.member || await message.guild.members.fetch(message.author.id).catch(() => null);
     if (!member) return;
@@ -587,7 +638,6 @@ export async function handleQuotaMessage(message: Message): Promise<void> {
             createdAt: message.createdAt,
         });
     } catch (error) {
-        // Unique message ID means another process/reconnect already handled it.
         if ((error as { code?: number })?.code === 11000) return;
         logger.warn(`[Quota] Could not reserve message ${message.id}: ${error instanceof Error ? error.message : 'Unknown error'}`);
         return;
@@ -632,11 +682,15 @@ export async function handleQuotaMessage(message: Message): Promise<void> {
             },
             { new: true },
         ).lean().exec();
+
         if (!updated) throw new Error('Quota profile disappeared during message update.');
-        await maybeNotifyCompletion(message.client, updated as unknown as MessageQuotaProfileRecord, week);
+        await maybeNotifyCompletion(
+            message.client,
+            updated as unknown as MessageQuotaProfileRecord,
+            week,
+            rule,
+        );
     } catch (error) {
-        // Remove the ledger reservation so a later retry can safely process the
-        // same gateway event instead of permanently losing a valid message.
         await QuotaMessageEvent.deleteOne({ messageId: message.id }).exec().catch(() => undefined);
         logger.warn(`[Quota] Failed to apply message ${message.id}: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
@@ -660,12 +714,13 @@ function buildWeeklyInfractionPanel(week: MessageQuotaWeekRecord): ContainerBuil
             '## ⚖️ Weekly Message Quota Infraction',
             `> **Week:** \`${week.weekKey}\``,
             `> **Deadline:** ${discordTimestamp(new Date(week.deadlineAt))}`,
-            '> The following staff members did not complete their required valid-message quota before the deadline.',
-            '> This is one shared weekly infraction record. Each listed member may submit their own appeal using the button below.',
+            '> Every staff team role is evaluated using valid Discord messages.',
+            '> The following staff members did not satisfy one or more team quotas before the deadline.',
+            '> This is one shared weekly infraction. Each listed member may appeal their own entry.',
         ].join('\n')));
 
     const lines = week.failedMembers.map((entry, index) =>
-        `${index + 1}. <@${entry.userId}> — **${entry.roleName}** — \`${entry.count}/${entry.required}\` — ${failureStatusLabel(entry)}`,
+        `${index + 1}. <@${entry.userId}> — **${entry.roleName}** — Required max: \`${entry.count}/${entry.required}\` — ${failureStatusLabel(entry)}`,
     );
     for (const block of splitTextBlocks(lines)) {
         panel.addTextDisplayComponents(new TextDisplayBuilder().setContent(block));
@@ -702,9 +757,9 @@ async function refreshWeeklyInfractionPanel(client: Client, week: MessageQuotaWe
 }
 
 function buildQuotaAppealReviewPanel(appeal: QuotaAppealRecord): ContainerBuilder {
-    const statusColor = appeal.status === 'Approved' ? 0x22c55e : appeal.status === 'Denied' ? 0xef4444 : BRAND.color;
+    const accent = appeal.status === 'Approved' ? 0x22c55e : appeal.status === 'Denied' ? 0xef4444 : BRAND.color;
     const panel = new ContainerBuilder()
-        .setAccentColor(statusColor)
+        .setAccentColor(accent)
         .addTextDisplayComponents(new TextDisplayBuilder().setContent([
             '## ⚖️ Quota Infraction Appeal',
             `> **Appeal ID:** \`${appeal.appealId}\``,
@@ -758,13 +813,15 @@ async function notifyFailedMembers(client: Client, week: MessageQuotaWeekRecord,
         if (!user) return;
         await user.send({
             components: [buildSimpleQuotaPanel(
-                '⚠️ Weekly Quota Not Completed',
+                '⚠️ Weekly Team Quota Not Completed',
                 [
-                    `You finished week \`${week.weekKey}\` with **${entry.count}/${entry.required}** valid messages for **${entry.roleName}**.`,
+                    `You finished week \`${week.weekKey}\` with **${entry.count} valid messages**.`,
+                    `**Incomplete team quota(s):** ${entry.roleName}`,
+                    `**Highest required total:** ${entry.required}`,
                     'A weekly quota infraction was issued.',
                     infractionUrl ? `**Infraction:** ${infractionUrl}` : '',
                     '',
-                    'The weekly infraction is appealable. Use the **Appeal Quota Infraction** button on the weekly infraction emblem if you believe the result should be reviewed.',
+                    'The weekly infraction is appealable using the **Appeal Quota Infraction** button on the shared weekly emblem.',
                 ].filter(Boolean).join('\n'),
                 0xef4444,
             )],
@@ -775,11 +832,6 @@ async function notifyFailedMembers(client: Client, week: MessageQuotaWeekRecord,
     }));
 }
 
-/**
- * Ends one quota week exactly once. If Discord member enumeration is unavailable
- * the week is returned to Active so the scheduler retries instead of falsely
- * infracting people with incomplete data.
- */
 export async function finalizeQuotaWeek(
     client: Client,
     guildId: string,
@@ -811,6 +863,7 @@ export async function finalizeQuotaWeek(
             },
             { new: true },
         ).lean().exec();
+
         if (!claimed) {
             return await MessageQuotaWeek.findOne({ guildId, weekKey }).lean().exec()
                 .catch(() => null) as unknown as MessageQuotaWeekRecord | null;
@@ -819,12 +872,9 @@ export async function finalizeQuotaWeek(
 
         const guild = await client.guilds.fetch(guildId).catch(() => null);
         if (!guild) throw new Error(`Guild ${guildId} is unavailable.`);
-        let members;
-        try {
-            members = await guild.members.fetch();
-        } catch (error) {
+        const members = await guild.members.fetch().catch(error => {
             throw new Error(`Could not fetch complete guild member list: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        }
+        });
 
         const profiles = await MessageQuotaProfile.find({ guildId, weekKey }).lean().exec();
         const profileByUser = new Map(
@@ -840,30 +890,33 @@ export async function finalizeQuotaWeek(
             if (member.user.bot) continue;
             const rule = quotaRequirementForMember(member);
             if (!rule) continue;
+
             evaluated += 1;
             const profile = profileByUser.get(member.id);
             const count = Math.max(0, profile?.count || 0);
-            if (count >= rule.required) {
+            const incompleteTeams = incompleteTeamSummary(rule, count);
+
+            if (!incompleteTeams) {
                 completed += 1;
                 continue;
             }
+
             if (isAutoInfractionExempt(member, rule)) {
                 exemptMissedUserIds.push(member.id);
                 continue;
             }
+
             failedMembers.push({
                 userId: member.id,
                 username: member.user.username,
                 roleId: rule.roleId,
-                roleName: rule.roleName,
+                roleName: incompleteTeams,
                 count,
                 required: rule.required,
                 appealStatus: 'Active',
             });
         }
 
-        // Persist the evaluated list before posting. If Discord delivery fails,
-        // the scheduler can retry without losing the authoritative calculation.
         await MessageQuotaWeek.updateOne(
             { guildId, weekKey, status: 'Finalizing' },
             { $set: { failedMembers, exemptMissedUserIds, updatedAt: new Date() } },
@@ -879,7 +932,9 @@ export async function finalizeQuotaWeek(
                     const existingMessage = await existingChannel.messages.fetch(week.finalMessageId).catch(() => null);
                     infractionUrl = existingMessage?.url || null;
                 }
-            } else {
+            }
+
+            if (!infractionUrl) {
                 const posted = await postWeeklyInfraction(client, week);
                 if (!posted) throw new Error('Weekly infraction was required but could not be posted.');
                 week.finalChannelId = posted.channelId;
@@ -896,6 +951,7 @@ export async function finalizeQuotaWeek(
         const nextStartAt = manualEarlyEnd && now.getTime() < originalDeadline.getTime()
             ? originalDeadline
             : now;
+
         const ended = await MessageQuotaWeek.findOneAndUpdate(
             { guildId, weekKey, status: 'Finalizing' },
             {
@@ -913,19 +969,20 @@ export async function finalizeQuotaWeek(
             },
             { new: true },
         ).lean().exec();
+
         if (!ended) throw new Error('Could not mark the quota week ended after evaluation.');
         const endedWeek = ended as unknown as MessageQuotaWeekRecord;
 
         await sendQuotaLog(
             client,
-            failedMembers.length ? '⚖️ Weekly Quota Finalized' : '✅ Weekly Quota Finalized — Everyone Passed',
+            failedMembers.length ? '⚖️ Weekly Team Quotas Finalized' : '✅ Weekly Team Quotas Finalized — Everyone Passed',
             [
                 `**Week:** \`${weekKey}\``,
                 `**Ended:** ${discordTimestamp(now)}`,
                 `**Ended By:** <@${endedById}>`,
                 `**Reason:** ${safeText(endedReason, 800)}`,
                 `**Staff Evaluated:** ${evaluated}`,
-                `**Completed:** ${completed}`,
+                `**Completed Every Team Quota:** ${completed}`,
                 `**Auto-Infracted:** ${failedMembers.length}`,
                 `**Missed but Exempt:** ${exemptMissedUserIds.length}`,
                 infractionUrl ? `**Weekly Infraction:** ${infractionUrl}` : '**Weekly Infraction:** None required',
@@ -950,7 +1007,10 @@ export async function finalizeQuotaWeek(
     }
 }
 
-async function hasExactRole(interaction: ChatInputCommandInteraction | ButtonInteraction | ModalSubmitInteraction, roleId: string): Promise<boolean> {
+async function hasExactRole(
+    interaction: ChatInputCommandInteraction | ButtonInteraction | ModalSubmitInteraction,
+    roleId: string,
+): Promise<boolean> {
     if (!interaction.guild) return false;
     if (interaction.guild.ownerId === interaction.user.id && roleId === OWNERSHIP_ROLE_ID) return true;
     const member = interaction.member;
@@ -968,7 +1028,7 @@ async function canReviewQuotaAppeal(interaction: ButtonInteraction | ModalSubmit
 
 async function quotaForUser(client: Client, guildId: string, userId: string): Promise<{
     member: GuildMember;
-    rule: QuotaRoleRule;
+    rule: ResolvedQuotaRule;
     week: MessageQuotaWeekRecord;
     profile: MessageQuotaProfileRecord;
 } | null> {
@@ -983,23 +1043,34 @@ async function quotaForUser(client: Client, guildId: string, userId: string): Pr
     if (!week) return null;
     const profile = await loadOrCreateProfile(guildId, userId, member.user.username, week.weekKey, rule);
     if (!profile) return null;
-    if (profile.count >= rule.required) await maybeNotifyCompletion(client, profile, week);
+    if (profile.count >= rule.required) await maybeNotifyCompletion(client, profile, week, rule);
     return { member, rule, week, profile };
 }
 
-function quotaViewBody(member: GuildMember, rule: QuotaRoleRule, week: MessageQuotaWeekRecord, profile: MessageQuotaProfileRecord, showFiltered: boolean): string {
+function quotaViewBody(
+    member: GuildMember,
+    rule: ResolvedQuotaRule,
+    week: MessageQuotaWeekRecord,
+    profile: MessageQuotaProfileRecord,
+    showFiltered: boolean,
+): string {
     const remaining = Math.max(0, rule.required - profile.count);
     const complete = remaining === 0;
     const lines = [
         `**Member:** <@${member.id}>`,
-        `**Quota Role:** ${rule.roleName}`,
         `**Week:** \`${week.weekKey}\``,
-        `**Valid Messages:** ${profile.count}/${rule.required}`,
-        `**Remaining:** ${remaining}`,
-        `**Progress:** ${progressBar(profile.count, rule.required)} ${Math.min(100, Math.floor((profile.count / rule.required) * 100))}%`,
-        `**Status:** ${complete ? '✅ Complete' : '🕒 In Progress'}`,
+        '',
+        '**Every Team Quota**',
+        ...teamRequirementLines(rule, profile.count),
+        '',
+        `**Valid Messages:** ${profile.count}`,
+        `**Messages Needed To Complete Every Team:** ${remaining}`,
+        `**Highest Team Requirement:** ${rule.required}`,
+        `**Overall Progress:** ${progressBar(profile.count, rule.required)} ${Math.min(100, Math.floor((profile.count / rule.required) * 100))}%`,
+        `**Overall Status:** ${complete ? '✅ Every team complete' : '🕒 One or more team quotas still incomplete'}`,
         `**Deadline:** ${discordTimestamp(new Date(week.deadlineAt))} • ${discordTimestamp(new Date(week.deadlineAt), 'R')}`,
     ];
+
     if (showFiltered) {
         lines.push(
             '',
@@ -1008,13 +1079,19 @@ function quotaViewBody(member: GuildMember, rule: QuotaRoleRule, week: MessageQu
             `Low-quality/filler: ${profile.rejected?.lowQuality || 0} • Commands: ${profile.rejected?.command || 0}`,
         );
     }
+
     if (isAutoInfractionExempt(member, rule)) {
-        lines.push('', '🛡️ **Auto-Infraction Exempt:** This account is tracked, but it will not receive the automatic weekly quota infraction.');
+        lines.push('', '🛡️ **Auto-Infraction Exempt:** Quota is still tracked, but this account will not receive the automatic Friday quota infraction.');
     }
     return lines.join('\n');
 }
 
-async function replyV2(interaction: ChatInputCommandInteraction, title: string, body: string, accent = BRAND.color): Promise<void> {
+async function replyV2(
+    interaction: ChatInputCommandInteraction,
+    title: string,
+    body: string,
+    accent = BRAND.color,
+): Promise<void> {
     await interaction.reply({
         components: [buildSimpleQuotaPanel(title, body, accent)],
         files: [underbannerAttachment()],
@@ -1026,7 +1103,7 @@ async function replyV2(interaction: ChatInputCommandInteraction, title: string, 
 const viewMyQuotaCommand = {
     data: new SlashCommandBuilder()
         .setName('view-my-quota')
-        .setDescription('View your current weekly Discord message quota progress'),
+        .setDescription('View every weekly team message quota you currently have'),
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
         if (!interaction.guildId) {
             await interaction.reply({ content: 'This command can only be used in the server.', flags: MessageFlags.Ephemeral });
@@ -1036,21 +1113,25 @@ const viewMyQuotaCommand = {
         if (!result) {
             await replyV2(
                 interaction,
-                '📊 My Weekly Quota',
+                '📊 My Weekly Team Quotas',
                 isDatabaseAvailable()
-                    ? 'You do not currently have a tracked quota role, or there is no active quota period right now.'
+                    ? 'You do not currently have any tracked quota-team roles, or there is no active quota period right now.'
                     : 'The quota database is temporarily unavailable. Counts are paused rather than risking incorrect totals.',
             );
             return;
         }
-        await replyV2(interaction, '📊 My Weekly Quota', quotaViewBody(result.member, result.rule, result.week, result.profile, false));
+        await replyV2(
+            interaction,
+            '📊 My Weekly Team Quotas',
+            quotaViewBody(result.member, result.rule, result.week, result.profile, false),
+        );
     },
 };
 
 const viewUserQuotaCommand = {
     data: new SlashCommandBuilder()
         .setName('view-user-quota')
-        .setDescription('Ownership only: view another staff member’s weekly quota')
+        .setDescription('Ownership only: view every team quota for another staff member')
         .addUserOption(option => option.setName('user').setDescription('Staff member to inspect').setRequired(true)),
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
         if (!interaction.guildId || !await hasExactRole(interaction, OWNERSHIP_ROLE_ID)) {
@@ -1060,17 +1141,21 @@ const viewUserQuotaCommand = {
         const user = interaction.options.getUser('user', true);
         const result = await quotaForUser(interaction.client, interaction.guildId, user.id);
         if (!result) {
-            await replyV2(interaction, '🔎 User Quota', 'That user does not currently have a tracked quota role, or there is no active quota period.');
+            await replyV2(interaction, '🔎 User Team Quotas', 'That user does not currently have a tracked quota-team role, or there is no active quota period.');
             return;
         }
-        await replyV2(interaction, '🔎 User Quota', quotaViewBody(result.member, result.rule, result.week, result.profile, true));
+        await replyV2(
+            interaction,
+            '🔎 User Team Quotas',
+            quotaViewBody(result.member, result.rule, result.week, result.profile, true),
+        );
     },
 };
 
 const endWeeklyQuotaEarlyCommand = {
     data: new SlashCommandBuilder()
         .setName('end-weekly-quota-early')
-        .setDescription('Quota management only: end this quota week now and evaluate everyone')
+        .setDescription('Quota management only: evaluate every team quota immediately')
         .addStringOption(option => option
             .setName('confirm')
             .setDescription('Confirm the immediate weekly evaluation')
@@ -1082,7 +1167,6 @@ const endWeeklyQuotaEarlyCommand = {
             await interaction.reply({ content: `You need <@&${QUOTA_MANAGEMENT_ROLE_ID}> to use this command.`, flags: MessageFlags.Ephemeral });
             return;
         }
-        if (interaction.options.getString('confirm', true) !== 'CONFIRM') return;
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         const active = await MessageQuotaWeek.findOne({ guildId: interaction.guildId, status: 'Active' }).sort({ startedAt: -1 }).lean().exec()
             .catch(() => null) as unknown as MessageQuotaWeekRecord | null;
@@ -1093,20 +1177,20 @@ const endWeeklyQuotaEarlyCommand = {
         const reason = interaction.options.getString('reason') || 'Quota management ended the weekly quota early.';
         const ended = await finalizeQuotaWeek(interaction.client, interaction.guildId, active.weekKey, interaction.user.id, reason, true);
         if (!ended || ended.status !== 'Ended') {
-            await interaction.editReply('The quota week could not be finalized safely. No incomplete-member infractions were intentionally issued from an incomplete evaluation.');
+            await interaction.editReply('The quota week could not be finalized safely. No incomplete-team infractions were issued from an incomplete evaluation.');
             return;
         }
-        await interaction.editReply(`✅ Week ${ended.weekKey} ended early. ${ended.failedMembers.length} non-exempt staff member(s) were listed on the shared weekly quota infraction.`);
+        await interaction.editReply(`✅ Week ${ended.weekKey} ended early. ${ended.failedMembers.length} non-exempt staff member(s) did not complete every team quota.`);
     },
 };
 
 const extendWeeksQuotaCommand = {
     data: new SlashCommandBuilder()
         .setName('extend-weeks-quota')
-        .setDescription('Quota management only: move this week’s quota deadline to another date at 9 AM New York time')
+        .setDescription('Quota management only: move this week’s deadline to another date at 9 AM New York time')
         .addStringOption(option => option
             .setName('date')
-            .setDescription('New deadline date in YYYY-MM-DD format; time is always 9:00 AM New York')
+            .setDescription('New deadline date in YYYY-MM-DD format')
             .setRequired(true)
             .setMaxLength(10))
         .addStringOption(option => option.setName('reason').setDescription('Reason for extending this week').setMaxLength(500)),
@@ -1135,6 +1219,7 @@ const extendWeeksQuotaCommand = {
             await interaction.reply({ content: 'The new quota deadline must be in the future.', flags: MessageFlags.Ephemeral });
             return;
         }
+
         const reason = interaction.options.getString('reason') || 'Quota management extended the weekly deadline.';
         const updated = await MessageQuotaWeek.findOneAndUpdate(
             { guildId: interaction.guildId, weekKey: active.weekKey, status: 'Active' },
@@ -1149,13 +1234,15 @@ const extendWeeksQuotaCommand = {
             },
             { new: true },
         ).lean().exec().catch(() => null) as unknown as MessageQuotaWeekRecord | null;
+
         if (!updated) {
             await interaction.reply({ content: 'The quota deadline changed while this command was running. Please try again.', flags: MessageFlags.Ephemeral });
             return;
         }
+
         await sendQuotaLog(
             interaction.client,
-            '🗓️ Weekly Quota Extended',
+            '🗓️ Weekly Team Quotas Extended',
             [
                 `**Week:** \`${updated.weekKey}\``,
                 `**Changed By:** <@${interaction.user.id}>`,
@@ -1228,16 +1315,13 @@ export async function handleMessageQuotaButton(interaction: ButtonInteraction): 
             await interaction.reply({ content: 'You are not listed on this weekly quota infraction.', flags: MessageFlags.Ephemeral });
             return true;
         }
-        if (entry.appealStatus === 'Pending') {
-            await interaction.reply({ content: 'Your quota appeal for this week is already pending review.', flags: MessageFlags.Ephemeral });
-            return true;
-        }
-        if (entry.appealStatus === 'Approved') {
-            await interaction.reply({ content: 'Your quota appeal for this week was already approved.', flags: MessageFlags.Ephemeral });
-            return true;
-        }
-        if (entry.appealStatus === 'Denied') {
-            await interaction.reply({ content: 'Your quota appeal for this week was already reviewed and denied.', flags: MessageFlags.Ephemeral });
+        if (entry.appealStatus !== 'Active') {
+            const statusText = entry.appealStatus === 'Pending'
+                ? 'Your quota appeal is already pending review.'
+                : entry.appealStatus === 'Approved'
+                    ? 'Your quota appeal was already approved.'
+                    : 'Your quota appeal was already reviewed and denied.';
+            await interaction.reply({ content: statusText, flags: MessageFlags.Ephemeral });
             return true;
         }
         await interaction.showModal(quotaAppealModal(week.weekKey));
@@ -1265,6 +1349,7 @@ export async function handleMessageQuotaModal(interaction: ModalSubmitInteractio
             await interaction.editReply('The quota appeal database is temporarily unavailable.');
             return true;
         }
+
         const week = await MessageQuotaWeek.findOne({ guildId: interaction.guildId, weekKey: appealSubmit[1], status: 'Ended' }).lean().exec()
             .catch(() => null) as unknown as MessageQuotaWeekRecord | null;
         const entry = week?.failedMembers.find(item => item.userId === interaction.user.id);
@@ -1276,6 +1361,7 @@ export async function handleMessageQuotaModal(interaction: ModalSubmitInteractio
         const appealId = generateAppealId();
         const reason = interaction.fields.getTextInputValue('reason').trim();
         let appeal: QuotaAppealRecord;
+
         try {
             const created = await QuotaAppeal.create({
                 appealId,
@@ -1310,9 +1396,10 @@ export async function handleMessageQuotaModal(interaction: ModalSubmitInteractio
             },
             { arrayFilters: [{ 'member.userId': interaction.user.id, 'member.appealStatus': 'Active' }] },
         ).exec().catch(() => null);
+
         if (!marked?.modifiedCount) {
             await QuotaAppeal.deleteOne({ appealId }).exec().catch(() => undefined);
-            await interaction.editReply('Your quota appeal state changed while the form was open. Please try again if it is still eligible.');
+            await interaction.editReply('Your quota appeal state changed while the form was open.');
             return true;
         }
 
@@ -1327,7 +1414,7 @@ export async function handleMessageQuotaModal(interaction: ModalSubmitInteractio
                 },
                 { arrayFilters: [{ 'member.appealId': appealId }] },
             ).exec().catch(() => undefined);
-            await interaction.editReply('The quota appeal review channel is unavailable. Your appeal was not locked; please try again later.');
+            await interaction.editReply('The quota appeal review channel is unavailable. Please try again later.');
             return true;
         }
 
@@ -1339,6 +1426,7 @@ export async function handleMessageQuotaModal(interaction: ModalSubmitInteractio
         });
         appeal.reviewChannelId = reviewChannel.id;
         appeal.reviewMessageId = reviewMessage.id;
+
         await QuotaAppeal.updateOne(
             { appealId },
             { $set: { reviewChannelId: reviewChannel.id, reviewMessageId: reviewMessage.id, updatedAt: new Date() } },
@@ -1347,11 +1435,11 @@ export async function handleMessageQuotaModal(interaction: ModalSubmitInteractio
         const refreshed = await MessageQuotaWeek.findOne({ guildId: interaction.guildId, weekKey: week.weekKey }).lean().exec()
             .catch(() => null) as unknown as MessageQuotaWeekRecord | null;
         if (refreshed) await refreshWeeklyInfractionPanel(interaction.client, refreshed);
+
         await sendQuotaLog(
             interaction.client,
             '⚖️ Quota Appeal Submitted',
             `**Member:** <@${interaction.user.id}>\n**Week:** \`${week.weekKey}\`\n**Appeal ID:** \`${appealId}\`\n**Status:** Pending`,
-            BRAND.color,
         );
         await interaction.editReply(`✅ Your quota appeal was submitted. Appeal ID: ${appealId}`);
         return true;
@@ -1364,6 +1452,7 @@ export async function handleMessageQuotaModal(interaction: ModalSubmitInteractio
             await interaction.editReply(`You need <@&${INFRACTION_AUTHORIZED_ROLE_ID}> to review quota appeals.`);
             return true;
         }
+
         const status = decision[1] === 'approve' ? 'Approved' : 'Denied';
         const reviewReason = interaction.fields.getTextInputValue('reason').trim();
         const updated = await QuotaAppeal.findOneAndUpdate(
@@ -1378,6 +1467,7 @@ export async function handleMessageQuotaModal(interaction: ModalSubmitInteractio
             },
             { new: true },
         ).lean().exec().catch(() => null) as unknown as QuotaAppealRecord | null;
+
         if (!updated) {
             await interaction.editReply('This quota appeal was already reviewed or could not be found.');
             return true;
@@ -1385,22 +1475,23 @@ export async function handleMessageQuotaModal(interaction: ModalSubmitInteractio
 
         await MessageQuotaWeek.updateOne(
             { guildId: updated.guildId, weekKey: updated.weekKey, 'failedMembers.appealId': updated.appealId },
-            {
-                $set: {
-                    'failedMembers.$[member].appealStatus': status,
-                    updatedAt: new Date(),
-                },
-            },
+            { $set: { 'failedMembers.$[member].appealStatus': status, updatedAt: new Date() } },
             { arrayFilters: [{ 'member.appealId': updated.appealId }] },
         ).exec().catch(() => undefined);
 
-        if (interaction.message) {
-            await interaction.message.edit({
-                components: [buildQuotaAppealReviewPanel(updated)],
-                attachments: Array.from(interaction.message.attachments.values()) as Attachment[],
-                flags: MessageFlags.IsComponentsV2,
-                allowedMentions: { parse: [] },
-            }).catch(() => undefined);
+        const reviewChannel = updated.reviewChannelId
+            ? await interaction.client.channels.fetch(updated.reviewChannelId).catch(() => null)
+            : null;
+        if (reviewChannel?.isTextBased() && 'messages' in reviewChannel && updated.reviewMessageId) {
+            const reviewMessage = await reviewChannel.messages.fetch(updated.reviewMessageId).catch(() => null);
+            if (reviewMessage) {
+                await reviewMessage.edit({
+                    components: [buildQuotaAppealReviewPanel(updated)],
+                    attachments: Array.from(reviewMessage.attachments.values()),
+                    flags: MessageFlags.IsComponentsV2,
+                    allowedMentions: { parse: [] },
+                }).catch(() => undefined);
+            }
         }
 
         const week = await MessageQuotaWeek.findOne({ guildId: updated.guildId, weekKey: updated.weekKey }).lean().exec()
@@ -1460,11 +1551,11 @@ export function startMessageQuotaScheduler(client: Client): void {
     if (schedulerTimer) clearInterval(schedulerTimer);
     schedulerTimer = null;
     if (!process.env.QUOTA_MOD_ROLE_ID) {
-        logger.warn(`[Quota] The supplied Mod role ID matched the quota log channel. Using legacy Mod role ${MOD_ROLE_ID}. Set QUOTA_MOD_ROLE_ID to override it.`);
+        logger.warn(`[Quota] The supplied Moderator role ID matched the quota log channel. Using fallback Moderator role ${MOD_ROLE_ID}. Set QUOTA_MOD_ROLE_ID to override it.`);
     }
     void schedulerTick(client);
     schedulerTimer = setInterval(() => void schedulerTick(client), SCHEDULER_INTERVAL_MS);
-    logger.info(`[Quota] Message quota scheduler active. Standard deadline: Friday 9:00 AM ${EASTERN_TIME_ZONE}.`);
+    logger.info(`[Quota] Every-team valid-message quota scheduler active. Standard deadline: Friday 9:00 AM ${EASTERN_TIME_ZONE}.`);
 }
 
 export function stopMessageQuotaScheduler(): void {
