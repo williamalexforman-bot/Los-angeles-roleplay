@@ -1,8 +1,9 @@
 import mongoose from 'mongoose';
 import { logger } from '../utils/logger';
 
-const INITIAL_RETRY_MS = 5_000;
-const MAX_RETRY_MS = 60_000;
+const INITIAL_RETRY_MS = 10_000;
+const MAX_RETRY_MS = 5 * 60_000;
+const ATLAS_NETWORK_RETRY_MS = 15 * 60_000;
 
 let available = false;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -12,13 +13,15 @@ let listenersBound = false;
 let shuttingDown = false;
 let warnedMissingUri = false;
 let warnedInvalidUri = false;
+let degradedReason: string | null = null;
+let lastConnectionError = '';
 
 function configuredMongoUri(): string | null {
     const uri = process.env.MONGODB_URI?.trim();
     if (!uri) {
         if (!warnedMissingUri) {
             warnedMissingUri = true;
-            logger.warn('MONGODB_URI is not configured; persistent features cannot connect until it is added to the host environment.');
+            logger.warn('MONGODB_URI is not configured; database-backed persistence is disabled. Discord features will continue in fallback mode.');
         }
         return null;
     }
@@ -26,7 +29,7 @@ function configuredMongoUri(): string | null {
     if (!/^mongodb(?:\+srv)?:\/\//i.test(uri)) {
         if (!warnedInvalidUri) {
             warnedInvalidUri = true;
-            logger.warn('MONGODB_URI is not a valid MongoDB URI; persistent features cannot connect until it is corrected.');
+            logger.warn('MONGODB_URI is not a valid MongoDB URI; database-backed persistence is disabled. Discord features will continue in fallback mode.');
         }
         return null;
     }
@@ -40,19 +43,34 @@ function clearReconnectTimer(): void {
     reconnectTimer = null;
 }
 
-function scheduleReconnect(reason: string): void {
+function looksLikeAtlasNetworkBlock(message: string): boolean {
+    return /could not connect to any servers in your mongodb atlas cluster|ip.*whitelist|ip access list|server selection timed out/i.test(message);
+}
+
+function scheduleReconnect(reason: string, connectionMessage = ''): void {
     if (shuttingDown || reconnectTimer || !configuredMongoUri()) return;
 
-    const delay = Math.min(INITIAL_RETRY_MS * (2 ** Math.min(retryAttempt, 4)), MAX_RETRY_MS);
+    const atlasBlocked = looksLikeAtlasNetworkBlock(connectionMessage || lastConnectionError);
+    const delay = atlasBlocked
+        ? ATLAS_NETWORK_RETRY_MS
+        : Math.min(INITIAL_RETRY_MS * (2 ** Math.min(retryAttempt, 5)), MAX_RETRY_MS);
+
     retryAttempt += 1;
-    logger.warn(`[MongoDB] ${reason} Retrying in ${Math.round(delay / 1_000)}s.`);
+    logger.warn(`[MongoDB] ${reason} Bot remains online in fallback mode; retrying database in ${Math.round(delay / 60_000)} minute(s).`);
 
     reconnectTimer = setTimeout(() => {
         reconnectTimer = null;
         void connectDatabase();
     }, delay);
-
     reconnectTimer.unref?.();
+}
+
+function enterDegradedMode(message: string): void {
+    available = false;
+    lastConnectionError = message;
+    degradedReason = looksLikeAtlasNetworkBlock(message)
+        ? 'MongoDB Atlas network access is blocking the host.'
+        : message;
 }
 
 function bindConnectionListeners(): void {
@@ -61,28 +79,34 @@ function bindConnectionListeners(): void {
 
     mongoose.connection.on('connected', () => {
         available = true;
+        degradedReason = null;
+        lastConnectionError = '';
         retryAttempt = 0;
         clearReconnectTimer();
-        logger.info('[MongoDB] Connection is healthy.');
+        logger.info('[MongoDB] Connection is healthy. Persistent storage restored.');
     });
 
     mongoose.connection.on('reconnected', () => {
         available = true;
+        degradedReason = null;
+        lastConnectionError = '';
         retryAttempt = 0;
         clearReconnectTimer();
-        logger.info('[MongoDB] Reconnected successfully.');
+        logger.info('[MongoDB] Reconnected successfully. Persistent storage restored.');
     });
 
     mongoose.connection.on('disconnected', () => {
         available = false;
+        degradedReason = 'MongoDB connection was lost.';
         if (!shuttingDown) scheduleReconnect('Connection was lost.');
     });
 
     mongoose.connection.on('error', error => {
-        available = false;
-        if (!shuttingDown) {
-            logger.warn(`[MongoDB] Connection error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-            scheduleReconnect('Connection error detected.');
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        enterDegradedMode(message);
+        if (!shuttingDown && !connectingPromise) {
+            logger.warn(`[MongoDB] Connection error. Discord features remain available in fallback mode.`);
+            scheduleReconnect('Connection error detected.', message);
         }
     });
 }
@@ -95,6 +119,7 @@ export async function connectDatabase(): Promise<boolean> {
 
     if (mongoose.connection.readyState === 1) {
         available = true;
+        degradedReason = null;
         retryAttempt = 0;
         clearReconnectTimer();
         return true;
@@ -105,31 +130,45 @@ export async function connectDatabase(): Promise<boolean> {
     connectingPromise = (async () => {
         try {
             mongoose.set('strictQuery', true);
-            mongoose.set('bufferTimeoutMS', 15_000);
+            // Critical: never let a Discord command sit behind Mongoose buffering
+            // while Atlas is unreachable. Database users must fall back immediately.
+            mongoose.set('bufferCommands', false);
+            mongoose.set('bufferTimeoutMS', 1_000);
 
             await mongoose.connect(uri, {
-                serverSelectionTimeoutMS: 10_000,
-                connectTimeoutMS: 10_000,
-                socketTimeoutMS: 45_000,
+                serverSelectionTimeoutMS: 5_000,
+                connectTimeoutMS: 5_000,
+                socketTimeoutMS: 30_000,
                 maxPoolSize: 10,
                 minPoolSize: 0,
             });
 
             available = mongoose.connection.readyState === 1;
             if (available) {
+                degradedReason = null;
+                lastConnectionError = '';
                 retryAttempt = 0;
                 clearReconnectTimer();
-                logger.info('Connected to MongoDB.');
+                logger.info('[MongoDB] Connected. Persistent storage is active.');
                 return true;
             }
 
+            enterDegradedMode('Connection did not become ready.');
             scheduleReconnect('Connection did not become ready.');
             return false;
         } catch (error) {
-            available = false;
             const message = error instanceof Error ? error.message : 'Unknown connection error';
-            logger.error(`[MongoDB] Connection unavailable: ${message}`);
-            scheduleReconnect('Initial connection failed.');
+            enterDegradedMode(message);
+
+            // Atlas network allow-list failures are host configuration problems,
+            // not bot-fatal errors. Log one compact degraded-mode message instead
+            // of repeatedly flooding Render while commands continue to work.
+            if (looksLikeAtlasNetworkBlock(message)) {
+                logger.warn('[MongoDB] Atlas is currently unreachable from Render. Running in database fallback mode; Discord commands remain available.');
+            } else {
+                logger.warn(`[MongoDB] Database unavailable. Running in fallback mode: ${message}`);
+            }
+            scheduleReconnect('Database unavailable.', message);
             return false;
         } finally {
             connectingPromise = null;
@@ -140,24 +179,30 @@ export async function connectDatabase(): Promise<boolean> {
 }
 
 export function isDatabaseAvailable(): boolean {
-    const state = mongoose.connection.readyState;
-
-    if (state === 1) {
+    // IMPORTANT: "connecting" is NOT considered available. Returning true for
+    // readyState === 2 caused commands to queue Mongo operations and time out
+    // whenever Atlas rejected Render's IP. Only a proven live connection may be
+    // used by database-backed command paths.
+    if (mongoose.connection.readyState === 1) {
         available = true;
+        degradedReason = null;
         return true;
     }
 
     available = false;
     const configured = Boolean(configuredMongoUri());
-    if (!configured || shuttingDown) return false;
+    if (configured && !shuttingDown && !connectingPromise && !reconnectTimer) {
+        void connectDatabase();
+    }
+    return false;
+}
 
-    // Start recovery immediately when a feature such as weekly quota needs the
-    // database. Mongoose buffers model operations while readyState === 2, so a
-    // command can wait for a healthy connection instead of instantly replying
-    // that the database is unavailable during a normal reconnect/startup window.
-    if (!connectingPromise && state !== 2) void connectDatabase();
-
-    return mongoose.connection.readyState === 1 || mongoose.connection.readyState === 2;
+export function getDatabaseStatus(): { available: boolean; degraded: boolean; reason: string | null } {
+    return {
+        available: isDatabaseAvailable(),
+        degraded: !available,
+        reason: degradedReason,
+    };
 }
 
 export async function disconnectDatabase(): Promise<void> {
@@ -168,7 +213,7 @@ export async function disconnectDatabase(): Promise<void> {
     if (mongoose.connection.readyState === 0) return;
     try {
         await mongoose.disconnect();
-        logger.info('Disconnected from MongoDB.');
+        logger.info('[MongoDB] Disconnected.');
     } catch (error) {
         logger.warn(`MongoDB shutdown encountered an error: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
