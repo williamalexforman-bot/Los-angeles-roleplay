@@ -33,12 +33,15 @@ const COMMANDS: CommandEntry[] = [
 
     // ── Staff Management ──
     { name: '/infraction issue', description: 'Issue a new staff infraction with evidence thread', category: 'Staff Management' },
-    { name: '/promotion issue', description: 'Issue and publish a staff promotion', category: 'Staff Management' },
+    { name: '/promotion issue', description: 'Issue and publish a Components V2 staff promotion emblem', category: 'Staff Management' },
     { name: '/training-results', description: 'Publish a completed staff training result with scores', category: 'Staff Management' },
     { name: '/application', description: 'Start or review a staff application', category: 'Staff Management' },
     { name: '/applications-panel', description: 'Post the V2 application panel and DM questionnaires', category: 'Staff Management' },
     { name: '/training', description: 'Manage a training request for a user', category: 'Staff Management' },
     { name: '/training-result', description: 'Post an authorized legacy/manual training result', category: 'Staff Management' },
+    { name: '/view-user-quota', description: 'Ownership only: inspect another user’s weekly message quota and filtered-message totals', category: 'Staff Management' },
+    { name: '/end-weekly-quota-early', description: 'Quota management only: finalize the current week immediately and evaluate incomplete staff', category: 'Staff Management' },
+    { name: '/extend-weeks-quota', description: 'Quota management only: extend this week to another date at 9 AM New York time', category: 'Staff Management' },
 
     // ── Community ──
     { name: '/movie-feedback', description: 'Submit feedback about a movie with rating (1-10)', category: 'Community' },
@@ -51,6 +54,7 @@ const COMMANDS: CommandEntry[] = [
 
     // ── Utility ──
     { name: '/cmds', description: 'Show this list of all available commands and their descriptions', category: 'Utility' },
+    { name: '/view-my-quota', description: 'View your own current weekly valid-message quota progress', category: 'Utility' },
     { name: '/roleplay-log', description: 'Log a roleplay session with details', category: 'Utility' },
     { name: '/request-training', description: 'Request a training session (Training Dept only)', category: 'Utility' },
     { name: '/view-infractions', description: 'View your own infraction count and history', category: 'Utility' },
