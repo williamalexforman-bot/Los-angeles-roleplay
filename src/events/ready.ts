@@ -1,6 +1,7 @@
-import { ActivityType, Client, REST, Routes } from 'discord.js';
+import { ActivityType, Client, GatewayIntentBits, REST, Routes } from 'discord.js';
 import { commandDefinitions } from '../commands/registry';
 import { loadProhibitedWordOverrides } from '../commands/prohibitedWords';
+import { handleQuotaMessage, startMessageQuotaScheduler } from '../commands/messageQuota';
 import { logger } from '../utils/logger';
 import { getDiscordBotToken } from '../config/env';
 import { startAdvancedPaidAdScheduler } from '../commands/advancedPaidAds';
@@ -80,6 +81,19 @@ export const onReady = async (client: Client): Promise<void> => {
         await loadProhibitedWordOverrides([...client.guilds.cache.keys()]);
     } catch (error) {
         logger.warn(`Prohibited-word overrides could not be loaded: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+
+    // Quota enforcement is intentionally disabled unless all required gateway
+    // intents are active. This prevents a reduced-intent login from seeing zero
+    // messages and incorrectly infracting the entire staff team on Friday.
+    const quotaIntentsReady = client.options.intents.has(GatewayIntentBits.GuildMessages)
+        && client.options.intents.has(GatewayIntentBits.MessageContent)
+        && client.options.intents.has(GatewayIntentBits.GuildMembers);
+    if (quotaIntentsReady) {
+        client.on('messageCreate', handleQuotaMessage);
+        startMessageQuotaScheduler(client);
+    } else {
+        logger.error('[Quota] DISABLED: GuildMessages, MessageContent, and GuildMembers intents are required. Weekly evaluation will not run while quota tracking is disabled.');
     }
 
     if (memberCountPresenceTimer) {
