@@ -27,6 +27,7 @@ import { advancedInstantPostCommand } from './advancedPaidAds';
 import { accountInfoCommands } from './accountInfo';
 import { suggestionCommands } from './suggestions';
 import { messageQuotaCommands } from './messageQuota';
+import { activityCheckCommands } from './activityCheck';
 
 export interface CommandDefinition {
     data: {
@@ -54,6 +55,7 @@ export const commandDefinitions: CommandDefinition[] = [
     ...communityCommands,
     ...staffManagementCommands,
     ...messageQuotaCommands,
+    ...activityCheckCommands,
     sayCommand,
     prohibitedWordCommand,
     ...punishmentCommands,
