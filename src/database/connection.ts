@@ -13,15 +13,65 @@ let listenersBound = false;
 let shuttingDown = false;
 let warnedMissingUri = false;
 let warnedInvalidUri = false;
+let warnedPartialSplitConfig = false;
 let degradedReason: string | null = null;
 let lastConnectionError = '';
 
+function normalizeMongoHost(rawHost: string): string {
+    return rawHost
+        .trim()
+        .replace(/^mongodb(?:\+srv)?:\/\//i, '')
+        .replace(/^[^@]+@/, '')
+        .split('/')[0]
+        .replace(/\?.*$/, '')
+        .trim();
+}
+
+/**
+ * Render-safe MongoDB configuration.
+ *
+ * Preferred configuration uses three separate environment variables so a
+ * password containing URI-reserved characters can never corrupt the Atlas
+ * connection string:
+ *   MONGODB_USERNAME
+ *   MONGODB_PASSWORD
+ *   MONGODB_HOST
+ *
+ * MONGODB_URI remains supported as a backwards-compatible fallback.
+ */
 function configuredMongoUri(): string | null {
+    const username = process.env.MONGODB_USERNAME?.trim();
+    const password = process.env.MONGODB_PASSWORD ?? '';
+    const rawHost = process.env.MONGODB_HOST?.trim();
+    const database = process.env.MONGODB_DATABASE?.trim() || 'discordbot';
+
+    const hasAnySplitValue = Boolean(username || password || rawHost);
+    if (username && password && rawHost) {
+        const host = normalizeMongoHost(rawHost);
+        if (!host || !host.includes('.')) {
+            if (!warnedInvalidUri) {
+                warnedInvalidUri = true;
+                logger.warn('[MongoDB] MONGODB_HOST is invalid. Use only the Atlas hostname, for example cluster0.xxxxx.mongodb.net.');
+            }
+            return null;
+        }
+
+        const encodedUser = encodeURIComponent(username);
+        const encodedPassword = encodeURIComponent(password);
+        const encodedDatabase = encodeURIComponent(database);
+        return `mongodb+srv://${encodedUser}:${encodedPassword}@${host}/${encodedDatabase}?retryWrites=true&w=majority`;
+    }
+
+    if (hasAnySplitValue && !warnedPartialSplitConfig) {
+        warnedPartialSplitConfig = true;
+        logger.warn('[MongoDB] Separate Render credentials are incomplete. MONGODB_USERNAME, MONGODB_PASSWORD, and MONGODB_HOST must all be set; falling back to MONGODB_URI if available.');
+    }
+
     const uri = process.env.MONGODB_URI?.trim();
     if (!uri) {
         if (!warnedMissingUri) {
             warnedMissingUri = true;
-            logger.warn('MONGODB_URI is not configured; database-backed persistence is disabled. Discord features will continue in fallback mode.');
+            logger.warn('MongoDB is not configured. Set MONGODB_USERNAME, MONGODB_PASSWORD, and MONGODB_HOST (recommended) or MONGODB_URI. Discord features will continue in fallback mode.');
         }
         return null;
     }
@@ -47,6 +97,10 @@ function looksLikeAtlasNetworkBlock(message: string): boolean {
     return /could not connect to any servers in your mongodb atlas cluster|ip.*whitelist|ip access list|server selection timed out/i.test(message);
 }
 
+function looksLikeAuthenticationFailure(message: string): boolean {
+    return /bad auth|authentication failed|auth failed|authenticationfailure/i.test(message);
+}
+
 function scheduleReconnect(reason: string, connectionMessage = ''): void {
     if (shuttingDown || reconnectTimer || !configuredMongoUri()) return;
 
@@ -56,7 +110,7 @@ function scheduleReconnect(reason: string, connectionMessage = ''): void {
         : Math.min(INITIAL_RETRY_MS * (2 ** Math.min(retryAttempt, 5)), MAX_RETRY_MS);
 
     retryAttempt += 1;
-    logger.warn(`[MongoDB] ${reason} Bot remains online in fallback mode; retrying database in ${Math.round(delay / 60_000)} minute(s).`);
+    logger.warn(`[MongoDB] ${reason} Bot remains online in fallback mode; retrying database in ${Math.max(1, Math.round(delay / 60_000))} minute(s).`);
 
     reconnectTimer = setTimeout(() => {
         reconnectTimer = null;
@@ -70,7 +124,9 @@ function enterDegradedMode(message: string): void {
     lastConnectionError = message;
     degradedReason = looksLikeAtlasNetworkBlock(message)
         ? 'MongoDB Atlas network access is blocking the host.'
-        : message;
+        : looksLikeAuthenticationFailure(message)
+            ? 'MongoDB Atlas rejected the configured database username or password.'
+            : message;
 }
 
 function bindConnectionListeners(): void {
@@ -105,7 +161,7 @@ function bindConnectionListeners(): void {
         const message = error instanceof Error ? error.message : 'Unknown error';
         enterDegradedMode(message);
         if (!shuttingDown && !connectingPromise) {
-            logger.warn(`[MongoDB] Connection error. Discord features remain available in fallback mode.`);
+            logger.warn('[MongoDB] Connection error. Discord features remain available in fallback mode.');
             scheduleReconnect('Connection error detected.', message);
         }
     });
@@ -130,8 +186,6 @@ export async function connectDatabase(): Promise<boolean> {
     connectingPromise = (async () => {
         try {
             mongoose.set('strictQuery', true);
-            // Critical: never let a Discord command sit behind Mongoose buffering
-            // while Atlas is unreachable. Database users must fall back immediately.
             mongoose.set('bufferCommands', false);
             mongoose.set('bufferTimeoutMS', 1_000);
 
@@ -160,11 +214,10 @@ export async function connectDatabase(): Promise<boolean> {
             const message = error instanceof Error ? error.message : 'Unknown connection error';
             enterDegradedMode(message);
 
-            // Atlas network allow-list failures are host configuration problems,
-            // not bot-fatal errors. Log one compact degraded-mode message instead
-            // of repeatedly flooding Render while commands continue to work.
             if (looksLikeAtlasNetworkBlock(message)) {
                 logger.warn('[MongoDB] Atlas is currently unreachable from Render. Running in database fallback mode; Discord commands remain available.');
+            } else if (looksLikeAuthenticationFailure(message)) {
+                logger.warn('[MongoDB] Atlas rejected the database credentials. Verify the Render database username/password belong to the Atlas Database Access user for this cluster.');
             } else {
                 logger.warn(`[MongoDB] Database unavailable. Running in fallback mode: ${message}`);
             }
@@ -179,10 +232,6 @@ export async function connectDatabase(): Promise<boolean> {
 }
 
 export function isDatabaseAvailable(): boolean {
-    // IMPORTANT: "connecting" is NOT considered available. Returning true for
-    // readyState === 2 caused commands to queue Mongo operations and time out
-    // whenever Atlas rejected Render's IP. Only a proven live connection may be
-    // used by database-backed command paths.
     if (mongoose.connection.readyState === 1) {
         available = true;
         degradedReason = null;
