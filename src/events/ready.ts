@@ -6,6 +6,7 @@ import { logger } from '../utils/logger';
 import { getDiscordBotToken } from '../config/env';
 import { startAdvancedPaidAdScheduler } from '../commands/advancedPaidAds';
 import { registerTicketAiTriage } from './ticketAiTriage';
+import { registerTicketPriority } from './ticketPriority';
 import { registerJoinAccountDateCorrection } from './joinAccountDateCorrection';
 import { registerRaidProtection } from './raidProtection';
 
@@ -45,6 +46,7 @@ export const onReady = async (client: Client): Promise<void> => {
     }
 
     registerTicketAiTriage(client);
+    registerTicketPriority(client);
     registerJoinAccountDateCorrection(client);
     registerRaidProtection(client);
 
@@ -83,9 +85,6 @@ export const onReady = async (client: Client): Promise<void> => {
         logger.warn(`Prohibited-word overrides could not be loaded: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
 
-    // Quota enforcement is intentionally disabled unless all required gateway
-    // intents are active. This prevents a reduced-intent login from seeing zero
-    // messages and incorrectly infracting the entire staff team on Friday.
     const quotaIntentsReady = client.options.intents.has(GatewayIntentBits.GuildMessages)
         && client.options.intents.has(GatewayIntentBits.MessageContent)
         && client.options.intents.has(GatewayIntentBits.GuildMembers);
