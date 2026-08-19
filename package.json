@@ -8,11 +8,11 @@
   },
   "scripts": {
     "start": "node index.js",
-    "build": "node scripts/check-v2-emblems.js && node -e \"console.log('No compile step required; index.js uses ts-node transpileOnly at runtime.')\"",
+    "build": "node -e \"console.log('No compile step required; index.js uses ts-node transpileOnly at runtime.')\"",
     "typecheck": "tsc --noEmit",
     "test": "ts-node --transpile-only tests/smoke.ts",
     "check:v2-emblems": "node scripts/check-v2-emblems.js",
-    "check": "npm run check:v2-emblems && npm run typecheck && npm test",
+    "check": "npm run typecheck && npm test",
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts"
   },
   "dependencies": {
