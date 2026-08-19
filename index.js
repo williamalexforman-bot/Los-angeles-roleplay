@@ -42,11 +42,6 @@ async function loadInteractionRouter() {
         console.warn('[Tickets] Lifecycle enhancements unavailable:', error instanceof Error ? error.stack || error.message : String(error));
       }
 
-      // Restore the restart-safe infraction appeal compatibility layer before
-      // the main interaction router imports the appeal handler. Older/current
-      // infraction panels can store INF-#### instead of a Discord thread ID;
-      // this wrapper rebuilds the source case from Discord after a restart or
-      // temporary database outage and rewrites the modal to a stable key.
       try {
         const infractionAppealModule = require('./src/commands/infractionAppeal.ts');
         const { installInfractionAppealRecovery } = require('./src/commands/infractionAppealRecovery.ts');
@@ -104,8 +99,14 @@ client.once(Events.ClientReady, async readyClient => {
     console.warn('[Tickets] Priority naming failed to register:', error instanceof Error ? error.stack || error.message : String(error));
   }
 
-  // Start activity-check timing only after Discord is online. The module itself
-  // is isolated so a scheduler/database issue can never block the bot login.
+  try {
+    const { registerTicketAppealNaming } = require('./src/events/ticketAppealNaming.ts');
+    registerTicketAppealNaming(readyClient);
+    console.log('[Tickets] Generic appeal naming registered.');
+  } catch (error) {
+    console.warn('[Tickets] Appeal naming override failed to register:', error instanceof Error ? error.stack || error.message : String(error));
+  }
+
   try {
     const { startActivityCheckScheduler } = require('./src/commands/activityCheck.ts');
     startActivityCheckScheduler(readyClient);
