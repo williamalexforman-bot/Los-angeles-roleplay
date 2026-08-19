@@ -2,7 +2,7 @@ name: Fix Quota Syntax
 
 on:
   push:
-    branches: [main]
+    branches: [startup-diagnostic]
 
 permissions:
   contents: write
@@ -12,10 +12,10 @@ jobs:
     if: ${{ github.actor != 'github-actions[bot]' }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout main
+      - name: Checkout diagnostic branch
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: startup-diagnostic
 
       - name: Repair quota appeal panel syntax
         shell: python
@@ -48,4 +48,4 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add src/commands/messageQuota.ts
           git commit -m 'Fix quota appeal panel syntax'
-          git push origin HEAD:main
+          git push origin HEAD:startup-diagnostic
