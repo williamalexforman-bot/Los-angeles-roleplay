@@ -42,6 +42,20 @@ async function loadInteractionRouter() {
         console.warn('[Tickets] Lifecycle enhancements unavailable:', error instanceof Error ? error.stack || error.message : String(error));
       }
 
+      // Restore the restart-safe infraction appeal compatibility layer before
+      // the main interaction router imports the appeal handler. Older/current
+      // infraction panels can store INF-#### instead of a Discord thread ID;
+      // this wrapper rebuilds the source case from Discord after a restart or
+      // temporary database outage and rewrites the modal to a stable key.
+      try {
+        const infractionAppealModule = require('./src/commands/infractionAppeal.ts');
+        const { installInfractionAppealRecovery } = require('./src/commands/infractionAppealRecovery.ts');
+        installInfractionAppealRecovery(infractionAppealModule);
+        console.log('[InfractionAppeal] Restart-safe recovery installed lazily.');
+      } catch (error) {
+        console.warn('[InfractionAppeal] Recovery layer unavailable:', error instanceof Error ? error.stack || error.message : String(error));
+      }
+
       const router = require('./src/handlers/interactionCreate.ts');
       if (!router || typeof router.interactionCreate !== 'function') {
         throw new Error('interactionCreate export is unavailable.');
