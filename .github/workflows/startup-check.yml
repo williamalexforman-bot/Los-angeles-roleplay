@@ -52,5 +52,4 @@ jobs:
           exit 1
 
       - name: Strict TypeScript check
-        continue-on-error: true
         run: npm run typecheck
