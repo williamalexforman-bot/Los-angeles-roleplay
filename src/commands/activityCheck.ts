@@ -20,7 +20,6 @@ import {
     SlashCommandBuilder,
     TextDisplayBuilder,
     type GuildMember,
-    type TextChannel,
 } from 'discord.js';
 import { BRAND, CHANNEL_IDS } from '../config/constants';
 import { logger } from '../utils/logger';
@@ -121,7 +120,7 @@ function canManage(interaction: ChatInputCommandInteraction): boolean {
     const allowed = [process.env.BOT_PERMISSIONS_ROLE_ID, process.env.ADMIN_ROLE_ID, process.env.ACTIVITY_CHECK_MANAGER_ROLE_ID]
         .filter((id): id is string => Boolean(id));
     const member = interaction.member as GuildMember | null;
-    return Boolean(member && 'roles' in member && allowed.some(roleId => member.roles.cache?.has(roleId)));
+    return Boolean(member && allowed.some(roleId => member.roles.cache.has(roleId)));
 }
 
 function checkPanel(check: ActivityCheckState, ended = false): ContainerBuilder {
@@ -225,20 +224,15 @@ async function currentCheck(guildId: string): Promise<ActivityCheckState | null>
 }
 
 async function snapshotRoleMembers(role: Role): Promise<string[]> {
-    const guild = role.guild;
     try {
-        await guild.members.fetch();
+        await role.guild.members.fetch();
     } catch (error) {
         throw new Error(`I could not load the complete staff roster for ${role.name}. Enable Discord's Server Members Intent before starting an activity check. (${error instanceof Error ? error.message : 'member fetch failed'})`);
     }
-    return role.members
-        .filter(member => !member.user.bot)
-        .map(member => member.id);
+    return role.members.filter(member => !member.user.bot).map(member => member.id);
 }
 
 async function issueFailedActivityInfraction(client: Client, check: ActivityCheckState, memberId: string): Promise<boolean> {
-    const guild = client.guilds.cache.get(check.guildId) || await client.guilds.fetch(check.guildId).catch(() => null);
-    if (!guild) return false;
     const user = await client.users.fetch(memberId).catch(() => null);
     if (!user) return false;
     const parent = await client.channels.fetch(INFRACTION_PARENT_CHANNEL_ID).catch(() => null);
@@ -258,7 +252,7 @@ async function issueFailedActivityInfraction(client: Client, check: ActivityChec
             '> **Reason:** `Did not respond to the required staff activity check before it ended.`',
             `> **Activity Check:** \`${check.checkId}\``,
             `> **Issued:** <t:${Math.floor(now.getTime() / 1000)}:F>`,
-        ].join('\n'))
+        ].join('\n')))
         .addSeparatorComponents(separator())
         .addMediaGalleryComponents(media(UNDERBANNER_NAME));
 
