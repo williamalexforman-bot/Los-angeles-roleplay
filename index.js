@@ -24,4 +24,11 @@ const ticketModule = require('./src/commands/tickets.ts');
 const { installTicketLifecycleEnhancements } = require('./src/commands/ticketLifecycleEnhancements.ts');
 installTicketLifecycleEnhancements(ticketModule);
 
+// Route the high-use ticket/application/session components directly to their
+// own handlers. This prevents unrelated feature handlers or slow services from
+// consuming Discord's short interaction acknowledgement window.
+const interactionRouterModule = require('./src/handlers/interactionCreate.ts');
+const { installInteractionFastRouter } = require('./src/handlers/interactionFastRouter.ts');
+installInteractionFastRouter(interactionRouterModule);
+
 require('./src/index.ts');
