@@ -1,0 +1,51 @@
+name: Fix Quota Syntax
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Repair quota appeal panel syntax
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('src/commands/messageQuota.ts')
+          text = path.read_text()
+          broken = """            appeal.reviewReason ? `> **Review Reason:** ${safeText(appeal.reviewReason, 1_000)}` : null,
+        ].filter(Boolean).join('\\n'));
+"""
+          fixed = """            appeal.reviewReason ? `> **Review Reason:** ${safeText(appeal.reviewReason, 1_000)}` : null,
+        ].filter(Boolean).join('\\n')));
+"""
+          count = text.count(broken)
+          if count == 0:
+              print('Quota syntax is already fixed; nothing to change.')
+              raise SystemExit(0)
+          if count != 1:
+              raise SystemExit(f'Expected exactly one broken quota block, found {count}.')
+          path.write_text(text.replace(broken, fixed, 1))
+
+      - name: Commit repaired source
+        shell: bash
+        run: |
+          if git diff --quiet -- src/commands/messageQuota.ts; then
+            echo 'No repair commit required.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/commands/messageQuota.ts
+          git commit -m 'Fix quota appeal panel syntax'
+          git push origin HEAD:main
