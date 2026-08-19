@@ -1,15 +1,15 @@
 name: Fix Quota Syntax
 
 on:
-  push:
-    branches: [startup-diagnostic]
+  pull_request_target:
+    branches: [main]
 
 permissions:
   contents: write
 
 jobs:
   fix:
-    if: ${{ github.actor != 'github-actions[bot]' }}
+    if: ${{ github.actor != 'github-actions[bot]' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'startup-diagnostic' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout diagnostic branch
@@ -18,8 +18,9 @@ jobs:
           ref: startup-diagnostic
 
       - name: Repair quota appeal panel syntax
-        shell: python
+        shell: bash
         run: |
+          python - <<'PY'
           from pathlib import Path
           path = Path('src/commands/messageQuota.ts')
           text = path.read_text()
@@ -36,6 +37,7 @@ jobs:
           if count != 1:
               raise SystemExit(f'Expected exactly one broken quota block, found {count}.')
           path.write_text(text.replace(broken, fixed, 1))
+          PY
 
       - name: Commit repaired source
         shell: bash
