@@ -17,4 +17,11 @@ const infractionAppealModule = require('./src/commands/infractionAppeal.ts');
 const { installInfractionAppealRecovery } = require('./src/commands/infractionAppealRecovery.ts');
 installInfractionAppealRecovery(infractionAppealModule);
 
+// Upgrade the existing ticket module before the interaction router imports it.
+// This preserves the current panel/create workflow while adding claimed DMs,
+// closure recap/transcript DMs, restart-safe feedback, and feedback logging.
+const ticketModule = require('./src/commands/tickets.ts');
+const { installTicketLifecycleEnhancements } = require('./src/commands/ticketLifecycleEnhancements.ts');
+installTicketLifecycleEnhancements(ticketModule);
+
 require('./src/index.ts');
