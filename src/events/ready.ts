@@ -59,7 +59,7 @@ export const onReady = async (client: Client): Promise<void> => {
     });
 
     const rest = new REST({ version: '10' }).setToken(token);
-    const guildId = process.env.GUILD_ID;
+    const guildId = process.env.GUILD_ID || client.guilds.cache.firstKey();
     try {
         if (guildId) {
             const legacyGlobalCommands = await rest.get(
@@ -67,17 +67,17 @@ export const onReady = async (client: Client): Promise<void> => {
             ) as Array<{ id: string; name: string }>;
             if (legacyGlobalCommands.length > 0) {
                 await rest.put(Routes.applicationCommands(client.application.id), { body: [] });
-                await rest.put(Routes.applicationGuildCommands(client.application.id, guildId), { body: [] });
-                logger.info(`Removed ${legacyGlobalCommands.length} legacy global slash commands and reset the guild command cache.`);
+                logger.info(`Removed ${legacyGlobalCommands.length} legacy global slash commands.`);
             }
             await rest.put(Routes.applicationGuildCommands(client.application.id, guildId), { body: commands });
-            logger.info(`Registered ${commands.length} guild slash commands.`);
+            logger.info(`Registered ${commands.length} guild slash commands in ${guildId}: ${[...uniqueNames].join(', ')}`);
         } else {
             await rest.put(Routes.applicationCommands(client.application.id), { body: commands });
-            logger.info(`Registered ${commands.length} global slash commands.`);
+            logger.info(`Registered ${commands.length} global slash commands because no connected guild was available.`);
         }
     } catch (error) {
-        logger.error(`Failed to register slash commands: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        const details = error instanceof Error ? (error.stack || error.message) : String(error);
+        logger.error(`Failed to register slash commands: ${details}`);
     }
 
     try {
