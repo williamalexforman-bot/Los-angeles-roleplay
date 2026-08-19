@@ -8,16 +8,14 @@ services:
   - type: web
     name: discord-management-bot
     env: node
-    # The repository already has a memory-safe runtime bootstrap in index.js
-    # that loads TypeScript through ts-node with transpileOnly=true. Do not run
-    # a full tsc build on Render; one type-check error or a memory spike should
-    # not prevent the Discord bot and /health server from starting.
     buildCommand: npm install --include=dev --no-audit --no-fund
     startCommand: node index.js
     numInstances: 1
     plan: free
     healthCheckPath: /health
     envVars:
+      - key: NODE_VERSION
+        value: "22.22.0"
       - key: NODE_ENV
         value: production
       - key: BOT_TOKEN
