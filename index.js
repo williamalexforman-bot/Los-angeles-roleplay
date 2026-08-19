@@ -29,10 +29,6 @@ client.on('shardDisconnect', (event, shardId) => {
   console.warn(`[Discord] Shard ${shardId} disconnected (${event?.code ?? 'unknown'}).`);
 });
 
-// Attach ONE interaction bridge before login. The heavy command/ticket router is
-// loaded lazily only when Discord actually sends an interaction. Before the
-// router loads, install ticket lifecycle enhancements so claim/close DMs and
-// feedback work, without letting those modules block Discord startup.
 let routerPromise = null;
 async function loadInteractionRouter() {
   if (!routerPromise) {
@@ -78,9 +74,6 @@ client.on(Events.InteractionCreate, async interaction => {
 client.once(Events.ClientReady, async readyClient => {
   console.log(`[Discord] READY as ${readyClient.user.tag} (${readyClient.user.id})`);
 
-  // Ticket AI systems are independent from slash-command registration. Register
-  // them directly here so a failure in onReady/command registration cannot stop
-  // ticket auto-response or priority naming.
   try {
     const { registerTicketAiTriage } = require('./src/events/ticketAiTriage.ts');
     registerTicketAiTriage(readyClient);
@@ -97,8 +90,16 @@ client.once(Events.ClientReady, async readyClient => {
     console.warn('[Tickets] Priority naming failed to register:', error instanceof Error ? error.stack || error.message : String(error));
   }
 
-  // Register slash commands / ready-time systems. The ticket AI registrations
-  // above are idempotent, so onReady can safely call them again.
+  // Start activity-check timing only after Discord is online. The module itself
+  // is isolated so a scheduler/database issue can never block the bot login.
+  try {
+    const { startActivityCheckScheduler } = require('./src/commands/activityCheck.ts');
+    startActivityCheckScheduler(readyClient);
+    console.log('[ActivityCheck] Scheduler registered.');
+  } catch (error) {
+    console.warn('[ActivityCheck] Scheduler unavailable:', error instanceof Error ? error.stack || error.message : String(error));
+  }
+
   try {
     const { onReady } = require('./src/events/ready.ts');
     await onReady(readyClient);
@@ -107,7 +108,6 @@ client.once(Events.ClientReady, async readyClient => {
     console.error('[Discord] Ready hooks failed:', error instanceof Error ? error.stack || error.message : String(error));
   }
 
-  // Optional DM helpers. Each loads independently so one cannot break another.
   try {
     const { setDiscordClientForDm } = require('./src/commands/punishment.ts');
     setDiscordClientForDm(readyClient);
@@ -145,7 +145,6 @@ client.once(Events.ClientReady, async readyClient => {
     console.warn('[Feature] Application DM helper unavailable:', error instanceof Error ? error.message : String(error));
   }
 
-  // Database is deliberately last and non-blocking.
   try {
     const { connectDatabase } = require('./src/database/connection.ts');
     void connectDatabase().then(available => {
@@ -169,7 +168,6 @@ client.once(Events.ClientReady, async readyClient => {
   }
 });
 
-// Login is intentionally attempted BEFORE importing any bot feature module.
 console.log('[Discord] Attempting login...');
 client.login(token).catch(error => {
   console.error('[FATAL] Discord login failed:', error instanceof Error ? error.stack || error.message : String(error));
