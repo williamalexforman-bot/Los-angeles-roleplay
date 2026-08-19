@@ -42,12 +42,12 @@ services:
         sync: false
       - key: TICKET_RECAP_MODEL
         value: "gpt-5-mini"
-      # Safe default: this keeps the bot online even if Discord has not yet
-      # enabled the privileged Gateway Intents for the application. After
-      # Server Members Intent + Message Content Intent are enabled in the
-      # Discord Developer Portal, set this to "true" in Render to activate
-      # message quota/member-event features.
+
+      # Required for staff activity checks and the weekly message-quota system.
+      # In the Discord Developer Portal, enable BOTH Server Members Intent and
+      # Message Content Intent for the bot application.
       - key: ENABLE_PRIVILEGED_INTENTS
-        value: "false"
+        value: "true"
+
       - key: PORT
         value: "10000"
