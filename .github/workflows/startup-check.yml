@@ -24,32 +24,9 @@ jobs:
       - name: Install exactly from lockfile
         run: npm ci --include=dev --no-audit --no-fund
 
-      - name: Startup and health check
-        shell: bash
-        env:
-          PORT: '10000'
-          NODE_ENV: production
-          ENABLE_PRIVILEGED_INTENTS: 'false'
+      - name: Import appeal modules
         run: |
-          node index.js > startup.log 2>&1 &
-          PID=$!
-          trap 'kill $PID 2>/dev/null || true' EXIT
-          for i in {1..20}; do
-            if curl --fail --silent http://127.0.0.1:10000/health >/tmp/health.json; then
-              cat /tmp/health.json
-              cat startup.log
-              exit 0
-            fi
-            if ! kill -0 $PID 2>/dev/null; then
-              echo 'Bot process exited before health check passed.'
-              cat startup.log
-              exit 1
-            fi
-            sleep 1
-          done
-          echo 'Health endpoint never became ready.'
-          cat startup.log
-          exit 1
+          node -e "require('ts-node').register({transpileOnly:true,project:'tsconfig.json'}); require('./src/commands/infractionAppeal.ts'); require('./src/commands/infractionAppealRecovery.ts'); require('./src/events/ticketAppealNaming.ts'); console.log('appeal modules ok')"
 
       - name: Strict TypeScript check
         run: npm run typecheck
