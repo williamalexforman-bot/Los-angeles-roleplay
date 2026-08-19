@@ -52,7 +52,6 @@ function scheduleReconnect(reason: string): void {
         void connectDatabase();
     }, delay);
 
-    // Do not keep an otherwise finished process alive solely for a retry timer.
     reconnectTimer.unref?.();
 }
 
@@ -141,16 +140,24 @@ export async function connectDatabase(): Promise<boolean> {
 }
 
 export function isDatabaseAvailable(): boolean {
-    const ready = mongoose.connection.readyState === 1;
-    available = available && ready;
+    const state = mongoose.connection.readyState;
 
-    // A temporary outage should not require a full bot restart. Any feature
-    // checking database availability also nudges the reconnect loop immediately.
-    if (!available && !connectingPromise && !shuttingDown && configuredMongoUri()) {
-        void connectDatabase();
+    if (state === 1) {
+        available = true;
+        return true;
     }
 
-    return available;
+    available = false;
+    const configured = Boolean(configuredMongoUri());
+    if (!configured || shuttingDown) return false;
+
+    // Start recovery immediately when a feature such as weekly quota needs the
+    // database. Mongoose buffers model operations while readyState === 2, so a
+    // command can wait for a healthy connection instead of instantly replying
+    // that the database is unavailable during a normal reconnect/startup window.
+    if (!connectingPromise && state !== 2) void connectDatabase();
+
+    return mongoose.connection.readyState === 1 || mongoose.connection.readyState === 2;
 }
 
 export async function disconnectDatabase(): Promise<void> {
