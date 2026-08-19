@@ -5,7 +5,7 @@ import { handleQuotaMessage, startMessageQuotaScheduler } from '../commands/mess
 import { logger } from '../utils/logger';
 import { getDiscordBotToken } from '../config/env';
 import { startAdvancedPaidAdScheduler } from '../commands/advancedPaidAds';
-import { registerTicketRobloxInfo } from './ticketRobloxInfo';
+import { registerTicketAiTriage } from './ticketAiTriage';
 import { registerJoinAccountDateCorrection } from './joinAccountDateCorrection';
 import { registerRaidProtection } from './raidProtection';
 
@@ -44,7 +44,7 @@ export const onReady = async (client: Client): Promise<void> => {
         return;
     }
 
-    registerTicketRobloxInfo(client);
+    registerTicketAiTriage(client);
     registerJoinAccountDateCorrection(client);
     registerRaidProtection(client);
 
