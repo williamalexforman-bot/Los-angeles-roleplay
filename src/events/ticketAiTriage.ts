@@ -79,17 +79,31 @@ function componentText(message: Message): string {
 }
 
 function openingReasonFromPanel(message: Message, type: TicketType): string {
-    const text = componentText(message);
+    const lines = componentText(message).split(/\r?\n/);
     const labels = type === 'internal'
         ? ['Reason for Report']
         : ['Reason for Opening Ticket', 'Reason for Report'];
 
     for (const label of labels) {
-        const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const fenced = text.match(new RegExp(`###\\s+${escaped}\\s*\\n\\`\\`\\`\\s*([\\s\\S]*?)\\s*\\`\\`\\``, 'i'));
-        if (fenced?.[1]?.trim()) return fenced[1].trim();
-        const inline = text.match(new RegExp(`\\*\\*${escaped}:\\*\\*\\s*([^\\n]+)`, 'i'));
-        if (inline?.[1]?.trim()) return inline[1].trim();
+        const headingIndex = lines.findIndex(line => line.trim().toLowerCase() === `### ${label}`.toLowerCase());
+        if (headingIndex >= 0) {
+            const collected: string[] = [];
+            for (let index = headingIndex + 1; index < lines.length; index += 1) {
+                const line = lines[index].trim();
+                if (!line || line === '```') continue;
+                if (line.startsWith('### ')) break;
+                collected.push(line);
+            }
+            const reason = collected.join(' ').trim();
+            if (reason) return reason;
+        }
+
+        const inlinePrefix = `**${label}:**`;
+        const inline = lines.find(line => line.trim().toLowerCase().startsWith(inlinePrefix.toLowerCase()));
+        if (inline) {
+            const value = inline.trim().slice(inlinePrefix.length).trim();
+            if (value) return value;
+        }
     }
     return '';
 }
