@@ -42,12 +42,25 @@ if (!token) {
   process.exit(1);
 }
 
+const enablePrivileged = String(process.env.ENABLE_PRIVILEGED_INTENTS || 'false').toLowerCase() === 'true';
+const intents = [
+  GatewayIntentBits.Guilds,
+  GatewayIntentBits.GuildMessages,
+  GatewayIntentBits.DirectMessages,
+];
+if (enablePrivileged) {
+  intents.push(
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildModeration,
+  );
+  console.log('[Discord] Privileged intents enabled, including GuildMembers for activity checks.');
+} else {
+  console.warn('[Discord] Privileged intents disabled. Activity checks cannot safely snapshot the full staff roster until ENABLE_PRIVILEGED_INTENTS=true and Server Members Intent is enabled in the Discord Developer Portal.');
+}
+
 const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.DirectMessages,
-  ],
+  intents,
   partials: [Partials.Channel],
 });
 
