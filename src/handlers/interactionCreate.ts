@@ -13,6 +13,7 @@ import { handleTrainingModal } from '../commands/requestTraining';
 import { handleLoaButton, handleLoaModal } from '../commands/loa';
 import { handleBanAppealButton, handleBanAppealModal } from '../commands/banAppeal';
 import { handleInfractionAppealButton, handleInfractionAppealModal } from '../commands/infractionAppeal';
+import { handleMessageQuotaButton, handleMessageQuotaModal } from '../commands/messageQuota';
 import { handleSessionButton } from '../commands/session';
 import { handleEnhancedSessionButton, handleEnhancedSessionCommand } from '../commands/sessionEnhancements';
 import { handlePaidAdButton, handlePaidAdModal, handlePaidAdSelect } from '../commands/paidAds';
@@ -235,6 +236,7 @@ async function handleChatCommand(interaction: ChatInputCommandInteraction): Prom
 export const interactionCreate = async (interaction: Interaction): Promise<void> => {
     try {
         if (interaction.isButton()) {
+            if (await handleMessageQuotaButton(interaction)) return;
             if (await handleSuggestionButton(interaction)) return;
             if (await handlePaidAdButton(interaction)) return;
             if (await handleTicketButton(interaction)) return;
@@ -250,6 +252,7 @@ export const interactionCreate = async (interaction: Interaction): Promise<void>
         }
 
         if (interaction.isModalSubmit()) {
+            if (await handleMessageQuotaModal(interaction)) return;
             if (await handlePaidAdModal(interaction)) {
                 await normalizePaidAdSchedule(interaction.client).catch(error => {
                     logger.warn(`[PaidAdV2] Could not normalize after setup: ${error instanceof Error ? error.message : 'Unknown error'}`);
