@@ -2,7 +2,7 @@
 # Deploy on Render: https://render.com
 #
 # IMPORTANT: add your private environment variables in the Render Dashboard
-# (BOT_TOKEN, MONGODB_URI, ERLC_SERVER_KEY, etc.). Never commit live secrets.
+# (BOT_TOKEN, MONGODB_URI, ERLC_SERVER_KEY, OPENAI_API_KEY, etc.). Never commit live secrets.
 
 services:
   - type: web
@@ -22,6 +22,10 @@ services:
         sync: false
       - key: MONGODB_URI
         sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: TICKET_RECAP_MODEL
+        value: "gpt-5-mini"
       - key: ENABLE_PRIVILEGED_INTENTS
         value: "true"
       - key: PORT
