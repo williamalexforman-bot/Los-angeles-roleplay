@@ -42,6 +42,10 @@ const COMMANDS: CommandEntry[] = [
     { name: '/view-user-quota', description: 'Ownership only: inspect another user’s weekly message quota and filtered-message totals', category: 'Staff Management' },
     { name: '/end-weekly-quota-early', description: 'Quota management only: finalize the current week immediately and evaluate incomplete staff', category: 'Staff Management' },
     { name: '/extend-weeks-quota', description: 'Quota management only: extend this week to another date at 9 AM New York time', category: 'Staff Management' },
+    { name: '/activity-check', description: 'Start a staff activity check and ping the selected staff role', category: 'Staff Management' },
+    { name: '/view-activity-check', description: 'View who has responded and who is still missing', category: 'Staff Management' },
+    { name: '/end-activity-check', description: 'End the active check and process staff who did not respond', category: 'Staff Management' },
+    { name: '/void-activity-check', description: 'Cancel the active check without issuing automatic infractions', category: 'Staff Management' },
 
     // ── Community ──
     { name: '/movie-feedback', description: 'Submit feedback about a movie with rating (1-10)', category: 'Community' },
