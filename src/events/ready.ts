@@ -2,6 +2,7 @@ import { ActivityType, Client, GatewayIntentBits, REST, Routes } from 'discord.j
 import { commandDefinitions } from '../commands/registry';
 import { loadProhibitedWordOverrides } from '../commands/prohibitedWords';
 import { handleQuotaMessage, startMessageQuotaScheduler } from '../commands/messageQuota';
+import { startActivityCheckScheduler } from '../commands/activityCheck';
 import { logger } from '../utils/logger';
 import { getDiscordBotToken } from '../config/env';
 import { startAdvancedPaidAdScheduler } from '../commands/advancedPaidAds';
@@ -103,5 +104,6 @@ export const onReady = async (client: Client): Promise<void> => {
     memberCountPresenceTimer = setInterval(() => {
         void updateMemberCountPresence(client);
     }, MEMBER_COUNT_REFRESH_MS);
+    startActivityCheckScheduler(client);
     startAdvancedPaidAdScheduler(client);
 };
