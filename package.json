@@ -7,7 +7,7 @@
     "node": ">=22.22.0 <23"
   },
   "scripts": {
-    "start": "node index.js",
+    "start": "node -r ./preload.js index.js",
     "build": "node -e \"console.log('No compile step required; index.js uses ts-node transpileOnly at runtime.')\"",
     "typecheck": "tsc --noEmit",
     "test": "ts-node --transpile-only tests/smoke.ts",
