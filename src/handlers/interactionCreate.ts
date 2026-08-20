@@ -20,6 +20,7 @@ import { handleEnhancedSessionButton, handleEnhancedSessionCommand } from '../co
 import { handlePaidAdButton, handlePaidAdModal, handlePaidAdSelect } from '../commands/paidAds';
 import { handleAdvancedPaidAdSelect, normalizePaidAdSchedule } from '../commands/advancedPaidAds';
 import { handleSuggestionButton } from '../commands/suggestions';
+import { handleTicketClaimRepair } from './ticketClaimRepair';
 import {
     handleTicketButton,
     handleTicketModal,
@@ -165,8 +166,8 @@ async function reportInteractionError(interaction: Interaction, error: unknown):
     try {
         if (!interaction.isRepliable()) return;
         if (interaction.deferred) await interaction.editReply({ content: message });
-        else if (interaction.replied) await interaction.followUp({ content: message, ephemeral: true });
-        else await interaction.reply({ content: message, ephemeral: true });
+        else if (interaction.replied) await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral });
+        else await interaction.reply({ content: message, flags: MessageFlags.Ephemeral });
     } catch {
         // Interaction may have expired.
     }
@@ -204,7 +205,7 @@ async function handleChatCommand(interaction: ChatInputCommandInteraction): Prom
 
         const handler = commandHandlers.get(interaction.commandName);
         if (!handler) {
-            await interaction.reply({ content: 'That command is not currently available.', ephemeral: true });
+            await interaction.reply({ content: 'That command is not currently available.', flags: MessageFlags.Ephemeral });
             return;
         }
         if (interaction.commandName === 'say' && !hasSayCommandPermission(interaction)) {
@@ -226,13 +227,13 @@ async function handleChatCommand(interaction: ChatInputCommandInteraction): Prom
                 content: exactRole
                     ? `You need <@&${exactRole}> to use this command.`
                     : 'You must be authorized management or a server administrator to use this command.',
-                ephemeral: true,
+                flags: MessageFlags.Ephemeral,
             });
             return;
         }
         const moderationPermission = MODERATION_PERMISSIONS.get(interaction.commandName);
         if (moderationPermission && !hasModerationCommandPermission(interaction, moderationPermission)) {
-            await interaction.reply({ content: 'You do not have permission to use this moderation command.', ephemeral: true });
+            await interaction.reply({ content: 'You do not have permission to use this moderation command.', flags: MessageFlags.Ephemeral });
             return;
         }
 
@@ -246,6 +247,7 @@ export const interactionCreate = async (interaction: Interaction): Promise<void>
     try {
         if (interaction.isButton()) {
             if (await handleActivityCheckButton(interaction)) return;
+            if (await handleTicketClaimRepair(interaction)) return;
             if (await handleMessageQuotaButton(interaction)) return;
             if (await handleSuggestionButton(interaction)) return;
             if (await handlePaidAdButton(interaction)) return;
