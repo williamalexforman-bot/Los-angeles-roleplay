@@ -7,7 +7,6 @@ import {
     ButtonStyle,
     ChannelType,
     ContainerBuilder,
-    Events,
     MediaGalleryBuilder,
     MediaGalleryItemBuilder,
     MessageFlags,
@@ -20,12 +19,9 @@ import {
 import { BRAND } from '../config/constants';
 import { logger } from '../utils/logger';
 
-const ACTIVITY_BANNER_NAME = 'activity-check-banner.jpg';
 const UNDERBANNER_NAME = 'underbanner.webp';
-const ACTIVITY_BANNER_PATH = resolve(__dirname, '..', '..', 'assets', ACTIVITY_BANNER_NAME);
 const UNDERBANNER_PATH = resolve(__dirname, '..', '..', 'assets', UNDERBANNER_NAME);
 const REFRESH_INTERVAL_MS = 30_000;
-const POST_BUTTON_REFRESH_DELAY_MS = 750;
 
 type ActivityCheckRecord = {
     checkId: string;
@@ -61,10 +57,7 @@ function separator(): SeparatorBuilder {
 }
 
 function artwork(): AttachmentBuilder[] {
-    return [
-        new AttachmentBuilder(ACTIVITY_BANNER_PATH, { name: ACTIVITY_BANNER_NAME }),
-        new AttachmentBuilder(UNDERBANNER_PATH, { name: UNDERBANNER_NAME }),
-    ];
+    return [new AttachmentBuilder(UNDERBANNER_PATH, { name: UNDERBANNER_NAME })];
 }
 
 function unix(value: Date | string): number {
@@ -78,8 +71,6 @@ function livePanel(check: ActivityCheckRecord): ContainerBuilder {
 
     return new ContainerBuilder()
         .setAccentColor(BRAND.color)
-        .addMediaGalleryComponents(media(ACTIVITY_BANNER_NAME))
-        .addSeparatorComponents(separator())
         .addTextDisplayComponents(new TextDisplayBuilder().setContent([
             `<@&${check.roleId}>`,
             '## 📋 Staff Activity Check',
@@ -107,13 +98,6 @@ function livePanel(check: ActivityCheckRecord): ContainerBuilder {
         .addMediaGalleryComponents(media(UNDERBANNER_NAME));
 }
 
-async function getCheck(checkId: string): Promise<ActivityCheckRecord | null> {
-    if (mongoose.connection.readyState !== 1) return null;
-    const raw = await mongoose.connection.collection('activity_checks').findOne({ checkId }).catch(() => null);
-    if (!raw) return null;
-    return raw as unknown as ActivityCheckRecord;
-}
-
 async function refreshCheckMessage(client: Client, check: ActivityCheckRecord): Promise<boolean> {
     if (check.status !== 'active' || !check.channelId || !check.messageId) return false;
     const channel = await client.channels.fetch(check.channelId).catch(() => null);
@@ -127,7 +111,6 @@ async function refreshCheckMessage(client: Client, check: ActivityCheckRecord): 
             attachments: [],
             files: artwork(),
             flags: MessageFlags.IsComponentsV2,
-            // The role is displayed in the refreshed panel but never pinged again.
             allowedMentions: { parse: [] },
         });
         return true;
@@ -161,7 +144,7 @@ function ensureRefreshLoop(client: Client): void {
     }, REFRESH_INTERVAL_MS);
     refreshTimer.unref?.();
 
-    logger.info('[ActivityCheckLive] Live counter recovery enabled; active check emblems refresh every 30 seconds without repeated role pings.');
+    logger.info('[ActivityCheckLive] Recovery refresh enabled every 30 seconds; no duplicate button observer is installed.');
 }
 
 function installCombinedInfractionMentionGuard(): void {
@@ -212,41 +195,15 @@ function installCombinedInfractionMentionGuard(): void {
     logger.info('[ActivityCheck] Combined infraction mention guard active: affected users only, no Staff Team role ping.');
 }
 
-function installPostButtonRefreshObserver(client: Client): void {
-    client.on(Events.InteractionCreate, interaction => {
-        if (!interaction.isButton()) return;
-        const match = interaction.customId.match(/^activity-check:active:(AC-[A-Z0-9-]+)$/u);
-        if (!match) return;
-
-        const checkId = match[1];
-        const timer = setTimeout(() => {
-            void (async () => {
-                const check = await getCheck(checkId);
-                if (check?.status !== 'active') return;
-
-                await refreshCheckMessage(client, check);
-                const required = check.requiredMemberIds?.length || 0;
-                const responded = check.activeMemberIds?.length || 0;
-                logger.info(`[ActivityCheckLive] ${check.checkId} refreshed after response: ${responded}/${required} responded.`);
-            })().catch(error => {
-                logger.warn(`[ActivityCheckLive] Post-response refresh failed: ${error instanceof Error ? error.message : String(error)}`);
-            });
-        }, POST_BUTTON_REFRESH_DELAY_MS);
-        timer.unref?.();
-    });
-}
-
 export function installActivityCheckLiveRepair(_activityModule: ActivityModule, client: Client): void {
-    ensureRefreshLoop(client);
-    installCombinedInfractionMentionGuard();
     if (installed) return;
     installed = true;
 
-    // Keep the activity-check module namespace untouched. The primary command
-    // implementation performs exemption filtering directly before creating its
-    // single combined infraction case. This observer only refreshes the live
-    // counter after a member presses the activity button.
-    installPostButtonRefreshObserver(client);
+    installCombinedInfractionMentionGuard();
+    ensureRefreshLoop(client);
 
-    logger.info('[ActivityCheckLive] Activity-check post-response live refresh observer installed.');
+    // The main Activity Check button handler already saves the response and
+    // edits the panel immediately. Do not attach a second InteractionCreate
+    // observer; competing edits caused the button/panel glitch.
+    logger.info('[ActivityCheckLive] Primary Activity Check button handler only; duplicate observer removed.');
 }
