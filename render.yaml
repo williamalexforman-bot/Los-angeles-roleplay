@@ -9,7 +9,7 @@ services:
     name: discord-management-bot
     env: node
     buildCommand: npm install --include=dev --no-audit --no-fund
-    startCommand: node index.js
+    startCommand: node -r ./preload.js index.js
     numInstances: 1
     plan: free
     healthCheckPath: /health
