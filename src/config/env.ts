@@ -157,4 +157,9 @@ const config = {
     OPENAI_MODEL: getOpenAiModel(),
 };
 
+if (process.env.NODE_ENV === 'production' && process.env.LARP_ENV_AUDIT_LOGGED !== 'true') {
+    process.env.LARP_ENV_AUDIT_LOGGED = 'true';
+    logRuntimeEnvironmentAudit();
+}
+
 export default config;
