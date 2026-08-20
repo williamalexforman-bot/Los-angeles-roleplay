@@ -43,6 +43,7 @@ const APPLICATION_QUESTIONS = {
         label: 'Media Team Application',
         questions: [
             'What are your Discord username and Roblox username?',
+            'How old are you?',
             'What device do you play on?',
             'What interests you about joining our Media and Content Creation Team?',
             'How many photos or videos can you create each week?',
@@ -60,6 +61,7 @@ const APPLICATION_QUESTIONS = {
         label: 'Discord Moderator Application',
         questions: [
             'What is your Discord username and user ID?',
+            'How old are you?',
             'What is your Roblox username?',
             'Why do you want to be a part of the Los Angeles Roleplay Discord Moderation Team?',
             'Are you aware of and familiar with the Discord Terms of Service?',
@@ -73,6 +75,7 @@ const APPLICATION_QUESTIONS = {
         label: 'In-Game Staff Application',
         questions: [
             'What is your Discord username and user ID?',
+            'How old are you?',
             'What is your Roblox username and user ID?',
             'Please give an example of VDM.',
             'Please give an example of RDM.',
@@ -89,6 +92,7 @@ const APPLICATION_QUESTIONS = {
         label: 'In-Game Ban Appeal',
         questions: [
             'What are your Discord name and user ID?',
+            'How old are you?',
             'What is your Roblox username?',
             'Why should we approve your ban appeal? You must also state why you were banned.',
         ],
