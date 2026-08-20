@@ -13,7 +13,6 @@ import {
     MessageFlags,
     SeparatorBuilder,
     SeparatorSpacingSize,
-    TextChannel,
     TextDisplayBuilder,
     type Client,
 } from 'discord.js';
@@ -26,7 +25,6 @@ const ACTIVITY_BANNER_PATH = resolve(__dirname, '..', '..', 'assets', ACTIVITY_B
 const UNDERBANNER_PATH = resolve(__dirname, '..', '..', 'assets', UNDERBANNER_NAME);
 const REFRESH_INTERVAL_MS = 30_000;
 const POST_BUTTON_REFRESH_DELAY_MS = 750;
-const ACTIVITY_INFRACTION_EXEMPT_ROLE_ID = '1521593407795888329';
 
 type ActivityCheckRecord = {
     checkId: string;
@@ -49,7 +47,6 @@ type ActivityModule = {
 let installed = false;
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
 let refreshClient: Client | null = null;
-let infractionGuardInstalled = false;
 
 function media(name: string): MediaGalleryBuilder {
     return new MediaGalleryBuilder().addItems(
@@ -95,7 +92,7 @@ function livePanel(check: ActivityCheckRecord): ContainerBuilder {
             `> **Pending:** **${pending}**`,
             '',
             '### ⚠️ Required Action',
-            'Press **I’m Active** before this check ends. Staff who do not respond will automatically receive a **Strike** unless they hold the activity-check exemption role.',
+            'Press **I’m Active** before this check ends. Missing staff are grouped into one Activity Check infraction case; exempt staff are filtered before that case is created.',
         ].join('\n')))
         .addActionRowComponents(new ActionRowBuilder<ButtonBuilder>().addComponents(
             new ButtonBuilder()
@@ -128,7 +125,8 @@ async function refreshCheckMessage(client: Client, check: ActivityCheckRecord): 
             attachments: [],
             files: artwork(),
             flags: MessageFlags.IsComponentsV2,
-            allowedMentions: { parse: [], roles: [check.roleId] },
+            // The role is displayed in the refreshed panel but never pinged again.
+            allowedMentions: { parse: [] },
         });
         return true;
     } catch (error) {
@@ -161,39 +159,7 @@ function ensureRefreshLoop(client: Client): void {
     }, REFRESH_INTERVAL_MS);
     refreshTimer.unref?.();
 
-    logger.info('[ActivityCheckLive] Live counter recovery enabled; active check emblems refresh every 30 seconds.');
-}
-
-function installActivityInfractionExemptionGuard(): void {
-    if (infractionGuardInstalled) return;
-    infractionGuardInstalled = true;
-
-    const prototype = TextChannel.prototype as unknown as {
-        send: (options: unknown) => Promise<unknown>;
-    };
-    const originalSend = prototype.send;
-
-    prototype.send = async function guardedSend(this: TextChannel, options: unknown): Promise<unknown> {
-        try {
-            const serialized = JSON.stringify((options as { components?: unknown })?.components || []);
-            if (serialized.includes('Staff Strike • Failed Activity Check')) {
-                const memberId = serialized.match(/<@!?(\d{17,20})>/u)?.[1];
-                if (memberId) {
-                    const member = await this.guild.members.fetch(memberId).catch(() => null);
-                    if (member?.roles.cache.has(ACTIVITY_INFRACTION_EXEMPT_ROLE_ID)) {
-                        logger.info(`[ActivityCheck] Exemption applied to ${memberId}; automatic failed-check Strike blocked because they hold ${ACTIVITY_INFRACTION_EXEMPT_ROLE_ID}.`);
-                        throw new Error('Activity-check infraction blocked: member holds the configured exemption role.');
-                    }
-                }
-            }
-        } catch (error) {
-            if (error instanceof Error && error.message.startsWith('Activity-check infraction blocked:')) throw error;
-            logger.warn(`[ActivityCheck] Exemption guard inspection failed safely: ${error instanceof Error ? error.message : String(error)}`);
-        }
-        return originalSend.call(this, options);
-    };
-
-    logger.info(`[ActivityCheck] Automatic infraction exemption guard active for role ${ACTIVITY_INFRACTION_EXEMPT_ROLE_ID}.`);
+    logger.info('[ActivityCheckLive] Live counter recovery enabled; active check emblems refresh every 30 seconds without repeated role pings.');
 }
 
 function installPostButtonRefreshObserver(client: Client): void {
@@ -222,15 +188,13 @@ function installPostButtonRefreshObserver(client: Client): void {
 
 export function installActivityCheckLiveRepair(_activityModule: ActivityModule, client: Client): void {
     ensureRefreshLoop(client);
-    installActivityInfractionExemptionGuard();
     if (installed) return;
     installed = true;
 
-    // Do not overwrite activityModule.handleActivityCheckButton. TypeScript
-    // module namespace exports are getter-backed/read-only under ts-node and
-    // assigning to them throws at runtime. Observe the interaction instead and
-    // refresh the persisted activity-check message after the normal handler has
-    // had time to save the response.
+    // Keep the activity-check module namespace untouched. The primary command
+    // implementation now performs exemption filtering directly before creating
+    // its single combined infraction case, so no broad TextChannel.send monkey-
+    // patch is needed here.
     installPostButtonRefreshObserver(client);
 
     logger.info('[ActivityCheckLive] Activity-check post-response live refresh observer installed.');
