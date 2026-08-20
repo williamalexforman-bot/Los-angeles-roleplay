@@ -4,9 +4,6 @@
 require('ts-node').register({ transpileOnly: true, project: require('path').join(__dirname, 'tsconfig.json') });
 require('dotenv').config();
 
-// Render web services must bind to the assigned PORT or the deployment never
-// becomes Live. Keep this tiny health server completely independent of Discord
-// and MongoDB so a blocked database can never stop Render from going healthy.
 const http = require('http');
 const renderPort = Number(process.env.PORT || process.env.WEBHOOK_PORT || 10000);
 const healthServer = http.createServer((req, res) => {
@@ -159,11 +156,30 @@ client.once(Events.ClientReady, async readyClient => {
   }
 
   try {
+    const { startTicketInactivityScheduler } = require('./src/events/ticketInactivity.ts');
+    startTicketInactivityScheduler(readyClient);
+    console.log('[TicketInactivity] Automatic inactivity system registered.');
+  } catch (error) {
+    console.warn('[TicketInactivity] Scheduler unavailable:', error instanceof Error ? error.stack || error.message : String(error));
+  }
+
+  try {
     const { onReady } = require('./src/events/ready.ts');
     await onReady(readyClient);
     console.log('[Discord] Slash commands registered.');
   } catch (error) {
     console.error('[Discord] Ready hooks failed:', error instanceof Error ? error.stack || error.message : String(error));
+  }
+
+  // This is intentionally separate from the normal bulk slash-command sync.
+  // Even if another command breaks the main registration payload or Discord is
+  // already at the 100-command limit, this repair makes room and forces
+  // /activity-check into the live guild command list.
+  try {
+    const { forceRepairActivityCheckCommand } = require('./src/events/activityCommandRepair.ts');
+    await forceRepairActivityCheckCommand(readyClient);
+  } catch (error) {
+    console.error('[ActivityCheckRepair] Forced repair failed to run:', error instanceof Error ? error.stack || error.message : String(error));
   }
 
   try {
