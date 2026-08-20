@@ -9,14 +9,14 @@ services:
     name: discord-management-bot
     env: node
     buildCommand: npm install --include=dev --no-audit --no-fund
-    startCommand: node -r ./preload.js index.js
+    # index.js loads preload.js itself, so use the same command Render is
+    # actually running and avoid two different startup definitions.
+    startCommand: node index.js
     numInstances: 1
 
     # Keep the Discord bot online continuously.
-    # Render Free web services can spin down when idle; Starter is an always-on
-    # paid instance type and should be used for a Discord bot that must receive
-    # interactions, ticket buttons, applications, and activity-check responses
-    # at all times.
+    # Starter avoids Free-tier idle spin-down. If the live service remains on
+    # Free, the built-in 8-minute /health keepalive provides additional cover.
     plan: starter
 
     healthCheckPath: /health
@@ -25,12 +25,13 @@ services:
         value: "22.22.0"
       - key: NODE_ENV
         value: production
+      - key: GUILD_ID
+        value: "1521593407741362257"
       - key: BOT_TOKEN
         sync: false
 
       # Recommended MongoDB Atlas setup for Render. Keeping the username,
-      # password, and host separate lets the bot safely URL-encode credentials
-      # instead of relying on a hand-built connection string.
+      # password, and host separate lets the bot safely URL-encode credentials.
       - key: MONGODB_USERNAME
         sync: false
       - key: MONGODB_PASSWORD
@@ -40,24 +41,40 @@ services:
       - key: MONGODB_DATABASE
         value: "discordbot"
 
-      # Backwards-compatible fallback. You can leave this unset when the three
-      # variables above are configured.
+      # Backwards-compatible fallback. This can stay blank when the three split
+      # MongoDB credential variables above are configured.
       - key: MONGODB_URI
         sync: false
 
+      # AI features.
       - key: OPENAI_API_KEY
         sync: false
+      - key: OPENAI_MODEL
+        value: "gpt-5.6-sol"
       - key: TICKET_RECAP_MODEL
         value: "gpt-5-mini"
 
-      # Explicit quota Moderator role. This prevents an old/mistyped Render
-      # dashboard value from being confused with the quota log channel ID.
+      # Optional integrations. Leave blank if that feature is not used.
+      - key: ERLC_SERVER_KEY
+        sync: false
+      - key: DOCK_API_KEY
+        sync: false
+      - key: BLOXLINK_API_KEY
+        sync: false
+      - key: MELONY_API_KEY
+        sync: false
+      - key: MELONY_API_URL
+        sync: false
+      - key: INGAME_API_URL
+        sync: false
+
+      # Explicit quota Moderator role. This prevents an old/mistyped dashboard
+      # value from being confused with the quota log channel ID.
       - key: QUOTA_MOD_ROLE_ID
         value: "1521593407795888336"
 
       # Required for staff activity checks and the weekly message-quota system.
-      # In the Discord Developer Portal, enable BOTH Server Members Intent and
-      # Message Content Intent for the bot application.
+      # Enable BOTH Server Members Intent and Message Content Intent in Discord.
       - key: ENABLE_PRIVILEGED_INTENTS
         value: "true"
 
