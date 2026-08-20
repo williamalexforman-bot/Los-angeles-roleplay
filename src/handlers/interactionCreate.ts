@@ -14,7 +14,7 @@ import { handleLoaButton, handleLoaModal } from '../commands/loa';
 import { handleBanAppealButton, handleBanAppealModal } from '../commands/banAppeal';
 import { handleInfractionAppealButton, handleInfractionAppealModal } from '../commands/infractionAppeal';
 import { handleMessageQuotaButton, handleMessageQuotaModal } from '../commands/messageQuota';
-import { handleActivityCheckButton } from '../commands/activityCheck';
+import { activityCheckCommands, handleActivityCheckButton } from '../commands/activityCheck';
 import { handleSessionButton } from '../commands/session';
 import { handleEnhancedSessionButton, handleEnhancedSessionCommand } from '../commands/sessionEnhancements';
 import { handlePaidAdButton, handlePaidAdModal, handlePaidAdSelect } from '../commands/paidAds';
@@ -54,6 +54,10 @@ const MODERATION_PERMISSIONS = new Map<string, bigint>([
     ['unlock', PermissionFlagsBits.ManageChannels],
     ['slowmode', PermissionFlagsBits.ManageChannels],
 ]);
+
+const directActivityHandlers = new Map(
+    activityCheckCommands.map(command => [command.data.name, command.execute] as const),
+);
 
 function interactionRoleIds(interaction: ChatInputCommandInteraction): string[] {
     const member = interaction.member;
@@ -191,6 +195,13 @@ async function handleChatCommand(interaction: ChatInputCommandInteraction): Prom
             await roleCommand.execute(interaction);
             return;
         }
+
+        const directActivityHandler = directActivityHandlers.get(interaction.commandName);
+        if (directActivityHandler) {
+            await directActivityHandler(interaction);
+            return;
+        }
+
         const handler = commandHandlers.get(interaction.commandName);
         if (!handler) {
             await interaction.reply({ content: 'That command is not currently available.', ephemeral: true });
