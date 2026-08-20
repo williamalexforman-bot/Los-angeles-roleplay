@@ -11,7 +11,14 @@ services:
     buildCommand: npm install --include=dev --no-audit --no-fund
     startCommand: node -r ./preload.js index.js
     numInstances: 1
-    plan: free
+
+    # Keep the Discord bot online continuously.
+    # Render Free web services can spin down when idle; Starter is an always-on
+    # paid instance type and should be used for a Discord bot that must receive
+    # interactions, ticket buttons, applications, and activity-check responses
+    # at all times.
+    plan: starter
+
     healthCheckPath: /health
     envVars:
       - key: NODE_VERSION
