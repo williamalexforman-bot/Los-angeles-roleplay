@@ -13,6 +13,7 @@ import {
     SectionBuilder,
     SeparatorBuilder,
     SeparatorSpacingSize,
+    SlashCommandBuilder,
     TextDisplayBuilder,
 } from 'discord.js';
 import { PROMOTION_AUTHORIZED_ROLE_ID } from '../config/constants';
@@ -178,3 +179,24 @@ export async function handlePromotionV2Repair(interaction: ChatInputCommandInter
 
     return true;
 }
+
+export const promotionV2Command = {
+    data: new SlashCommandBuilder()
+        .setName('promotion')
+        .setDescription('Manage staff promotions')
+        .setDMPermission(false)
+        .addSubcommand(subcommand =>
+            subcommand
+                .setName('issue')
+                .setDescription('Issue and publish a Components V2 staff promotion')
+                .addUserOption(option => option.setName('member').setDescription('The member being promoted').setRequired(true))
+                .addRoleOption(option => option.setName('old-rank').setDescription("The member's current rank").setRequired(true))
+                .addRoleOption(option => option.setName('new-role').setDescription('The new server role for this promotion').setRequired(true))
+                .addStringOption(option => option.setName('reason').setDescription('The reason for the promotion').setRequired(true).setMaxLength(1024))
+                .addUserOption(option => option.setName('approved-by').setDescription('The person who approved the promotion').setRequired(true))
+                .addStringOption(option => option.setName('effective-date').setDescription('The date the promotion takes effect').setRequired(true).setMaxLength(100)),
+        ),
+    async execute(interaction: ChatInputCommandInteraction): Promise<void> {
+        await handlePromotionV2Repair(interaction);
+    },
+};
