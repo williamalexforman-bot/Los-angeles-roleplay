@@ -41,6 +41,8 @@ const PRIVATE_AUDIT_CHANNEL_ID =
     process.env.DISCORD_COMMAND_LOG_CHANNEL_ID ||
     '1528917592604020917';
 const PARTNERSHIP_APPROVAL_CHANNEL_ID = process.env.PARTNERSHIP_APPROVAL_CHANNEL_ID || '1526042350802043022';
+const PARTNERSHIP_HEADER_NAME = 'partnership-banner.webp';
+const PARTNERSHIP_HEADER_PATH = resolve(__dirname, '..', '..', 'assets', PARTNERSHIP_HEADER_NAME);
 const PARTNERSHIP_UNDERBANNER_NAME = 'underbanner.webp';
 const PARTNERSHIP_UNDERBANNER_PATH = resolve(__dirname, '..', '..', 'assets', PARTNERSHIP_UNDERBANNER_NAME);
 
@@ -209,6 +211,12 @@ function partnershipSeparator(): SeparatorBuilder {
     return new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small);
 }
 
+function partnershipHeader(): MediaGalleryBuilder {
+    return new MediaGalleryBuilder().addItems(
+        new MediaGalleryItemBuilder().setURL(`attachment://${PARTNERSHIP_HEADER_NAME}`),
+    );
+}
+
 function partnershipUnderbanner(): MediaGalleryBuilder {
     return new MediaGalleryBuilder().addItems(
         new MediaGalleryItemBuilder().setURL(`attachment://${PARTNERSHIP_UNDERBANNER_NAME}`),
@@ -216,12 +224,17 @@ function partnershipUnderbanner(): MediaGalleryBuilder {
 }
 
 function partnershipArtworkAttachments(): AttachmentBuilder[] {
-    return [new AttachmentBuilder(PARTNERSHIP_UNDERBANNER_PATH, { name: PARTNERSHIP_UNDERBANNER_NAME })];
+    return [
+        new AttachmentBuilder(PARTNERSHIP_HEADER_PATH, { name: PARTNERSHIP_HEADER_NAME }),
+        new AttachmentBuilder(PARTNERSHIP_UNDERBANNER_PATH, { name: PARTNERSHIP_UNDERBANNER_NAME }),
+    ];
 }
 
 function buildPartnershipLauncherPanel(): ContainerBuilder {
     return new ContainerBuilder()
         .setAccentColor(BRAND.color)
+        .addMediaGalleryComponents(partnershipHeader())
+        .addSeparatorComponents(partnershipSeparator())
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## 🤝 Partnership Program\n${PARTNERSHIP_PANEL_TEXT}`))
         .addSeparatorComponents(partnershipSeparator())
         .addActionRowComponents(...partnershipPanelComponents())
@@ -286,6 +299,8 @@ function partnershipDetails(data: PartnershipRequestData, status: 'Pending Revie
 function buildPartnershipRequestPanel(data: PartnershipRequestData): ContainerBuilder {
     return new ContainerBuilder()
         .setAccentColor(BRAND.color)
+        .addMediaGalleryComponents(partnershipHeader())
+        .addSeparatorComponents(partnershipSeparator())
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(partnershipDetails(data, 'Pending Review')))
         .addSeparatorComponents(partnershipSeparator())
         .addTextDisplayComponents(new TextDisplayBuilder().setContent('## 📢 Full Advertisement'))
@@ -299,6 +314,8 @@ function buildPartnershipRequestPanel(data: PartnershipRequestData): ContainerBu
 function buildApprovedPartnershipPanel(data: PartnershipRequestData, reviewerId: string): ContainerBuilder {
     return new ContainerBuilder()
         .setAccentColor(0x22c55e)
+        .addMediaGalleryComponents(partnershipHeader())
+        .addSeparatorComponents(partnershipSeparator())
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(partnershipDetails(data, 'Approved', reviewerId)))
         .addSeparatorComponents(partnershipSeparator())
         .addTextDisplayComponents(new TextDisplayBuilder().setContent('## 📢 Partner Advertisement'))
