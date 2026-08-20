@@ -148,6 +148,14 @@ client.once(Events.ClientReady, async readyClient => {
   console.log(`[Discord] READY as ${readyClient.user.tag} (${readyClient.user.id})`);
 
   try {
+    const { installBannerInjector } = require('./src/runtime/bannerInjector.ts');
+    installBannerInjector(readyClient);
+    console.log('[BannerInjector] Partnership and paid-ad V2 banners registered.');
+  } catch (error) {
+    console.warn('[BannerInjector] Banner injector unavailable:', error instanceof Error ? error.stack || error.message : String(error));
+  }
+
+  try {
     const { registerTicketAiTriage } = require('./src/events/ticketAiTriage.ts');
     registerTicketAiTriage(readyClient);
     console.log('[Tickets] Pre-claim AI triage registered.');
