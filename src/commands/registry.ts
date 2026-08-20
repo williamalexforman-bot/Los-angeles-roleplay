@@ -28,6 +28,7 @@ import { accountInfoCommands } from './accountInfo';
 import { suggestionCommands } from './suggestions';
 import { messageQuotaCommands } from './messageQuota';
 import { activityCheckCommands } from './activityCheck';
+import { activityCheckAliasCommands } from './activityAliases';
 
 export interface CommandDefinition {
     data: {
@@ -56,6 +57,7 @@ export const commandDefinitions: CommandDefinition[] = [
     ...staffManagementCommands,
     ...messageQuotaCommands,
     ...activityCheckCommands,
+    ...activityCheckAliasCommands,
     sayCommand,
     prohibitedWordCommand,
     ...punishmentCommands,
