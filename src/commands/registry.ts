@@ -29,8 +29,6 @@ import { suggestionCommands } from './suggestions';
 import { messageQuotaCommands } from './messageQuota';
 import { activityCheckCommands } from './activityCheck';
 import { activityCheckAliasCommands } from './activityAliases';
-import { promotionV2Command } from '../handlers/promotionV2Repair';
-import { partnershipV2Command } from '../handlers/partnershipV2Command';
 
 export interface CommandDefinition {
     data: {
@@ -47,9 +45,7 @@ const retainedMiscCommands = miscCommands.filter(command =>
     !['movie-feedback', 'staff-feedback', 'partnership', 'staff-complaint'].includes(command.data.name)
     && command.data.name !== 'training-result',
 );
-const retainedCommunityCommands = communityCommands.filter(command => command.data.name !== 'partnership');
 const retainedPaidAdCommands = paidAdCommands.filter(command => command.data.name !== 'instant-post');
-const retainedStaffManagementCommands = staffManagementCommands.filter(command => command.data.name !== 'promotion');
 
 export const commandDefinitions: CommandDefinition[] = [
     ...moderationCommands,
@@ -57,10 +53,8 @@ export const commandDefinitions: CommandDefinition[] = [
     ...retainedStaffCommands,
     ...retainedMiscCommands,
     ...gameCommands,
-    ...retainedCommunityCommands,
-    partnershipV2Command,
-    ...retainedStaffManagementCommands,
-    promotionV2Command,
+    ...communityCommands,
+    ...staffManagementCommands,
     ...messageQuotaCommands,
     ...activityCheckCommands,
     ...activityCheckAliasCommands,
