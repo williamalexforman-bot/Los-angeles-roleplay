@@ -34,8 +34,6 @@ const APPLICATIONS_BANNER_PATH = resolve(__dirname, '..', '..', 'assets', APPLIC
 const UNDERBANNER_PATH = resolve(__dirname, '..', '..', 'assets', UNDERBANNER_NAME);
 const APPLICATION_REVIEW_CHANNEL_ID = '1538352573248176229';
 const APPLICATION_REVIEWER_ROLE_ID = '1538351617840254998';
-// Applications can be lengthy. Expire only after a full day without an
-// answer, rather than two hours after Question 1 regardless of activity.
 const APPLICATION_SESSION_INACTIVITY_TTL_MS = 24 * 60 * 60 * 1_000;
 
 const APPLICATION_QUESTIONS = {
@@ -132,7 +130,6 @@ export function configureApplicationSessionPersistence(adapter: ApplicationSessi
     applicationSessionPersistence = adapter;
 }
 
-/** Clears only the process cache; durable sessions remain recoverable. */
 export function clearApplicationSessionCache(): void {
     activeApplications.clear();
 }
@@ -173,7 +170,6 @@ async function saveApplicationSession(userId: string, session: ApplicationSessio
     try {
         await applicationSessionPersistence.saveApplicationSession(userId, session);
     } catch (error) {
-        // The in-memory session remains usable if MongoDB is temporarily down.
         logger.warn(`[Applications] Could not persist progress for ${userId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
 }
@@ -224,10 +220,6 @@ interface RecoveredApplicationSession {
     sendNextPromptBeforeAcceptingAnswer: boolean;
 }
 
-/**
- * Rebuilds an application from the applicant's DM history when a deployment
- * interrupted a session before database persistence was available.
- */
 async function recoverApplicationSessionFromDm(message: Message): Promise<RecoveredApplicationSession | null> {
     const channel = message.channel;
     if (!channel || !('messages' in channel) || !message.id) return null;
@@ -248,7 +240,6 @@ async function recoverApplicationSessionFromDm(message: Message): Promise<Recove
             const prompt = applicationPrompt(prior.content);
             if (!prompt) continue;
             if (recoveredType && (recoveredType !== prompt.type || (prompt.questionIndex === 0 && latestQuestionIndex >= 0))) {
-                // A later application in the same DM supersedes old history.
                 answers.length = 0;
             }
             recoveredType = prompt.type;
@@ -425,11 +416,6 @@ export interface ApplicationAiAssessment {
     signals: string[];
 }
 
-/**
- * Screens for common AI-writing signals without claiming certainty. Automated
- * AI detection is imperfect, so flagged submissions are always presented as
- * requiring manual staff review rather than being automatically denied.
- */
 export function analyzeApplicationAi(answers: readonly string[]): ApplicationAiAssessment {
     const text = answers.join('\n').toLowerCase();
     const signals: string[] = [];
@@ -683,10 +669,8 @@ async function submitApplication(message: Message, session: ApplicationSession):
         allowedMentions: { parse: [], users: [message.author.id] },
     });
 
-    // The review copy already exists at this point. A closed DM must not make
-    // the application submit twice on the applicant's next message.
     await message.author.send([
-        `✅ Thank you for submitting the **${setup.label}**.`,
+        `✅ You have finished the **${setup.label}**.`,
         'Your application will be reviewed shortly and the result will be sent to you by DM.',
         '**DO NOT ASK FOR YOUR APPLICATION TO BE READ.**',
     ].join('\n')).catch(error => {
@@ -886,8 +870,6 @@ export async function handleApplicationDmMessage(message: Message): Promise<bool
             }
             return true;
         }
-        // A completed session is retained when the review channel was down.
-        // The applicant can send any DM to retry without corrupting answers.
         if (session.nextQuestion >= setup.questions.length) {
             try {
                 await submitApplication(message, session);
@@ -905,8 +887,6 @@ export async function handleApplicationDmMessage(message: Message): Promise<bool
             return true;
         }
 
-        // Assign by question index instead of blindly pushing so a retried or
-        // restored session can never shift all later answers by one question.
         session.answers[session.nextQuestion] = response;
         session.nextQuestion += 1;
         session.lastActivityAt = Date.now();
