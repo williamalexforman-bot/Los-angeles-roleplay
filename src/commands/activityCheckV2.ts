@@ -1,3 +1,4 @@
+import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { resolve } from 'path';
 import mongoose from 'mongoose';
 import {
@@ -20,19 +21,25 @@ import {
     TextChannel,
     TextDisplayBuilder,
     ThreadAutoArchiveDuration,
+    type Client,
 } from 'discord.js';
 import { BRAND, CHANNEL_IDS } from '../config/constants';
 import { Counter, Infraction } from '../database/models';
 import { logger } from '../utils/logger';
 
 const ACTIVITY_BANNER_NAME = 'activity-check-banner.jpg';
+const ACTIVITY_BANNER_B64_NAME = 'activity-check-banner.b64';
 const ACTIVITY_UNDERBANNER_NAME = 'underbanner.webp';
 const INFRACTION_BANNER_NAME = 'infraction-banner.png';
-const ACTIVITY_BANNER_PATH = resolve(__dirname, '..', '..', 'assets', ACTIVITY_BANNER_NAME);
-const ACTIVITY_UNDERBANNER_PATH = resolve(__dirname, '..', '..', 'assets', ACTIVITY_UNDERBANNER_NAME);
-const INFRACTION_BANNER_PATH = resolve(__dirname, '..', '..', 'assets', INFRACTION_BANNER_NAME);
+const ASSETS_DIR = resolve(__dirname, '..', '..', 'assets');
+const ACTIVITY_BANNER_PATH = resolve(ASSETS_DIR, ACTIVITY_BANNER_NAME);
+const ACTIVITY_BANNER_B64_PATH = resolve(ASSETS_DIR, ACTIVITY_BANNER_B64_NAME);
+const ACTIVITY_UNDERBANNER_PATH = resolve(ASSETS_DIR, ACTIVITY_UNDERBANNER_NAME);
+const INFRACTION_BANNER_PATH = resolve(ASSETS_DIR, INFRACTION_BANNER_NAME);
 const INFRACTION_PARENT_CHANNEL_ID = CHANNEL_IDS.infractionParent;
 const DEFAULT_STAFF_TEAM_ROLE_ID = '1521593407791825036';
+const ACTIVITY_INFRACTION_EXEMPT_ROLE_ID = '1521593407795888329';
+
 const DURATION_CHOICES = [
     { name: 'No Scheduled End', value: 'none' },
     { name: '30 Minutes', value: '30m' },
@@ -43,6 +50,7 @@ const DURATION_CHOICES = [
     { name: '12 Hours', value: '12h' },
     { name: '24 Hours', value: '24h' },
 ] as const;
+
 const DURATION_MS: Record<string, number> = {
     '30m': 30 * 60_000,
     '1h': 60 * 60_000,
@@ -54,6 +62,7 @@ const DURATION_MS: Record<string, number> = {
 };
 
 type ActivityCheckStatus = 'active' | 'ended' | 'voided';
+
 interface ActivityCheckState {
     checkId: string;
     guildId: string;
@@ -85,14 +94,39 @@ const ActivityCheckSchema = new mongoose.Schema<ActivityCheckState>({
     endedAt: { type: Date, required: false },
     endedById: { type: String, required: false },
 }, { collection: 'activity_checks' });
-const ActivityCheckModel = (mongoose.models.ActivityCheck || mongoose.model<ActivityCheckState>('ActivityCheck', ActivityCheckSchema));
+
+const ActivityCheckModel = mongoose.models.ActivityCheck
+    || mongoose.model<ActivityCheckState>('ActivityCheck', ActivityCheckSchema);
 
 const memoryChecks = new Map<string, ActivityCheckState>();
 let scheduler: ReturnType<typeof setInterval> | null = null;
-let schedulerClient: ChatInputCommandInteraction['client'] | null = null;
 let localCaseSequence = 0;
 
+function ensureActivityBanner(): void {
+    if (existsSync(ACTIVITY_BANNER_PATH)) return;
+    if (!existsSync(ACTIVITY_BANNER_B64_PATH)) return;
+    try {
+        const encoded = readFileSync(ACTIVITY_BANNER_B64_PATH, 'utf8').replace(/\s+/g, '');
+        if (!encoded) return;
+        writeFileSync(ACTIVITY_BANNER_PATH, Buffer.from(encoded, 'base64'));
+        logger.info('[ActivityCheck] Restored activity-check banner from repository base64 asset.');
+    } catch (error) {
+        logger.warn(`[ActivityCheck] Could not restore activity banner: ${error instanceof Error ? error.message : String(error)}`);
+    }
+}
+
+function assertArtwork(): void {
+    ensureActivityBanner();
+    const missing = [
+        [ACTIVITY_BANNER_NAME, ACTIVITY_BANNER_PATH],
+        [ACTIVITY_UNDERBANNER_NAME, ACTIVITY_UNDERBANNER_PATH],
+        [INFRACTION_BANNER_NAME, INFRACTION_BANNER_PATH],
+    ].filter(([, path]) => !existsSync(path)).map(([name]) => name);
+    if (missing.length) throw new Error(`Missing required emblem asset(s): ${missing.join(', ')}`);
+}
+
 function activityArtwork(): AttachmentBuilder[] {
+    assertArtwork();
     return [
         new AttachmentBuilder(ACTIVITY_BANNER_PATH, { name: ACTIVITY_BANNER_NAME }),
         new AttachmentBuilder(ACTIVITY_UNDERBANNER_PATH, { name: ACTIVITY_UNDERBANNER_NAME }),
@@ -100,6 +134,7 @@ function activityArtwork(): AttachmentBuilder[] {
 }
 
 function infractionArtwork(): AttachmentBuilder[] {
+    assertArtwork();
     return [
         new AttachmentBuilder(INFRACTION_BANNER_PATH, { name: INFRACTION_BANNER_NAME }),
         new AttachmentBuilder(ACTIVITY_UNDERBANNER_PATH, { name: ACTIVITY_UNDERBANNER_NAME }),
@@ -118,6 +153,13 @@ function timestamp(date: Date): string {
     return `<t:${Math.floor(date.getTime() / 1000)}:F>`;
 }
 
+function normalizeCheck(record: ActivityCheckState): ActivityCheckState {
+    record.startedAt = new Date(record.startedAt);
+    if (record.endsAt) record.endsAt = new Date(record.endsAt);
+    if (record.endedAt) record.endedAt = new Date(record.endedAt);
+    return record;
+}
+
 async function saveCheck(check: ActivityCheckState): Promise<void> {
     memoryChecks.set(check.checkId, check);
     if (mongoose.connection.readyState !== 1) return;
@@ -125,7 +167,9 @@ async function saveCheck(check: ActivityCheckState): Promise<void> {
         { checkId: check.checkId },
         { $set: check },
         { upsert: true },
-    ).exec().catch(error => logger.warn(`[ActivityCheck] Persistence unavailable for ${check.checkId}: ${error instanceof Error ? error.message : 'Unknown error'}`));
+    ).exec().catch(error => logger.warn(
+        `[ActivityCheck] Persistence unavailable for ${check.checkId}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+    ));
 }
 
 async function loadCheck(checkId: string): Promise<ActivityCheckState | null> {
@@ -134,10 +178,7 @@ async function loadCheck(checkId: string): Promise<ActivityCheckState | null> {
     if (mongoose.connection.readyState !== 1) return null;
     const record = await ActivityCheckModel.findOne({ checkId }).lean().exec().catch(() => null);
     if (!record) return null;
-    const normalized = record as unknown as ActivityCheckState;
-    normalized.startedAt = new Date(normalized.startedAt);
-    if (normalized.endsAt) normalized.endsAt = new Date(normalized.endsAt);
-    if (normalized.endedAt) normalized.endedAt = new Date(normalized.endedAt);
+    const normalized = normalizeCheck(record as unknown as ActivityCheckState);
     memoryChecks.set(normalized.checkId, normalized);
     return normalized;
 }
@@ -146,12 +187,10 @@ async function currentCheck(guildId: string): Promise<ActivityCheckState | null>
     const memory = [...memoryChecks.values()].find(check => check.guildId === guildId && check.status === 'active');
     if (memory) return memory;
     if (mongoose.connection.readyState !== 1) return null;
-    const record = await ActivityCheckModel.findOne({ guildId, status: 'active' }).sort({ startedAt: -1 }).lean().exec().catch(() => null);
+    const record = await ActivityCheckModel.findOne({ guildId, status: 'active' })
+        .sort({ startedAt: -1 }).lean().exec().catch(() => null);
     if (!record) return null;
-    const normalized = record as unknown as ActivityCheckState;
-    normalized.startedAt = new Date(normalized.startedAt);
-    if (normalized.endsAt) normalized.endsAt = new Date(normalized.endsAt);
-    if (normalized.endedAt) normalized.endedAt = new Date(normalized.endedAt);
+    const normalized = normalizeCheck(record as unknown as ActivityCheckState);
     memoryChecks.set(normalized.checkId, normalized);
     return normalized;
 }
@@ -163,13 +202,16 @@ async function snapshotRoleMembers(role: Role): Promise<string[]> {
 
 async function canManage(interaction: ChatInputCommandInteraction): Promise<boolean> {
     if (!interaction.guild) return false;
-    if (interaction.guild.ownerId === interaction.user.id || interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return true;
+    if (interaction.guild.ownerId === interaction.user.id
+        || interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return true;
+
     const configured = [
         process.env.BOT_PERMISSIONS_ROLE_ID,
         process.env.ADMIN_ROLE_ID,
         process.env.HIGH_RANK_ROLE_ID,
         process.env.MANAGEMENT_ROLE_ID,
     ].filter((value): value is string => Boolean(value));
+
     const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
     return Boolean(member && configured.some(roleId => member.roles.cache.has(roleId)));
 }
@@ -193,7 +235,7 @@ function checkPanel(check: ActivityCheckState, disabled = false): ContainerBuild
             ? check.status === 'voided'
                 ? '### 🛑 This activity check was voided.'
                 : '### ✅ This activity check has ended.'
-            : '### ⚠️ Required Action\nPress **I’m Active** before this check ends. Staff who do not respond will automatically receive a **Strike**.',
+            : '### ⚠️ Required Action\nPress **I’m Active** before this check ends. Missing staff are recorded together in one Activity Check infraction case.',
     ].join('\n');
 
     const panel = new ContainerBuilder()
@@ -201,6 +243,7 @@ function checkPanel(check: ActivityCheckState, disabled = false): ContainerBuild
         .addMediaGalleryComponents(media(ACTIVITY_BANNER_NAME))
         .addSeparatorComponents(separator())
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(content));
+
     if (!disabled) {
         panel.addActionRowComponents(new ActionRowBuilder<ButtonBuilder>().addComponents(
             new ButtonBuilder()
@@ -210,15 +253,18 @@ function checkPanel(check: ActivityCheckState, disabled = false): ContainerBuild
                 .setStyle(ButtonStyle.Success),
         ));
     }
-    return panel.addSeparatorComponents(separator()).addMediaGalleryComponents(media(ACTIVITY_UNDERBANNER_NAME));
+
+    return panel
+        .addSeparatorComponents(separator())
+        .addMediaGalleryComponents(media(ACTIVITY_UNDERBANNER_NAME));
+}
+
+function mentionList(ids: string[], emptyText: string): string {
+    return ids.length ? ids.map((id, index) => `${index + 1}. <@${id}>`).join('\n') : emptyText;
 }
 
 function resultsPanel(check: ActivityCheckState): ContainerBuilder {
-    const responded = check.activeMemberIds.length
-        ? check.activeMemberIds.map(id => `• <@${id}>`).join('\n')
-        : '• No responses yet.';
     const missingIds = check.requiredMemberIds.filter(id => !check.activeMemberIds.includes(id));
-    const missing = missingIds.length ? missingIds.map(id => `• <@${id}>`).join('\n') : '• Nobody is missing.';
     return new ContainerBuilder()
         .setAccentColor(BRAND.color)
         .addMediaGalleryComponents(media(ACTIVITY_BANNER_NAME))
@@ -231,10 +277,10 @@ function resultsPanel(check: ActivityCheckState): ContainerBuilder {
             `> **Missing:** **${missingIds.length}**`,
             '',
             '### ✅ Responded',
-            responded,
+            mentionList(check.activeMemberIds, '• No responses yet.'),
             '',
             '### ❌ Missing',
-            missing,
+            mentionList(missingIds, '• Nobody is missing.'),
         ].join('\n').slice(0, 4_000)))
         .addSeparatorComponents(separator())
         .addMediaGalleryComponents(media(ACTIVITY_UNDERBANNER_NAME));
@@ -244,25 +290,24 @@ async function nextCaseNumber(guildId: string): Promise<string> {
     if (mongoose.connection.readyState === 1) {
         const counter = await Counter.findOneAndUpdate(
             { key: `infraction:${guildId}` },
-            { $inc: { sequence: 1 } },
+            { $inc: { value: 1 } },
             { new: true, upsert: true, setDefaultsOnInsert: true },
-        ).lean().exec().catch(() => null);
-        if (counter?.sequence) return `INF-${String(counter.sequence).padStart(4, '0')}`;
+        ).lean().exec().catch(() => null) as { value?: number } | null;
+        if (counter?.value) return `INF-${String(counter.value).padStart(4, '0')}`;
     }
     localCaseSequence += 1;
     return `INF-AC-${Date.now().toString(36).toUpperCase()}-${localCaseSequence}`;
 }
 
-function strikePanel(input: {
+function groupStrikePanel(input: {
     caseNumber: string;
-    memberId: string;
-    username: string;
+    missingIds: string[];
     issuedById: string;
     checkId: string;
     startedAt: Date;
     endedAt: Date;
-    appealKey: string;
 }): ContainerBuilder {
+    const list = mentionList(input.missingIds, 'Nobody.');
     return new ContainerBuilder()
         .setAccentColor(0xef4444)
         .addMediaGalleryComponents(media(INFRACTION_BANNER_NAME))
@@ -270,13 +315,16 @@ function strikePanel(input: {
         .addTextDisplayComponents(new TextDisplayBuilder().setContent([
             '## ⚠️ Staff Strike • Failed Activity Check',
             `> **Case:** \`${input.caseNumber}\``,
-            `> **User:** <@${input.memberId}> • \`${input.username}\``,
+            `> **Affected Staff:** **${input.missingIds.length}**`,
             '> **Action:** **Strike**',
             '> **Status:** `Active`',
             `> **Issued By:** <@${input.issuedById}>`,
             '',
             '### Violation',
             '> **Failed Activity Check**',
+            '',
+            '### Staff Who Did Not Respond',
+            list,
             '',
             '### Reason',
             "> Did not press **I'm Active** before the required activity check ended.",
@@ -285,24 +333,45 @@ function strikePanel(input: {
             `> **Check:** \`${input.checkId}\``,
             `> **Started:** ${timestamp(input.startedAt)}`,
             `> **Ended:** ${timestamp(input.endedAt)}`,
-            '> **Response Recorded:** No',
             '',
-            '> **Appealable:** Yes',
-        ].join('\n')))
-        .addActionRowComponents(new ActionRowBuilder<ButtonBuilder>().addComponents(
-            new ButtonBuilder()
-                .setCustomId(`infraction-appeal:start:${input.appealKey}`)
-                .setLabel('Appeal Infraction')
-                .setEmoji('⚖️')
-                .setStyle(ButtonStyle.Secondary),
-        ))
+            '> This is one combined Activity Check infraction case for the staff listed above.',
+        ].join('\n').slice(0, 4_000)))
         .addSeparatorComponents(separator())
         .addMediaGalleryComponents(media(ACTIVITY_UNDERBANNER_NAME));
 }
 
-async function issueFailedActivityStrike(client: ChatInputCommandInteraction['client'], check: ActivityCheckState, memberId: string): Promise<boolean> {
-    const user = await client.users.fetch(memberId).catch(() => null);
-    if (!user) return false;
+async function filterInfractionEligibleMissing(
+    client: Client,
+    check: ActivityCheckState,
+    missingIds: string[],
+): Promise<{ eligible: string[]; exempt: string[]; unresolved: string[] }> {
+    const guild = await client.guilds.fetch(check.guildId).catch(() => null);
+    if (!guild) return { eligible: [], exempt: [], unresolved: [...missingIds] };
+
+    const eligible: string[] = [];
+    const exempt: string[] = [];
+    const unresolved: string[] = [];
+
+    for (const memberId of missingIds) {
+        const member = await guild.members.fetch(memberId).catch(() => null);
+        if (!member) {
+            unresolved.push(memberId);
+            continue;
+        }
+        if (member.roles.cache.has(ACTIVITY_INFRACTION_EXEMPT_ROLE_ID)) exempt.push(memberId);
+        else eligible.push(memberId);
+    }
+
+    return { eligible, exempt, unresolved };
+}
+
+async function issueCombinedFailedActivityStrike(
+    client: Client,
+    check: ActivityCheckState,
+    missingIds: string[],
+): Promise<boolean> {
+    if (!missingIds.length) return false;
+
     const fetchedParent = await client.channels.fetch(INFRACTION_PARENT_CHANNEL_ID).catch(() => null);
     if (!(fetchedParent instanceof TextChannel)) {
         logger.warn(`[ActivityCheck] Infraction parent ${INFRACTION_PARENT_CHANNEL_ID} is unavailable.`);
@@ -311,24 +380,23 @@ async function issueFailedActivityStrike(client: ChatInputCommandInteraction['cl
 
     const caseNumber = await nextCaseNumber(check.guildId);
     const endedAt = check.endedAt || new Date();
-    const panel = strikePanel({
+    const panel = groupStrikePanel({
         caseNumber,
-        memberId,
-        username: user.username,
+        missingIds,
         issuedById: check.createdById,
         checkId: check.checkId,
         startedAt: check.startedAt,
         endedAt,
-        appealKey: caseNumber,
     });
 
     const caseMessage = await fetchedParent.send({
         components: [panel],
         files: infractionArtwork(),
         flags: MessageFlags.IsComponentsV2,
-        allowedMentions: { parse: [], users: [memberId] },
+        // Mentions render in the case but nobody is pinged.
+        allowedMentions: { parse: [] },
     }).catch(error => {
-        logger.warn(`[ActivityCheck] Could not publish strike for ${memberId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        logger.warn(`[ActivityCheck] Could not publish combined strike for ${check.checkId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
         return null;
     });
     if (!caseMessage) return false;
@@ -336,23 +404,31 @@ async function issueFailedActivityStrike(client: ChatInputCommandInteraction['cl
     let threadId = caseMessage.id;
     try {
         const thread = await caseMessage.startThread({
-            name: `${caseNumber} | ${user.username} | Strike`.slice(0, 100),
+            name: `${caseNumber} | Activity Check | ${missingIds.length} Staff`.slice(0, 100),
             autoArchiveDuration: ThreadAutoArchiveDuration.OneDay,
-            reason: `${caseNumber} automatic failed activity check strike`,
+            reason: `${caseNumber} combined automatic failed activity check strike`,
         });
         threadId = thread.id;
-        await thread.send([
-            '## 📋 Automatic Activity Check Evidence',
-            `**Activity Check:** \`${check.checkId}\``,
-            `**Required Staff Role:** <@&${check.roleId}>`,
-            `**Member:** <@${memberId}>`,
-            `**Check Started:** <t:${Math.floor(check.startedAt.getTime() / 1000)}:F>`,
-            `**Check Ended:** <t:${Math.floor(endedAt.getTime() / 1000)}:F>`,
-            '**Response:** No response recorded before closure.',
-            '**Result:** Automatic Strike issued.',
-        ].join('\n')).catch(() => undefined);
+        await thread.send({
+            content: [
+                '## 📋 Automatic Activity Check Evidence',
+                `**Activity Check:** \`${check.checkId}\``,
+                `**Required Staff Role:** <@&${check.roleId}>`,
+                `**Check Started:** ${timestamp(check.startedAt)}`,
+                `**Check Ended:** ${timestamp(endedAt)}`,
+                `**Missing Staff:** **${missingIds.length}**`,
+                '',
+                '### Staff With No Response',
+                mentionList(missingIds, 'None.'),
+                '',
+                '**Result:** One combined Activity Check Strike case created.',
+                '',
+                '*This evidence post intentionally does not ping the Staff Team role or listed members.*',
+            ].join('\n').slice(0, 1_950),
+            allowedMentions: { parse: [] },
+        }).catch(() => undefined);
     } catch (error) {
-        logger.warn(`[ActivityCheck] Strike thread unavailable for ${caseNumber}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        logger.warn(`[ActivityCheck] Combined strike thread unavailable for ${caseNumber}: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
 
     const now = new Date();
@@ -368,22 +444,24 @@ async function issueFailedActivityStrike(client: ChatInputCommandInteraction['cl
                     parentChannelId: fetchedParent.id,
                     headerMessageId: caseMessage.id,
                     detailMessageId: caseMessage.id,
-                    memberId,
-                    memberUsername: user.username,
+                    // The schema is historically single-member. Store a stable group target
+                    // while the actual affected users remain in evidence/internalNotes.
+                    memberId: `activity-check:${check.checkId}`,
+                    memberUsername: `${missingIds.length} staff members`,
                     issuedById: check.createdById,
                     action: 'Strike',
                     reason: "Did not press I'm Active before the required activity check ended.",
                     ruleBroken: 'Failed Activity Check',
-                    evidence: `Automatic activity check ${check.checkId} response record.`,
-                    internalNotes: `Automatically issued by activity check ${check.checkId}.`,
-                    notifyMember: true,
-                    appealable: true,
+                    evidence: `Automatic activity check ${check.checkId}. Missing: ${missingIds.join(', ')}`,
+                    internalNotes: `Combined Activity Check case. Affected Discord IDs: ${missingIds.join(', ')}`,
+                    notifyMember: false,
+                    appealable: false,
                     expiration: 'No expiration set.',
                     status: 'Active',
                     history: [{
                         action: 'Created',
                         actorId: check.createdById,
-                        details: `Automatic Strike issued for failing activity check ${check.checkId}.`,
+                        details: `Combined automatic Strike case created for ${missingIds.length} staff who failed activity check ${check.checkId}.`,
                         timestamp: now,
                     }],
                     createdAt: now,
@@ -391,36 +469,39 @@ async function issueFailedActivityStrike(client: ChatInputCommandInteraction['cl
                 },
             },
             { upsert: true, new: true, setDefaultsOnInsert: true },
-        ).exec().catch(error => {
-            logger.warn(`[ActivityCheck] Could not persist ${caseNumber}: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        });
+        ).exec().catch(error => logger.warn(
+            `[ActivityCheck] Could not persist combined case ${caseNumber}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        ));
     }
 
-    await user.send({
-        components: [panel],
-        files: infractionArtwork(),
-        flags: MessageFlags.IsComponentsV2,
-        allowedMentions: { parse: [] },
-    }).catch(() => undefined);
-
-    logger.info(`[ActivityCheck] ${caseNumber}: Strike issued to ${user.tag} for failing ${check.checkId}.`);
+    logger.info(`[ActivityCheck] ${caseNumber}: one combined Strike case created for ${missingIds.length} staff who failed ${check.checkId}.`);
     return true;
 }
 
-async function editOriginalCheck(client: ChatInputCommandInteraction['client'], check: ActivityCheckState): Promise<void> {
+async function editOriginalCheck(client: Client, check: ActivityCheckState): Promise<void> {
     const channel = await client.channels.fetch(check.channelId).catch(() => null);
     if (!channel || channel.type !== ChannelType.GuildText) return;
     const message = await channel.messages.fetch(check.messageId).catch(() => null);
     if (!message) return;
     await message.edit({
         components: [checkPanel(check, true)],
-        attachments: [...message.attachments.values()],
+        attachments: [],
+        files: activityArtwork(),
         flags: MessageFlags.IsComponentsV2,
-    }).catch(() => undefined);
+    }).catch(error => logger.warn(
+        `[ActivityCheck] Could not refresh ended emblem for ${check.checkId}: ${error instanceof Error ? error.message : String(error)}`,
+    ));
 }
 
-async function finishCheck(client: ChatInputCommandInteraction['client'], check: ActivityCheckState, endedById: string): Promise<{ missing: string[]; strikes: number }> {
-    if (check.status !== 'active') return { missing: [], strikes: 0 };
+async function finishCheck(
+    client: Client,
+    check: ActivityCheckState,
+    endedById: string,
+): Promise<{ missing: string[]; infracted: string[]; exempt: string[]; unresolved: string[]; cases: number }> {
+    if (check.status !== 'active') {
+        return { missing: [], infracted: [], exempt: [], unresolved: [], cases: 0 };
+    }
+
     check.status = 'ended';
     check.endedAt = new Date();
     check.endedById = endedById;
@@ -428,14 +509,29 @@ async function finishCheck(client: ChatInputCommandInteraction['client'], check:
     await editOriginalCheck(client, check);
 
     const missing = check.requiredMemberIds.filter(id => !check.activeMemberIds.includes(id));
-    let strikes = 0;
-    for (const memberId of missing) {
-        if (await issueFailedActivityStrike(client, check, memberId)) strikes += 1;
+    const filtered = await filterInfractionEligibleMissing(client, check, missing);
+
+    if (filtered.exempt.length) {
+        logger.info(`[ActivityCheck] ${check.checkId}: ${filtered.exempt.length} missing member(s) exempted from automatic infraction by role ${ACTIVITY_INFRACTION_EXEMPT_ROLE_ID}.`);
     }
-    return { missing, strikes };
+    if (filtered.unresolved.length) {
+        logger.warn(`[ActivityCheck] ${check.checkId}: skipped ${filtered.unresolved.length} unresolved member(s) rather than risk a wrongful automatic infraction.`);
+    }
+
+    const issued = filtered.eligible.length
+        ? await issueCombinedFailedActivityStrike(client, check, filtered.eligible)
+        : false;
+
+    return {
+        missing,
+        infracted: issued ? filtered.eligible : [],
+        exempt: filtered.exempt,
+        unresolved: filtered.unresolved,
+        cases: issued ? 1 : 0,
+    };
 }
 
-async function voidCheck(client: ChatInputCommandInteraction['client'], check: ActivityCheckState, voidedById: string): Promise<void> {
+async function voidCheck(client: Client, check: ActivityCheckState, voidedById: string): Promise<void> {
     if (check.status !== 'active') return;
     check.status = 'voided';
     check.endedAt = new Date();
@@ -461,7 +557,9 @@ async function startCommand(interaction: ChatInputCommandInteraction): Promise<v
 
     const selectedRole = interaction.options.getRole('staff-role');
     const configuredRoleId = process.env.STAFF_TEAM_ROLE_ID?.trim() || DEFAULT_STAFF_TEAM_ROLE_ID;
-    const role = selectedRole instanceof Role ? selectedRole : await interaction.guild.roles.fetch(configuredRoleId).catch(() => null);
+    const role = selectedRole instanceof Role
+        ? selectedRole
+        : await interaction.guild.roles.fetch(configuredRoleId).catch(() => null);
     if (!role) {
         await interaction.editReply(`The configured Staff Team role <@&${configuredRoleId}> could not be loaded.`);
         return;
@@ -500,11 +598,16 @@ async function startCommand(interaction: ChatInputCommandInteraction): Promise<v
             components: [checkPanel(check)],
             files: activityArtwork(),
             flags: MessageFlags.IsComponentsV2,
+            // Starting the activity check is the one place the selected staff role is intentionally pinged.
             allowedMentions: { parse: [], roles: [role.id] },
         });
         check.messageId = posted.id;
         await saveCheck(check);
-        await interaction.editReply(`✅ Activity check started: ${posted.url}${check.endsAt ? `\nScheduled end: <t:${Math.floor(check.endsAt.getTime() / 1000)}:F>` : '\nNo automatic end is scheduled.'}\n⚠️ Anyone who does not respond will automatically receive a **Strike**.`);
+        await interaction.editReply(
+            `✅ Activity check started: ${posted.url}`
+            + `${check.endsAt ? `\nScheduled end: ${timestamp(check.endsAt)}` : '\nNo automatic end is scheduled.'}`
+            + '\n⚠️ Missing staff will be recorded in **one combined Activity Check infraction case**.',
+        );
     } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
         logger.error(`[ActivityCheck] Start send failed in ${interaction.channel.id}: ${reason}`);
@@ -533,8 +636,15 @@ async function endCommand(interaction: ChatInputCommandInteraction): Promise<voi
     }
     const check = await currentCheck(interaction.guildId);
     if (!check) return void interaction.editReply('There is no active activity check.');
+
     const result = await finishCheck(interaction.client, check, interaction.user.id);
-    await interaction.editReply(`✅ Activity check ended. **${check.activeMemberIds.length}** responded, **${result.missing.length}** did not, and **${result.strikes}** automatic Strike case(s) were issued.`);
+    await interaction.editReply([
+        `✅ Activity check ended. **${check.activeMemberIds.length}** responded and **${result.missing.length}** did not.`,
+        `**Combined infraction cases created:** ${result.cases}`,
+        `**Staff included in the combined case:** ${result.infracted.length}`,
+        result.exempt.length ? `**Exempt from automatic infraction:** ${result.exempt.length}` : '',
+        result.unresolved.length ? `**Skipped safely because member data could not be verified:** ${result.unresolved.length}` : '',
+    ].filter(Boolean).join('\n'));
 }
 
 async function voidCommand(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -546,14 +656,14 @@ async function voidCommand(interaction: ChatInputCommandInteraction): Promise<vo
     const check = await currentCheck(interaction.guildId);
     if (!check) return void interaction.editReply('There is no active activity check to void.');
     await voidCheck(interaction.client, check, interaction.user.id);
-    await interaction.editReply(`🛑 ${check.checkId} has been voided. No automatic strikes were issued.`);
+    await interaction.editReply(`🛑 ${check.checkId} has been voided. No automatic infraction was issued.`);
 }
 
 export const activityCheckCommands = [
     {
         data: new SlashCommandBuilder()
             .setName('activity-check')
-            .setDescription('Start a staff activity check with automatic strikes.')
+            .setDescription('Start a staff activity check with one combined missing-staff infraction.')
             .setDMPermission(false)
             .addStringOption(option => option
                 .setName('scheduled-end')
@@ -576,14 +686,14 @@ export const activityCheckCommands = [
     {
         data: new SlashCommandBuilder()
             .setName('end-activity-check')
-            .setDescription('End the active check and strike all missing staff.')
+            .setDescription('End the active check and create one case listing all missing staff.')
             .setDMPermission(false),
         execute: endCommand,
     },
     {
         data: new SlashCommandBuilder()
             .setName('void-activity-check')
-            .setDescription('Void the active check without issuing strikes.')
+            .setDescription('Void the active check without issuing an infraction.')
             .setDMPermission(false),
         execute: voidCommand,
     },
@@ -592,6 +702,7 @@ export const activityCheckCommands = [
 export async function handleActivityCheckButton(interaction: ButtonInteraction): Promise<boolean> {
     const match = interaction.customId.match(/^activity-check:active:(AC-[A-Z0-9-]+)$/u);
     if (!match) return false;
+
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const check = await loadCheck(match[1]);
     if (!check || check.status !== 'active') {
@@ -602,59 +713,70 @@ export async function handleActivityCheckButton(interaction: ButtonInteraction):
         await interaction.editReply('You are not part of the staff role being checked.');
         return true;
     }
+
     if (!check.activeMemberIds.includes(interaction.user.id)) {
         check.activeMemberIds.push(interaction.user.id);
         await saveCheck(check);
     }
+
     const channel = await interaction.client.channels.fetch(check.channelId).catch(() => null);
     if (channel?.type === ChannelType.GuildText) {
         const message = await channel.messages.fetch(check.messageId).catch(() => null);
         if (message) {
             await message.edit({
                 components: [checkPanel(check)],
-                attachments: [...message.attachments.values()],
+                attachments: [],
+                files: activityArtwork(),
                 flags: MessageFlags.IsComponentsV2,
-            }).catch(() => undefined);
+            }).catch(error => logger.warn(
+                `[ActivityCheck] Could not refresh activity emblem after response: ${error instanceof Error ? error.message : String(error)}`,
+            ));
         }
     }
+
     await interaction.editReply(`✅ Your response was recorded for **${check.checkId}**.`);
     return true;
 }
 
-export function startActivityCheckScheduler(client: ChatInputCommandInteraction['client']): void {
-    schedulerClient = client;
+export function startActivityCheckScheduler(client: Client): void {
     if (scheduler) return;
     scheduler = setInterval(() => {
         void (async () => {
             const now = Date.now();
             const checks = new Map<string, ActivityCheckState>();
+
             for (const check of memoryChecks.values()) {
-                if (check.status === 'active' && check.endsAt && check.endsAt.getTime() <= now) checks.set(check.checkId, check);
+                if (check.status === 'active' && check.endsAt && check.endsAt.getTime() <= now) {
+                    checks.set(check.checkId, check);
+                }
             }
+
             if (mongoose.connection.readyState === 1) {
-                const records = await ActivityCheckModel.find({ status: 'active', endsAt: { $lte: new Date(now) } }).lean().exec().catch(() => []);
+                const records = await ActivityCheckModel.find({
+                    status: 'active',
+                    endsAt: { $lte: new Date(now) },
+                }).lean().exec().catch(() => []);
                 for (const record of records) {
-                    const normalized = record as unknown as ActivityCheckState;
-                    normalized.startedAt = new Date(normalized.startedAt);
-                    if (normalized.endsAt) normalized.endsAt = new Date(normalized.endsAt);
+                    const normalized = normalizeCheck(record as unknown as ActivityCheckState);
                     checks.set(normalized.checkId, normalized);
                 }
             }
+
             for (const check of checks.values()) {
                 try {
-                    await finishCheck(client, check, client.user?.id || check.createdById);
-                    logger.info(`[ActivityCheck] ${check.checkId} ended automatically.`);
+                    const result = await finishCheck(client, check, client.user?.id || check.createdById);
+                    logger.info(`[ActivityCheck] ${check.checkId} ended automatically; ${result.cases} combined infraction case(s) created for ${result.infracted.length} staff.`);
                 } catch (error) {
                     logger.warn(`[ActivityCheck] Automatic end failed for ${check.checkId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
                 }
             }
         })();
     }, 30_000);
-    logger.info('[ActivityCheck] V2 scheduler active; automatic failed-check strikes enabled.');
+    scheduler.unref?.();
+    logger.info('[ActivityCheck] V2 scheduler active; missing staff are grouped into one automatic infraction case.');
 }
 
 export function stopActivityCheckScheduler(): void {
     if (scheduler) clearInterval(scheduler);
     scheduler = null;
-    schedulerClient = null;
 }
