@@ -1,3 +1,9 @@
+// Always load runtime safety/interaction recovery even when the host starts
+// this service with `node index.js` instead of `node -r ./preload.js index.js`.
+// Node caches required modules, so this is safe when preload.js was already
+// loaded with -r.
+require('./preload.js');
+
 // Emergency-stable Discord runtime.
 // Discord MUST be allowed to log in before any optional feature module loads.
 // A broken ticket/application/database module must never keep the whole bot offline.
