@@ -29,6 +29,7 @@ import { suggestionCommands } from './suggestions';
 import { messageQuotaCommands } from './messageQuota';
 import { activityCheckCommands } from './activityCheck';
 import { activityCheckAliasCommands } from './activityAliases';
+import { promotionV2Command } from '../handlers/promotionV2Repair';
 
 export interface CommandDefinition {
     data: {
@@ -46,6 +47,7 @@ const retainedMiscCommands = miscCommands.filter(command =>
     && command.data.name !== 'training-result',
 );
 const retainedPaidAdCommands = paidAdCommands.filter(command => command.data.name !== 'instant-post');
+const retainedStaffManagementCommands = staffManagementCommands.filter(command => command.data.name !== 'promotion');
 
 export const commandDefinitions: CommandDefinition[] = [
     ...moderationCommands,
@@ -54,7 +56,8 @@ export const commandDefinitions: CommandDefinition[] = [
     ...retainedMiscCommands,
     ...gameCommands,
     ...communityCommands,
-    ...staffManagementCommands,
+    ...retainedStaffManagementCommands,
+    promotionV2Command,
     ...messageQuotaCommands,
     ...activityCheckCommands,
     ...activityCheckAliasCommands,
