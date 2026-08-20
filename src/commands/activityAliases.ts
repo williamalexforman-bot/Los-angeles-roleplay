@@ -13,10 +13,6 @@ export const activityCheckAliasCommands = [
             .setName('activitycheck')
             .setDescription('Start a staff activity check with automatic strikes.')
             .setDMPermission(false)
-            .addRoleOption(option => option
-                .setName('staff-role')
-                .setDescription('Optional staff role override.')
-                .setRequired(false))
             .addStringOption(option => option
                 .setName('scheduled-end')
                 .setDescription('Choose when the check should automatically end.')
@@ -30,7 +26,11 @@ export const activityCheckAliasCommands = [
                     { name: '8 Hours', value: '8h' },
                     { name: '12 Hours', value: '12h' },
                     { name: '24 Hours', value: '24h' },
-                )),
+                ))
+            .addRoleOption(option => option
+                .setName('staff-role')
+                .setDescription('Optional staff role override.')
+                .setRequired(false)),
         execute: handlerFor('activity-check') as (interaction: ChatInputCommandInteraction) => Promise<void>,
     },
     {
