@@ -13,6 +13,7 @@ import {
     MessageFlags,
     SeparatorBuilder,
     SeparatorSpacingSize,
+    TextChannel,
     TextDisplayBuilder,
     type Client,
 } from 'discord.js';
@@ -47,6 +48,7 @@ type ActivityModule = {
 let installed = false;
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
 let refreshClient: Client | null = null;
+let combinedInfractionMentionGuardInstalled = false;
 
 function media(name: string): MediaGalleryBuilder {
     return new MediaGalleryBuilder().addItems(
@@ -162,6 +164,54 @@ function ensureRefreshLoop(client: Client): void {
     logger.info('[ActivityCheckLive] Live counter recovery enabled; active check emblems refresh every 30 seconds without repeated role pings.');
 }
 
+function installCombinedInfractionMentionGuard(): void {
+    if (combinedInfractionMentionGuardInstalled) return;
+    combinedInfractionMentionGuardInstalled = true;
+
+    const prototype = TextChannel.prototype as unknown as {
+        send: (options: unknown) => Promise<unknown>;
+    };
+    const originalSend = prototype.send;
+
+    prototype.send = async function guardedActivityInfractionSend(this: TextChannel, options: unknown): Promise<unknown> {
+        const payload = options as {
+            components?: unknown[];
+            allowedMentions?: unknown;
+        };
+
+        try {
+            const serialized = JSON.stringify(payload?.components || []);
+            const isCombinedActivityInfraction = serialized.includes('Staff Strike • Failed Activity Check')
+                && serialized.includes('one combined Activity Check infraction case');
+
+            if (isCombinedActivityInfraction) {
+                const issuedById = serialized.match(/\*\*Issued By:\*\*\s*<@(\d{17,20})>/u)?.[1];
+                const mentionedUsers = Array.from(serialized.matchAll(/<@(\d{17,20})>/gu), match => match[1]);
+                const affectedUsers = Array.from(new Set(
+                    mentionedUsers.filter(userId => userId !== issuedById),
+                ));
+
+                payload.allowedMentions = {
+                    parse: [],
+                    users: affectedUsers,
+                    roles: [],
+                    repliedUser: false,
+                };
+
+                logger.info(
+                    `[ActivityCheck] Combined infraction mention guard: pinging ${affectedUsers.length} affected user(s) only; Staff Team and issuer pings blocked.`,
+                );
+            }
+        } catch (error) {
+            logger.warn(`[ActivityCheck] Combined infraction mention guard inspection failed: ${error instanceof Error ? error.message : String(error)}`);
+        }
+
+        return originalSend.call(this, payload);
+    };
+
+    logger.info('[ActivityCheck] Combined infraction mention guard active: affected users only, no Staff Team role ping.');
+}
+
 function installPostButtonRefreshObserver(client: Client): void {
     client.on(Events.InteractionCreate, interaction => {
         if (!interaction.isButton()) return;
@@ -188,13 +238,14 @@ function installPostButtonRefreshObserver(client: Client): void {
 
 export function installActivityCheckLiveRepair(_activityModule: ActivityModule, client: Client): void {
     ensureRefreshLoop(client);
+    installCombinedInfractionMentionGuard();
     if (installed) return;
     installed = true;
 
     // Keep the activity-check module namespace untouched. The primary command
-    // implementation now performs exemption filtering directly before creating
-    // its single combined infraction case, so no broad TextChannel.send monkey-
-    // patch is needed here.
+    // implementation performs exemption filtering directly before creating its
+    // single combined infraction case. This observer only refreshes the live
+    // counter after a member presses the activity button.
     installPostButtonRefreshObserver(client);
 
     logger.info('[ActivityCheckLive] Activity-check post-response live refresh observer installed.');
