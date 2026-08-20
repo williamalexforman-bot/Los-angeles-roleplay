@@ -1,7 +1,7 @@
 'use strict';
 
-// Loaded by Render before index.js. Optional Discord/database feature failures
-// must never terminate the entire bot process and take tickets/commands offline.
+// Loaded before index.js. Optional Discord/database feature failures must never
+// terminate the entire bot process and take commands offline.
 process.on('unhandledRejection', reason => {
   const message = reason instanceof Error ? (reason.stack || reason.message) : String(reason);
   console.error('[Runtime] Unhandled promise rejection contained:', message);
@@ -16,78 +16,11 @@ process.on('warning', warning => {
   console.warn('[Runtime] Node warning:', warning?.stack || warning?.message || String(warning));
 });
 
-// index.js still contains a legacy lazy InteractionCreate listener. Install the
-// stable router only after BOTH of these are true:
-//   1. ts-node has registered .ts loading, and
-//   2. index.js has already attached its legacy InteractionCreate listener.
-// This removes the previous 750ms timing race that could leave two handlers on
-// the same interaction and cause Discord's "application didn't respond" errors.
-let directInteractionBridgeInstalled = false;
-let directInteractionBridgeInstalling = false;
-
-const bridgeInstaller = setInterval(() => {
-  if (directInteractionBridgeInstalled || directInteractionBridgeInstalling) return;
-
-  const client = globalThis.__discordClient;
-  if (!client || typeof client.on !== 'function' || typeof client.listenerCount !== 'function') return;
-  if (typeof require.extensions['.ts'] !== 'function') return;
-
-  let Events;
-  try {
-    ({ Events } = require('discord.js'));
-  } catch {
-    return;
-  }
-
-  // Do not replace anything until index.js has attached the listener that this
-  // bridge is meant to supersede. That makes installation deterministic.
-  if (client.listenerCount(Events.InteractionCreate) < 1) return;
-
-  directInteractionBridgeInstalling = true;
-  try {
-    const { MessageFlags } = require('discord.js');
-    const { interactionCreateStable } = require('./src/handlers/interactionCreateStable.ts');
-    if (typeof interactionCreateStable !== 'function') {
-      throw new Error('interactionCreateStable export is unavailable.');
-    }
-
-    client.removeAllListeners(Events.InteractionCreate);
-    client.on(Events.InteractionCreate, async interaction => {
-      const startedAt = Date.now();
-      try {
-        await interactionCreateStable(interaction);
-        if (interaction.isChatInputCommand?.()) {
-          console.log(`[InteractionBridge] /${interaction.commandName} handled in ${Date.now() - startedAt}ms.`);
-        }
-      } catch (error) {
-        const message = error instanceof Error ? (error.stack || error.message) : String(error);
-        console.error('[InteractionBridge] Stable router failed:', message);
-
-        if (!interaction.isRepliable?.()) return;
-        try {
-          const content = 'The command system hit an internal error. Please try again.';
-          if (interaction.deferred) await interaction.editReply({ content });
-          else if (interaction.replied) await interaction.followUp({ content, flags: MessageFlags.Ephemeral });
-          else await interaction.reply({ content, flags: MessageFlags.Ephemeral });
-        } catch (replyError) {
-          console.error('[InteractionBridge] Could not acknowledge failed interaction:', replyError instanceof Error ? replyError.message : String(replyError));
-        }
-      }
-    });
-
-    directInteractionBridgeInstalled = true;
-    clearInterval(bridgeInstaller);
-    console.log('[InteractionBridge] Deterministic stable interaction bridge installed; legacy lazy router removed.');
-  } catch (error) {
-    // Keep the interval alive so a temporary cold-import problem can recover on
-    // the next pass instead of permanently disabling every command.
-    const message = error instanceof Error ? (error.stack || error.message) : String(error);
-    console.error('[InteractionBridge] Stable bridge installation failed; retrying:', message);
-  } finally {
-    directInteractionBridgeInstalling = false;
-  }
-}, 50);
-bridgeInstaller.unref?.();
+// index.js now owns the one stable InteractionCreate listener directly.
+// Preload deliberately does NOT add, remove, replace, or reorder Discord
+// interaction listeners. This prevents startup timing races and protects
+// auxiliary listeners such as Activity Check live refresh observers.
+console.log('[InteractionBridge] Preload listener surgery disabled; index.js owns the stable router.');
 
 // Render can report the web service as Live while the Discord gateway is no
 // longer ready. Watch the globally exposed discord.js Client and force a clean
