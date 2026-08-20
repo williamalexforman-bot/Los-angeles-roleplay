@@ -28,6 +28,53 @@ const OPTIONAL_ACTIVITY_ALIASES = ['activitycheck', 'stopactivitycheck'] as cons
 let memberCountPresenceTimer: ReturnType<typeof setInterval> | null = null;
 let quotaMessageListenerRegistered = false;
 
+type CommandJson = ReturnType<(typeof commandDefinitions)[number]['data']['toJSON']>;
+type RegisteredCommand = { id: string; name: string };
+
+async function verifyAndRepairRequiredGuildCommands(
+    rest: REST,
+    applicationId: string,
+    guildId: string,
+    commandJsonByName: Map<string, CommandJson>,
+): Promise<void> {
+    let current = await rest.get(
+        Routes.applicationGuildCommands(applicationId, guildId),
+    ) as RegisteredCommand[];
+    let currentNames = new Set(current.map(command => command.name));
+
+    for (const requiredName of REQUIRED_COMMAND_NAMES) {
+        if (currentNames.has(requiredName)) continue;
+        const body = commandJsonByName.get(requiredName);
+        if (!body) {
+            logger.error(`[SlashCommands] Cannot repair ${requiredName}: local command definition is missing.`);
+            continue;
+        }
+
+        logger.warn(`[SlashCommands] ${requiredName} is missing from Discord guild ${guildId}; creating it directly now.`);
+        try {
+            await rest.post(
+                Routes.applicationGuildCommands(applicationId, guildId),
+                { body },
+            );
+        } catch (error) {
+            logger.error(`[SlashCommands] Direct creation failed for ${requiredName} in guild ${guildId}: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    current = await rest.get(
+        Routes.applicationGuildCommands(applicationId, guildId),
+    ) as RegisteredCommand[];
+    currentNames = new Set(current.map(command => command.name));
+
+    for (const requiredName of REQUIRED_COMMAND_NAMES) {
+        if (currentNames.has(requiredName)) {
+            logger.info(`[SlashCommands] VERIFIED /${requiredName} in guild ${guildId}.`);
+        } else {
+            logger.error(`[SlashCommands] CRITICAL: /${requiredName} is still missing from Discord guild ${guildId} after repair.`);
+        }
+    }
+}
+
 async function updateMemberCountPresence(client: Client): Promise<void> {
     try {
         const guildId = process.env.GUILD_ID || client.guilds.cache.firstKey();
@@ -69,6 +116,7 @@ export const onReady = async (client: Client): Promise<void> => {
         uniqueNames.add(command.data.name);
         return { name: command.data.name, json: command.data.toJSON(), index };
     });
+    const commandJsonByName = new Map(commandEntries.map(entry => [entry.name, entry.json]));
 
     const protectedNames = new Set<string>([...REQUIRED_COMMAND_NAMES, ...OPTIONAL_ACTIVITY_ALIASES]);
     const prioritizedEntries = [...commandEntries].sort((a, b) => {
@@ -91,7 +139,7 @@ export const onReady = async (client: Client): Promise<void> => {
 
     const rest = new REST({ version: '10' }).setToken(token);
     try {
-        const legacyGlobalCommands = await rest.get(Routes.applicationCommands(client.application.id)) as Array<{ id: string; name: string }>;
+        const legacyGlobalCommands = await rest.get(Routes.applicationCommands(client.application.id)) as RegisteredCommand[];
         if (legacyGlobalCommands.length > 0) {
             await rest.put(Routes.applicationCommands(client.application.id), { body: [] });
             logger.info(`Removed ${legacyGlobalCommands.length} legacy global slash commands.`);
@@ -105,7 +153,7 @@ export const onReady = async (client: Client): Promise<void> => {
             const registered = await rest.put(
                 Routes.applicationCommands(client.application.id),
                 { body: commands },
-            ) as Array<{ id: string; name: string }>;
+            ) as RegisteredCommand[];
             const registeredNames = registered.map(command => command.name);
             logger.info(`Registered ${registered.length} global slash commands because no connected guild was available.`);
             for (const requiredName of REQUIRED_COMMAND_NAMES) {
@@ -117,14 +165,28 @@ export const onReady = async (client: Client): Promise<void> => {
                     const registered = await rest.put(
                         Routes.applicationGuildCommands(client.application.id, guildId),
                         { body: commands },
-                    ) as Array<{ id: string; name: string }>;
+                    ) as RegisteredCommand[];
                     const registeredNames = registered.map(command => command.name);
                     logger.info(`Registered ${registered.length} guild slash commands in ${guildId}: ${registeredNames.join(', ')}`);
                     for (const requiredName of REQUIRED_COMMAND_NAMES) {
                         if (!registeredNames.includes(requiredName)) logger.error(`[SlashCommands] Discord did not return required command ${requiredName} for guild ${guildId}.`);
                     }
                 } catch (error) {
-                    logger.error(`[SlashCommands] Could not register commands in guild ${guildId}: ${error instanceof Error ? error.message : String(error)}`);
+                    logger.error(`[SlashCommands] Bulk registration failed in guild ${guildId}: ${error instanceof Error ? error.message : String(error)}`);
+                }
+
+                // Never trust the bulk response alone. Ask Discord for the live
+                // guild command set and directly create any critical command that
+                // is missing. This makes /activity-check self-repairing.
+                try {
+                    await verifyAndRepairRequiredGuildCommands(
+                        rest,
+                        client.application.id,
+                        guildId,
+                        commandJsonByName,
+                    );
+                } catch (error) {
+                    logger.error(`[SlashCommands] Verification/repair failed in guild ${guildId}: ${error instanceof Error ? error.message : String(error)}`);
                 }
             }
         }
