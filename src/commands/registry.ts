@@ -6,6 +6,7 @@ import { miscCommands } from './misc';
 import { gameCommands } from './game';
 import { communityCommands } from './community';
 import { staffManagementCommands } from './staffManagement';
+import { promotionRoleSwapCommand } from './promotionRoleSwap';
 import { prohibitedWordCommand } from './prohibitedWords';
 import { sayCommand } from './say';
 import { punishmentCommands } from './punishment';
@@ -45,6 +46,7 @@ const retainedMiscCommands = miscCommands.filter(command =>
     !['movie-feedback', 'staff-feedback', 'partnership', 'staff-complaint'].includes(command.data.name)
     && command.data.name !== 'training-result',
 );
+const retainedStaffManagementCommands = staffManagementCommands.filter(command => command.data.name !== 'promotion');
 const retainedPaidAdCommands = paidAdCommands.filter(command => command.data.name !== 'instant-post');
 
 export const commandDefinitions: CommandDefinition[] = [
@@ -54,7 +56,8 @@ export const commandDefinitions: CommandDefinition[] = [
     ...retainedMiscCommands,
     ...gameCommands,
     ...communityCommands,
-    ...staffManagementCommands,
+    ...retainedStaffManagementCommands,
+    promotionRoleSwapCommand,
     ...messageQuotaCommands,
     ...activityCheckCommands,
     ...activityCheckAliasCommands,
