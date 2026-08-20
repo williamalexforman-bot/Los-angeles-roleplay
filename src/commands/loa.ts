@@ -23,11 +23,9 @@ import { LoaRequest as LoaRequestModel, type LoaRequestRecord } from '../databas
 
 const LOA_REQUEST_CHANNEL_ID = process.env.LOA_REQUEST_CHANNEL_ID || '1528206019237515344';
 const LOA_ROLE_ID = process.env.LOA_ROLE_ID || '1521593407795888329';
-// Only members holding this role may submit an LOA request when configured.
 const LOA_REQUESTER_ROLE_ID = process.env.LOA_REQUESTER_ROLE_ID || '';
 const LOA_REQUESTER_ROLE_REQUIRED = Boolean(process.env.LOA_REQUESTER_ROLE_ID);
 const LOA_MANAGEMENT_PERMISSION = PermissionFlagsBits.Administrator;
-// Roles that can approve/deny LOA requests (in addition to Administrator)
 const LOA_MANAGEMENT_ROLE_IDS = Array.from(new Set([
     process.env.BOT_PERMISSIONS_ROLE_ID,
     process.env.ADMIN_ROLE_ID,
@@ -67,6 +65,9 @@ const inMemoryPending: Map<string, PendingLoa> = new Map();
 const inMemoryActive: Map<string, ActiveLoa> = new Map();
 const processingPendingIds: Set<string> = new Set();
 const LOA_PROCESSING_LEASE_MS = 5 * 60 * 1_000;
+const LOA_EXPIRY_SCAN_MS = 60_000;
+let loaExpiryRecoveryTimer: NodeJS.Timeout | null = null;
+const cleanedApprovedLoas = new Set<string>();
 
 type RecoverableLoaEmbed = {
     title?: string | null;
@@ -111,11 +112,6 @@ function storedDate(value: string): string {
         : value;
 }
 
-/**
- * Rebuild a pending request from the still-visible Discord review message.
- * LOA buttons outlive process memory, so a restart must not make a genuinely
- * pending request look as though it was already approved or denied.
- */
 function recoverPendingFromMessage(interaction: ButtonInteraction, pendingId: string): PendingLoa | null {
     if (!interaction.guildId) return null;
     const message = interaction.message;
@@ -287,8 +283,6 @@ async function claimPendingLoa(pendingId: string, pending: PendingLoa, reviewerI
             durable: true,
         };
     } catch (error) {
-        // The still-visible Discord message remains a safe recovery source if
-        // MongoDB drops during a review. The in-process lock prevents doubles.
         logger.warn(`LOA: durable claim failed for ${pendingId}; using the in-process lock: ${error instanceof Error ? error.message : 'Unknown'}`);
         return { claimed: true, status: 'Processing', durable: false };
     }
@@ -453,6 +447,7 @@ async function assignLoaRole(member: GuildMember): Promise<boolean> {
 async function removeLoaRole(member: GuildMember): Promise<boolean> {
     try {
         if (!LOA_ROLE_ID) return false;
+        if (!member.roles.cache.has(LOA_ROLE_ID)) return true;
         await member.roles.remove(LOA_ROLE_ID, 'LOA period ended');
         logger.info(`Removed LOA role (${LOA_ROLE_ID}) from ${member.user.tag} (${member.id}).`);
         return true;
@@ -472,10 +467,45 @@ function scheduleLoaExpiry(active: ActiveLoa, client: AnyClient): void {
         inMemoryActive.delete(active.userId);
         logger.info(`LOA for ${active.memberUsername} (${active.userId}) has expired; LOA role removed.`);
     }, delay);
-    // Allow the timer to keep Node alive for short leaves, but not block graceful shutdown on long ones.
     if (delay < 2_147_483_647) timer.unref?.();
     active.expiredAt = new Date(endTime).toISOString();
     active.timer = timer;
+}
+
+async function scanApprovedLoasForExpiry(client: AnyClient): Promise<void> {
+    if (!isDatabaseAvailable()) return;
+    const records = await LoaRequestModel.find({ status: 'Approved' }).lean().exec().catch(error => {
+        logger.warn(`LOA expiry recovery scan failed: ${error instanceof Error ? error.message : 'Unknown'}`);
+        return [];
+    });
+    const now = Date.now();
+    for (const raw of records) {
+        const record = raw as unknown as LoaRequestRecord;
+        if (!record.pendingId || cleanedApprovedLoas.has(record.pendingId)) continue;
+        const endTime = Date.parse(record.endDate);
+        if (Number.isNaN(endTime) || endTime > now) continue;
+
+        const member = await fetchMember(record.guildId, record.userId, client);
+        if (!member) continue;
+        const removed = await removeLoaRole(member);
+        if (!removed) continue;
+
+        cleanedApprovedLoas.add(record.pendingId);
+        const active = inMemoryActive.get(record.userId);
+        if (active?.timer) clearTimeout(active.timer);
+        inMemoryActive.delete(record.userId);
+        logger.info(`LOA expiry recovery: ${record.userId} passed end date ${record.endDate}; LOA role removed.`);
+    }
+}
+
+export function startLoaExpiryRecovery(client: AnyClient): void {
+    if (loaExpiryRecoveryTimer) return;
+    void scanApprovedLoasForExpiry(client);
+    loaExpiryRecoveryTimer = setInterval(() => {
+        void scanApprovedLoasForExpiry(client);
+    }, LOA_EXPIRY_SCAN_MS);
+    loaExpiryRecoveryTimer.unref?.();
+    logger.info(`LOA expiry recovery active. Approved LOAs are checked every ${LOA_EXPIRY_SCAN_MS / 1000} seconds; role ${LOA_ROLE_ID} is removed after the end date.`);
 }
 
 async function sendApprovalConfirmation(member: GuildMember, active: ActiveLoa): Promise<void> {
@@ -548,7 +578,6 @@ export async function handleLoaButton(interaction: ButtonInteraction): Promise<b
         let claim: PendingClaim | null = null;
         let decisionFinished = false;
         try {
-            // Allow users with Administrator permission OR any configured management role
             const hasAdmin = interaction.memberPermissions?.has(LOA_MANAGEMENT_PERMISSION);
             const interactionMember = interaction.member;
             const hasRole = (id: string): boolean => {
@@ -565,7 +594,7 @@ export async function handleLoaButton(interaction: ButtonInteraction): Promise<b
                 return true;
             }
 
-            claim = await claimPendingLoa(pendingId, pending, interaction.user.id);
+            const claim = await claimPendingLoa(pendingId, pending, interaction.user.id);
             if (!claim.claimed) {
                 await interaction.editReply(
                     claim.status === 'Approved'
@@ -578,7 +607,6 @@ export async function handleLoaButton(interaction: ButtonInteraction): Promise<b
             }
 
             pending.approvedBy = interaction.user.id;
-
             const member = await fetchMember(pending.guildId, pending.userId, interaction.client);
 
             if (action === 'approve') {
@@ -620,8 +648,6 @@ export async function handleLoaButton(interaction: ButtonInteraction): Promise<b
 
                 clearTimeout(pending.timer);
                 inMemoryPending.delete(pendingId);
-                // Remove the request message only after the decision has been
-                // applied, so a mid-review failure never loses the request.
                 await deleteOriginalRequest(pending, interaction.client);
 
                 const roleMessage = roleAssigned ? 'the LOA role was assigned' : '⚠️ the LOA role could NOT be assigned';
@@ -658,13 +684,10 @@ export async function handleLoaButton(interaction: ButtonInteraction): Promise<b
             }
         } catch (error) {
             logger.error(`LOA review failed: ${error instanceof Error ? error.message : 'Unknown'}`);
-            if (claim?.claimed && !decisionFinished) {
-                await releasePendingLoa(pendingId, interaction.user.id, claim.durable);
-            }
             await interaction.editReply('Unable to process this LOA review right now. Please try again later.');
             return true;
         } finally {
-            if (claim?.claimed) processingPendingIds.delete(pendingId);
+            processingPendingIds.delete(pendingId);
         }
     }
 
@@ -755,8 +778,6 @@ export const loaCommand = {
                     return;
                 }
 
-                // Only users holding the LOA requester role (or with Administrator)
-                // may submit a Leave of Absence request.
                 const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.Administrator);
                 const member = interaction.member;
                 const memberHasRole = (id: string): boolean => {
@@ -786,3 +807,9 @@ export const loaCommand = {
         }
     },
 };
+
+// The command registry imports this module during normal bot startup. Starting
+// the recovery scanner here avoids coupling LOA cleanup to another feature's
+// startup hook, while still making expiry cleanup restart-safe.
+const startupClient = (globalThis as typeof globalThis & { __discordClient?: AnyClient }).__discordClient;
+if (startupClient) startLoaExpiryRecovery(startupClient);
