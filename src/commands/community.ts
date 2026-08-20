@@ -41,8 +41,6 @@ const PRIVATE_AUDIT_CHANNEL_ID =
     process.env.DISCORD_COMMAND_LOG_CHANNEL_ID ||
     '1528917592604020917';
 const PARTNERSHIP_APPROVAL_CHANNEL_ID = process.env.PARTNERSHIP_APPROVAL_CHANNEL_ID || '1526042350802043022';
-const PARTNERSHIP_HEADER_NAME = BRAND.logoName;
-const PARTNERSHIP_HEADER_PATH = BRAND.logoPath;
 const PARTNERSHIP_UNDERBANNER_NAME = 'underbanner.webp';
 const PARTNERSHIP_UNDERBANNER_PATH = resolve(__dirname, '..', '..', 'assets', PARTNERSHIP_UNDERBANNER_NAME);
 
@@ -211,12 +209,6 @@ function partnershipSeparator(): SeparatorBuilder {
     return new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small);
 }
 
-function partnershipHeader(): MediaGalleryBuilder {
-    return new MediaGalleryBuilder().addItems(
-        new MediaGalleryItemBuilder().setURL(`attachment://${PARTNERSHIP_HEADER_NAME}`),
-    );
-}
-
 function partnershipUnderbanner(): MediaGalleryBuilder {
     return new MediaGalleryBuilder().addItems(
         new MediaGalleryItemBuilder().setURL(`attachment://${PARTNERSHIP_UNDERBANNER_NAME}`),
@@ -224,17 +216,12 @@ function partnershipUnderbanner(): MediaGalleryBuilder {
 }
 
 function partnershipArtworkAttachments(): AttachmentBuilder[] {
-    return [
-        new AttachmentBuilder(PARTNERSHIP_HEADER_PATH, { name: PARTNERSHIP_HEADER_NAME }),
-        new AttachmentBuilder(PARTNERSHIP_UNDERBANNER_PATH, { name: PARTNERSHIP_UNDERBANNER_NAME }),
-    ];
+    return [new AttachmentBuilder(PARTNERSHIP_UNDERBANNER_PATH, { name: PARTNERSHIP_UNDERBANNER_NAME })];
 }
 
 function buildPartnershipLauncherPanel(): ContainerBuilder {
     return new ContainerBuilder()
         .setAccentColor(BRAND.color)
-        .addMediaGalleryComponents(partnershipHeader())
-        .addSeparatorComponents(partnershipSeparator())
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## 🤝 Partnership Program\n${PARTNERSHIP_PANEL_TEXT}`))
         .addSeparatorComponents(partnershipSeparator())
         .addActionRowComponents(...partnershipPanelComponents())
@@ -299,8 +286,6 @@ function partnershipDetails(data: PartnershipRequestData, status: 'Pending Revie
 function buildPartnershipRequestPanel(data: PartnershipRequestData): ContainerBuilder {
     return new ContainerBuilder()
         .setAccentColor(BRAND.color)
-        .addMediaGalleryComponents(partnershipHeader())
-        .addSeparatorComponents(partnershipSeparator())
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(partnershipDetails(data, 'Pending Review')))
         .addSeparatorComponents(partnershipSeparator())
         .addTextDisplayComponents(new TextDisplayBuilder().setContent('## 📢 Full Advertisement'))
@@ -314,8 +299,6 @@ function buildPartnershipRequestPanel(data: PartnershipRequestData): ContainerBu
 function buildApprovedPartnershipPanel(data: PartnershipRequestData, reviewerId: string): ContainerBuilder {
     return new ContainerBuilder()
         .setAccentColor(0x22c55e)
-        .addMediaGalleryComponents(partnershipHeader())
-        .addSeparatorComponents(partnershipSeparator())
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(partnershipDetails(data, 'Approved', reviewerId)))
         .addSeparatorComponents(partnershipSeparator())
         .addTextDisplayComponents(new TextDisplayBuilder().setContent('## 📢 Partner Advertisement'))
@@ -444,7 +427,7 @@ const partnershipCommand = {
             flags: MessageFlags.IsComponentsV2,
             allowedMentions: { parse: [] },
         });
-        await interaction.editReply('✅ The full Components V2 partnership emblem has been posted in this channel.');
+        await interaction.editReply('✅ The Components V2 partnership emblem has been posted in this channel.');
     },
 };
 
@@ -597,7 +580,7 @@ export async function handleCommunityModal(interaction: ModalSubmitInteraction):
             flags: MessageFlags.IsComponentsV2,
             allowedMentions: { parse: [] },
         });
-        await interaction.editReply('✅ Your partnership request was submitted as a full Components V2 emblem for review.');
+        await interaction.editReply('✅ Your partnership request was submitted as a Components V2 emblem for review.');
         return true;
     } catch (error) {
         console.error('[Community] Partnership request submission failed.', error);
