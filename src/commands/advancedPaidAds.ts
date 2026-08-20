@@ -1,3 +1,4 @@
+import { resolve } from 'path';
 import {
     ActionRowBuilder,
     AttachmentBuilder,
@@ -29,6 +30,8 @@ const POST_HOUR_EASTERN = 13;
 const CADENCE_DAYS = 3;
 const SCHEDULER_INTERVAL_MS = 60_000;
 const PANEL_COLOR = 0x247bf1;
+const PAID_AD_BANNER_NAME = 'paid-ad-banner.webp';
+const PAID_AD_BANNER_PATH = resolve(__dirname, '..', '..', 'assets', PAID_AD_BANNER_NAME);
 let scheduler: ReturnType<typeof setInterval> | null = null;
 
 interface EasternParts {
@@ -112,12 +115,26 @@ function addEasternDays(date: Date, days: number): Date {
     return easternWallClockToUtc({ ...shifted, hour: POST_HOUR_EASTERN, minute: 0, second: 0 });
 }
 
+function paidAdBannerAttachment(): AttachmentBuilder {
+    return new AttachmentBuilder(PAID_AD_BANNER_PATH, { name: PAID_AD_BANNER_NAME });
+}
+
+function paidAdBannerGallery(): MediaGalleryBuilder {
+    return new MediaGalleryBuilder().addItems(
+        new MediaGalleryItemBuilder().setURL(`attachment://${PAID_AD_BANNER_NAME}`),
+    );
+}
+
 function underbannerAttachment(): AttachmentBuilder {
     return new AttachmentBuilder(SESSION_UNDERBANNER_PATH, { name: 'underbanner.webp' });
 }
 
 function underbannerGallery(): MediaGalleryBuilder {
     return new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(BOTTOM_UNDERBANNER));
+}
+
+function paidAdArtworkAttachments(): AttachmentBuilder[] {
+    return [paidAdBannerAttachment(), underbannerAttachment()];
 }
 
 function divider(): SeparatorBuilder {
@@ -137,6 +154,8 @@ function advertisementPanel(ad: PaidAdRecord): ContainerBuilder {
     const advertisement = (ad.advertisement || '').replace(/```/g, "'''").slice(0, 2_800);
     return new ContainerBuilder()
         .setAccentColor(PANEL_COLOR)
+        .addMediaGalleryComponents(paidAdBannerGallery())
+        .addSeparatorComponents(divider())
         .addTextDisplayComponents(new TextDisplayBuilder().setContent([
             '## 📣 Paid Advertisement',
             ping,
@@ -149,6 +168,7 @@ function advertisementPanel(ad: PaidAdRecord): ContainerBuilder {
             `**Server Invite:** ${ad.serverInvite}`,
             `**Advertisement ID:** \`${ad.adId}\``,
         ].join('\n')))
+        .addSeparatorComponents(divider())
         .addMediaGalleryComponents(underbannerGallery());
 }
 
@@ -232,8 +252,6 @@ export async function normalizePaidAdSchedule(client?: Client): Promise<void> {
     );
     if (unchanged) return;
 
-    // Clear unique slot values first so old weekly slots cannot collide while
-    // the pending queue is compacted into the new 3-day cadence.
     await PaidAd.updateMany({ status: 'Scheduled' }, { $unset: { scheduleSlot: 1 } }).exec();
 
     for (const { ad, at, slot } of targets) {
@@ -278,7 +296,7 @@ async function postPaidAdV2(client: Client, adId: string, instantById?: string):
 
     const message = await channel.send({
         components: [advertisementPanel(ad)],
-        files: [underbannerAttachment()],
+        files: paidAdArtworkAttachments(),
         flags: MessageFlags.IsComponentsV2,
         allowedMentions: { parse: ['everyone'] },
     }).catch(() => null);
