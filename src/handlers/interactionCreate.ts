@@ -21,6 +21,7 @@ import { handlePaidAdButton, handlePaidAdModal, handlePaidAdSelect } from '../co
 import { handleAdvancedPaidAdSelect, normalizePaidAdSchedule } from '../commands/advancedPaidAds';
 import { handleSuggestionButton } from '../commands/suggestions';
 import { handleTicketClaimRepair } from './ticketClaimRepair';
+import { handlePartnershipReviewRepair } from './partnershipReviewRepair';
 import {
     handleTicketButton,
     handleTicketModal,
@@ -248,6 +249,7 @@ export const interactionCreate = async (interaction: Interaction): Promise<void>
         if (interaction.isButton()) {
             if (await handleActivityCheckButton(interaction)) return;
             if (await handleTicketClaimRepair(interaction)) return;
+            if (await handlePartnershipReviewRepair(interaction)) return;
             if (await handleMessageQuotaButton(interaction)) return;
             if (await handleSuggestionButton(interaction)) return;
             if (await handlePaidAdButton(interaction)) return;
