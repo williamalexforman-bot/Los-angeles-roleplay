@@ -179,6 +179,7 @@ function checkPanel(check: ActivityCheckState, disabled = false): ContainerBuild
     const responded = check.activeMemberIds.length;
     const pending = Math.max(0, required - responded);
     const content = [
+        `<@&${check.roleId}>`,
         '## 📋 Staff Activity Check',
         `> **Staff Role:** <@&${check.roleId}>`,
         `> **Started By:** <@${check.createdById}>`,
@@ -479,6 +480,12 @@ async function startCommand(interaction: ChatInputCommandInteraction): Promise<v
     }
 
     const duration = interaction.options.getString('scheduled-end', true);
+    const durationMs = duration === 'none' ? undefined : DURATION_MS[duration];
+    if (duration !== 'none' && !durationMs) {
+        await interaction.editReply('That activity-check duration is invalid. Please run the command again and choose one of the listed options.');
+        return;
+    }
+
     const startedAt = new Date();
     const check: ActivityCheckState = {
         checkId: `AC-${Date.now().toString(36).toUpperCase()}`,
@@ -490,17 +497,25 @@ async function startCommand(interaction: ChatInputCommandInteraction): Promise<v
         requiredMemberIds,
         activeMemberIds: [],
         startedAt,
-        endsAt: duration === 'none' ? undefined : new Date(startedAt.getTime() + DURATION_MS[duration]),
+        endsAt: durationMs ? new Date(startedAt.getTime() + durationMs) : undefined,
         status: 'active',
     };
 
-    const posted = await interaction.channel.send({
-        content: `<@&${role.id}>`,
-        components: [checkPanel(check)],
-        files: activityArtwork(),
-        flags: MessageFlags.IsComponentsV2,
-        allowedMentions: { roles: [role.id] },
-    });
+    let posted;
+    try {
+        posted = await interaction.channel.send({
+            components: [checkPanel(check)],
+            files: activityArtwork(),
+            flags: MessageFlags.IsComponentsV2,
+            allowedMentions: { parse: [], roles: [role.id], users: [interaction.user.id] },
+        });
+    } catch (error) {
+        const details = error instanceof Error ? error.message : String(error);
+        logger.error(`[ActivityCheck] Could not post activity-check panel in ${interaction.channel.id}: ${details}`);
+        await interaction.editReply(`I could not post the activity-check V2 emblem. Discord returned: ${details.slice(0, 900)}`);
+        return;
+    }
+
     check.messageId = posted.id;
     await saveCheck(check);
     await interaction.editReply(`✅ Activity check started: ${posted.url}${check.endsAt ? `\nScheduled end: <t:${Math.floor(check.endsAt.getTime() / 1000)}:F>` : '\nNo automatic end is scheduled.'}\n⚠️ Anyone who does not respond will automatically receive a **Strike**.`);
@@ -623,5 +638,5 @@ export function startActivityCheckScheduler(client: ChatInputCommandInteraction[
     scheduler = setInterval(() => void schedulerTick(), 30_000);
     scheduler.unref?.();
     void schedulerTick();
-    logger.info('[ActivityCheck] V2 strike scheduler started.');
+    logger.info('[ActivityCheck] Scheduler active.');
 }
