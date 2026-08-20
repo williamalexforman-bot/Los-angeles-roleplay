@@ -25,7 +25,7 @@ import { BRAND, CHANNEL_IDS } from '../config/constants';
 import { Counter, Infraction } from '../database/models';
 import { logger } from '../utils/logger';
 
-const ACTIVITY_BANNER_NAME = 'assistance-banner.png';
+const ACTIVITY_BANNER_NAME = 'activity-check-banner.jpg';
 const ACTIVITY_UNDERBANNER_NAME = 'underbanner.webp';
 const INFRACTION_BANNER_NAME = 'infraction-banner.png';
 const ACTIVITY_BANNER_PATH = resolve(__dirname, '..', '..', 'assets', ACTIVITY_BANNER_NAME);
@@ -480,12 +480,6 @@ async function startCommand(interaction: ChatInputCommandInteraction): Promise<v
     }
 
     const duration = interaction.options.getString('scheduled-end', true);
-    const durationMs = duration === 'none' ? undefined : DURATION_MS[duration];
-    if (duration !== 'none' && !durationMs) {
-        await interaction.editReply('That activity-check duration is invalid. Please run the command again and choose one of the listed options.');
-        return;
-    }
-
     const startedAt = new Date();
     const check: ActivityCheckState = {
         checkId: `AC-${Date.now().toString(36).toUpperCase()}`,
@@ -497,28 +491,25 @@ async function startCommand(interaction: ChatInputCommandInteraction): Promise<v
         requiredMemberIds,
         activeMemberIds: [],
         startedAt,
-        endsAt: durationMs ? new Date(startedAt.getTime() + durationMs) : undefined,
+        endsAt: duration === 'none' ? undefined : new Date(startedAt.getTime() + DURATION_MS[duration]),
         status: 'active',
     };
 
-    let posted;
     try {
-        posted = await interaction.channel.send({
+        const posted = await interaction.channel.send({
             components: [checkPanel(check)],
             files: activityArtwork(),
             flags: MessageFlags.IsComponentsV2,
-            allowedMentions: { parse: [], roles: [role.id], users: [interaction.user.id] },
+            allowedMentions: { parse: [], roles: [role.id] },
         });
+        check.messageId = posted.id;
+        await saveCheck(check);
+        await interaction.editReply(`✅ Activity check started: ${posted.url}${check.endsAt ? `\nScheduled end: <t:${Math.floor(check.endsAt.getTime() / 1000)}:F>` : '\nNo automatic end is scheduled.'}\n⚠️ Anyone who does not respond will automatically receive a **Strike**.`);
     } catch (error) {
-        const details = error instanceof Error ? error.message : String(error);
-        logger.error(`[ActivityCheck] Could not post activity-check panel in ${interaction.channel.id}: ${details}`);
-        await interaction.editReply(`I could not post the activity-check V2 emblem. Discord returned: ${details.slice(0, 900)}`);
-        return;
+        const reason = error instanceof Error ? error.message : String(error);
+        logger.error(`[ActivityCheck] Start send failed in ${interaction.channel.id}: ${reason}`);
+        await interaction.editReply(`I could not post the activity-check V2 emblem. Discord returned: ${reason.slice(0, 1_500)}`);
     }
-
-    check.messageId = posted.id;
-    await saveCheck(check);
-    await interaction.editReply(`✅ Activity check started: ${posted.url}${check.endsAt ? `\nScheduled end: <t:${Math.floor(check.endsAt.getTime() / 1000)}:F>` : '\nNo automatic end is scheduled.'}\n⚠️ Anyone who does not respond will automatically receive a **Strike**.`);
 }
 
 async function viewCommand(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -576,67 +567,94 @@ export const activityCheckCommands = [
         execute: startCommand,
     },
     {
-        data: new SlashCommandBuilder().setName('view-activity-check').setDescription('View responses to the active activity check.').setDMPermission(false),
+        data: new SlashCommandBuilder()
+            .setName('view-activity-check')
+            .setDescription('View the current activity-check results.')
+            .setDMPermission(false),
         execute: viewCommand,
     },
     {
-        data: new SlashCommandBuilder().setName('end-activity-check').setDescription('End the activity check and strike non-responders.').setDMPermission(false),
+        data: new SlashCommandBuilder()
+            .setName('end-activity-check')
+            .setDescription('End the active check and strike all missing staff.')
+            .setDMPermission(false),
         execute: endCommand,
     },
     {
-        data: new SlashCommandBuilder().setName('void-activity-check').setDescription('Cancel the activity check without strikes.').setDMPermission(false),
+        data: new SlashCommandBuilder()
+            .setName('void-activity-check')
+            .setDescription('Void the active check without issuing strikes.')
+            .setDMPermission(false),
         execute: voidCommand,
     },
 ];
 
 export async function handleActivityCheckButton(interaction: ButtonInteraction): Promise<boolean> {
-    const match = interaction.customId.match(/^activity-check:active:(AC-[A-Z0-9]+)$/i);
+    const match = interaction.customId.match(/^activity-check:active:(AC-[A-Z0-9-]+)$/u);
     if (!match) return false;
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const check = await loadCheck(match[1]);
     if (!check || check.status !== 'active') {
-        await interaction.editReply('This activity check has already ended, was voided, or could not be loaded.');
+        await interaction.editReply('This activity check is no longer active.');
         return true;
     }
-    if (!check.requiredMemberIds.includes(interaction.user.id)) {
-        await interaction.editReply(`You are not part of <@&${check.roleId}> for this activity check.`);
+    if (interaction.guildId !== check.guildId || !check.requiredMemberIds.includes(interaction.user.id)) {
+        await interaction.editReply('You are not part of the staff role being checked.');
         return true;
     }
-    if (check.activeMemberIds.includes(interaction.user.id)) {
-        await interaction.editReply('✅ You are already marked active for this check.');
-        return true;
+    if (!check.activeMemberIds.includes(interaction.user.id)) {
+        check.activeMemberIds.push(interaction.user.id);
+        await saveCheck(check);
     }
-    check.activeMemberIds.push(interaction.user.id);
-    await saveCheck(check);
-    await interaction.editReply('✅ You have been marked **Active**. You will not receive an activity-check strike for this check.');
-    return true;
-}
-
-async function schedulerTick(): Promise<void> {
-    const client = schedulerClient;
-    if (!client || !client.isReady()) return;
-    const dueMemory = [...memoryChecks.values()].filter(check => check.status === 'active' && check.endsAt && check.endsAt.getTime() <= Date.now());
-    const dueDb = mongoose.connection.readyState === 1
-        ? await ActivityCheckModel.find({ status: 'active', endsAt: { $lte: new Date() } }).lean().exec().catch(() => [])
-        : [];
-    const due = new Map<string, ActivityCheckState>();
-    for (const check of dueMemory) due.set(check.checkId, check);
-    for (const record of dueDb) due.set(String(record.checkId), record as unknown as ActivityCheckState);
-    for (const check of due.values()) {
-        try {
-            const result = await finishCheck(client, check, check.createdById);
-            logger.info(`[ActivityCheck] ${check.checkId} ended automatically with ${result.strikes} strike(s).`);
-        } catch (error) {
-            logger.warn(`[ActivityCheck] Automatic end failed for ${check.checkId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    const channel = await interaction.client.channels.fetch(check.channelId).catch(() => null);
+    if (channel?.type === ChannelType.GuildText) {
+        const message = await channel.messages.fetch(check.messageId).catch(() => null);
+        if (message) {
+            await message.edit({
+                components: [checkPanel(check)],
+                attachments: [...message.attachments.values()],
+                flags: MessageFlags.IsComponentsV2,
+            }).catch(() => undefined);
         }
     }
+    await interaction.editReply(`✅ Your response was recorded for **${check.checkId}**.`);
+    return true;
 }
 
 export function startActivityCheckScheduler(client: ChatInputCommandInteraction['client']): void {
     schedulerClient = client;
     if (scheduler) return;
-    scheduler = setInterval(() => void schedulerTick(), 30_000);
-    scheduler.unref?.();
-    void schedulerTick();
-    logger.info('[ActivityCheck] Scheduler active.');
+    scheduler = setInterval(() => {
+        void (async () => {
+            const now = Date.now();
+            const checks = new Map<string, ActivityCheckState>();
+            for (const check of memoryChecks.values()) {
+                if (check.status === 'active' && check.endsAt && check.endsAt.getTime() <= now) checks.set(check.checkId, check);
+            }
+            if (mongoose.connection.readyState === 1) {
+                const records = await ActivityCheckModel.find({ status: 'active', endsAt: { $lte: new Date(now) } }).lean().exec().catch(() => []);
+                for (const record of records) {
+                    const normalized = record as unknown as ActivityCheckState;
+                    normalized.startedAt = new Date(normalized.startedAt);
+                    if (normalized.endsAt) normalized.endsAt = new Date(normalized.endsAt);
+                    checks.set(normalized.checkId, normalized);
+                }
+            }
+            for (const check of checks.values()) {
+                try {
+                    await finishCheck(client, check, client.user?.id || check.createdById);
+                    logger.info(`[ActivityCheck] ${check.checkId} ended automatically.`);
+                } catch (error) {
+                    logger.warn(`[ActivityCheck] Automatic end failed for ${check.checkId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                }
+            }
+        })();
+    }, 30_000);
+    logger.info('[ActivityCheck] V2 scheduler active; automatic failed-check strikes enabled.');
+}
+
+export function stopActivityCheckScheduler(): void {
+    if (scheduler) clearInterval(scheduler);
+    scheduler = null;
+    schedulerClient = null;
 }
