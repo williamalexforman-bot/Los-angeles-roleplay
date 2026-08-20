@@ -50,6 +50,11 @@ services:
       - key: TICKET_RECAP_MODEL
         value: "gpt-5-mini"
 
+      # Explicit quota Moderator role. This prevents an old/mistyped Render
+      # dashboard value from being confused with the quota log channel ID.
+      - key: QUOTA_MOD_ROLE_ID
+        value: "1521593407795888336"
+
       # Required for staff activity checks and the weekly message-quota system.
       # In the Discord Developer Portal, enable BOTH Server Members Intent and
       # Message Content Intent for the bot application.
