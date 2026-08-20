@@ -4,6 +4,30 @@
 require('ts-node').register({ transpileOnly: true, project: require('path').join(__dirname, 'tsconfig.json') });
 require('dotenv').config();
 
+// The custom Partnership and Paid Ad banners are stored as base64 text so the
+// exact artwork can live in the repository even through text-only connector
+// writes. Materialize them before any command module tries to attach them.
+try {
+  const fs = require('fs');
+  const path = require('path');
+  const assetsDir = path.join(__dirname, 'assets');
+  const bannerAssets = [
+    ['partnership-banner.b64', 'partnership-banner.webp'],
+    ['paid-ad-banner.b64', 'paid-ad-banner.webp'],
+  ];
+  for (const [sourceName, outputName] of bannerAssets) {
+    const source = path.join(assetsDir, sourceName);
+    const output = path.join(assetsDir, outputName);
+    if (!fs.existsSync(source)) continue;
+    const encoded = fs.readFileSync(source, 'utf8').replace(/\s+/g, '');
+    if (!encoded) continue;
+    fs.writeFileSync(output, Buffer.from(encoded, 'base64'));
+    console.log(`[Assets] Materialized ${outputName}.`);
+  }
+} catch (error) {
+  console.warn('[Assets] Custom banner materialization failed:', error instanceof Error ? error.message : String(error));
+}
+
 const http = require('http');
 const renderPort = Number(process.env.PORT || process.env.WEBHOOK_PORT || 10000);
 const healthServer = http.createServer((req, res) => {
@@ -171,10 +195,6 @@ client.once(Events.ClientReady, async readyClient => {
     console.error('[Discord] Ready hooks failed:', error instanceof Error ? error.stack || error.message : String(error));
   }
 
-  // This is intentionally separate from the normal bulk slash-command sync.
-  // Even if another command breaks the main registration payload or Discord is
-  // already at the 100-command limit, this repair makes room and forces
-  // /activity-check into the live guild command list.
   try {
     const { forceRepairActivityCheckCommand } = require('./src/events/activityCommandRepair.ts');
     await forceRepairActivityCheckCommand(readyClient);
