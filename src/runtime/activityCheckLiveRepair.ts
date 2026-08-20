@@ -4,10 +4,10 @@ import {
     ActionRowBuilder,
     AttachmentBuilder,
     ButtonBuilder,
-    ButtonInteraction,
     ButtonStyle,
     ChannelType,
     ContainerBuilder,
+    Events,
     MediaGalleryBuilder,
     MediaGalleryItemBuilder,
     MessageFlags,
@@ -25,6 +25,7 @@ const UNDERBANNER_NAME = 'underbanner.webp';
 const ACTIVITY_BANNER_PATH = resolve(__dirname, '..', '..', 'assets', ACTIVITY_BANNER_NAME);
 const UNDERBANNER_PATH = resolve(__dirname, '..', '..', 'assets', UNDERBANNER_NAME);
 const REFRESH_INTERVAL_MS = 30_000;
+const POST_BUTTON_REFRESH_DELAY_MS = 750;
 const ACTIVITY_INFRACTION_EXEMPT_ROLE_ID = '1521593407795888329';
 
 type ActivityCheckRecord = {
@@ -42,7 +43,7 @@ type ActivityCheckRecord = {
 };
 
 type ActivityModule = {
-    handleActivityCheckButton: (interaction: ButtonInteraction) => Promise<boolean>;
+    handleActivityCheckButton?: unknown;
 };
 
 let installed = false;
@@ -158,6 +159,7 @@ function ensureRefreshLoop(client: Client): void {
         if (!refreshClient) return;
         void refreshAllActive(refreshClient).catch(() => undefined);
     }, REFRESH_INTERVAL_MS);
+    refreshTimer.unref?.();
 
     logger.info('[ActivityCheckLive] Live counter recovery enabled; active check emblems refresh every 30 seconds.');
 }
@@ -194,27 +196,42 @@ function installActivityInfractionExemptionGuard(): void {
     logger.info(`[ActivityCheck] Automatic infraction exemption guard active for role ${ACTIVITY_INFRACTION_EXEMPT_ROLE_ID}.`);
 }
 
-export function installActivityCheckLiveRepair(activityModule: ActivityModule, client: Client): void {
+function installPostButtonRefreshObserver(client: Client): void {
+    client.on(Events.InteractionCreate, interaction => {
+        if (!interaction.isButton()) return;
+        const match = interaction.customId.match(/^activity-check:active:(AC-[A-Z0-9-]+)$/u);
+        if (!match) return;
+
+        const checkId = match[1];
+        const timer = setTimeout(() => {
+            void (async () => {
+                const check = await getCheck(checkId);
+                if (check?.status !== 'active') return;
+
+                await refreshCheckMessage(client, check);
+                const required = check.requiredMemberIds?.length || 0;
+                const responded = check.activeMemberIds?.length || 0;
+                logger.info(`[ActivityCheckLive] ${check.checkId} refreshed after response: ${responded}/${required} responded.`);
+            })().catch(error => {
+                logger.warn(`[ActivityCheckLive] Post-response refresh failed: ${error instanceof Error ? error.message : String(error)}`);
+            });
+        }, POST_BUTTON_REFRESH_DELAY_MS);
+        timer.unref?.();
+    });
+}
+
+export function installActivityCheckLiveRepair(_activityModule: ActivityModule, client: Client): void {
     ensureRefreshLoop(client);
     installActivityInfractionExemptionGuard();
     if (installed) return;
     installed = true;
 
-    const original = activityModule.handleActivityCheckButton.bind(activityModule);
-    activityModule.handleActivityCheckButton = async (interaction: ButtonInteraction): Promise<boolean> => {
-        const match = interaction.customId.match(/^activity-check:active:(AC-[A-Z0-9-]+)$/u);
-        const handled = await original(interaction);
-        if (!handled || !match) return handled;
+    // Do not overwrite activityModule.handleActivityCheckButton. TypeScript
+    // module namespace exports are getter-backed/read-only under ts-node and
+    // assigning to them throws at runtime. Observe the interaction instead and
+    // refresh the persisted activity-check message after the normal handler has
+    // had time to save the response.
+    installPostButtonRefreshObserver(client);
 
-        const check = await getCheck(match[1]);
-        if (check?.status === 'active') {
-            await refreshCheckMessage(interaction.client, check);
-            const required = check.requiredMemberIds?.length || 0;
-            const responded = check.activeMemberIds?.length || 0;
-            logger.info(`[ActivityCheckLive] ${check.checkId} refreshed: ${responded}/${required} responded.`);
-        }
-        return true;
-    };
-
-    logger.info('[ActivityCheckLive] Activity-check button live-update repair installed.');
+    logger.info('[ActivityCheckLive] Activity-check post-response live refresh observer installed.');
 }
