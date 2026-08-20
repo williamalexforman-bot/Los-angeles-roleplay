@@ -13,6 +13,18 @@ import { registerJoinAccountDateCorrection } from './joinAccountDateCorrection';
 import { registerRaidProtection } from './raidProtection';
 
 const MEMBER_COUNT_REFRESH_MS = 5 * 60 * 1000;
+const DISCORD_CHAT_INPUT_COMMAND_LIMIT = 100;
+const REQUIRED_COMMAND_NAMES = [
+    'activity-check',
+    'view-activity-check',
+    'end-activity-check',
+    'void-activity-check',
+    'view-my-quota',
+    'view-user-quota',
+    'end-weekly-quota-early',
+    'extend-weeks-quota',
+] as const;
+const OPTIONAL_ACTIVITY_ALIASES = ['activitycheck', 'stopactivitycheck'] as const;
 let memberCountPresenceTimer: ReturnType<typeof setInterval> | null = null;
 let quotaMessageListenerRegistered = false;
 
@@ -52,11 +64,30 @@ export const onReady = async (client: Client): Promise<void> => {
     registerRaidProtection(client);
 
     const uniqueNames = new Set<string>();
-    const commands = commandDefinitions.map(command => {
+    const commandEntries = commandDefinitions.map((command, index) => {
         if (uniqueNames.has(command.data.name)) throw new Error(`Duplicate slash command definition: ${command.data.name}`);
         uniqueNames.add(command.data.name);
-        return command.data.toJSON();
+        return { name: command.data.name, json: command.data.toJSON(), index };
     });
+
+    const protectedNames = new Set<string>([...REQUIRED_COMMAND_NAMES, ...OPTIONAL_ACTIVITY_ALIASES]);
+    const prioritizedEntries = [...commandEntries].sort((a, b) => {
+        const aProtected = protectedNames.has(a.name) ? 0 : 1;
+        const bProtected = protectedNames.has(b.name) ? 0 : 1;
+        return aProtected - bProtected || a.index - b.index;
+    });
+    const selectedEntries = prioritizedEntries.slice(0, DISCORD_CHAT_INPUT_COMMAND_LIMIT);
+    const commands = selectedEntries.map(entry => entry.json);
+    const selectedNames = new Set(selectedEntries.map(entry => entry.name));
+    const skippedNames = prioritizedEntries.slice(DISCORD_CHAT_INPUT_COMMAND_LIMIT).map(entry => entry.name);
+
+    logger.info(`[SlashCommands] Prepared ${commands.length}/${commandEntries.length} chat-input commands for Discord registration.`);
+    if (skippedNames.length) {
+        logger.warn(`[SlashCommands] Discord allows at most ${DISCORD_CHAT_INPUT_COMMAND_LIMIT} chat-input commands. Skipped lower-priority commands: ${skippedNames.join(', ')}`);
+    }
+    for (const requiredName of REQUIRED_COMMAND_NAMES) {
+        if (!selectedNames.has(requiredName)) logger.error(`[SlashCommands] Required command ${requiredName} is missing from the local registration payload.`);
+    }
 
     const rest = new REST({ version: '10' }).setToken(token);
     try {
@@ -66,15 +97,20 @@ export const onReady = async (client: Client): Promise<void> => {
             logger.info(`Removed ${legacyGlobalCommands.length} legacy global slash commands.`);
         }
 
-        // Always register to every guild the running bot is actually connected to.
-        // A stale GUILD_ID must never make commands disappear from the live server.
         const guildIds = new Set<string>(client.guilds.cache.keys());
         const configuredGuildId = process.env.GUILD_ID?.trim();
         if (configuredGuildId) guildIds.add(configuredGuildId);
 
         if (guildIds.size === 0) {
-            await rest.put(Routes.applicationCommands(client.application.id), { body: commands });
-            logger.info(`Registered ${commands.length} global slash commands because no connected guild was available.`);
+            const registered = await rest.put(
+                Routes.applicationCommands(client.application.id),
+                { body: commands },
+            ) as Array<{ id: string; name: string }>;
+            const registeredNames = registered.map(command => command.name);
+            logger.info(`Registered ${registered.length} global slash commands because no connected guild was available.`);
+            for (const requiredName of REQUIRED_COMMAND_NAMES) {
+                if (!registeredNames.includes(requiredName)) logger.error(`[SlashCommands] Discord did not return required global command ${requiredName}.`);
+            }
         } else {
             for (const guildId of guildIds) {
                 try {
@@ -84,7 +120,7 @@ export const onReady = async (client: Client): Promise<void> => {
                     ) as Array<{ id: string; name: string }>;
                     const registeredNames = registered.map(command => command.name);
                     logger.info(`Registered ${registered.length} guild slash commands in ${guildId}: ${registeredNames.join(', ')}`);
-                    for (const requiredName of ['activity-check', 'activitycheck', 'view-activity-check', 'end-activity-check', 'stopactivitycheck', 'void-activity-check', 'view-my-quota']) {
+                    for (const requiredName of REQUIRED_COMMAND_NAMES) {
                         if (!registeredNames.includes(requiredName)) logger.error(`[SlashCommands] Discord did not return required command ${requiredName} for guild ${guildId}.`);
                     }
                 } catch (error) {
@@ -103,8 +139,6 @@ export const onReady = async (client: Client): Promise<void> => {
         logger.warn(`Prohibited-word overrides could not be loaded: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
 
-    // Quota is database-backed. Finish the initial Mongo connection before
-    // enabling it so /view-my-quota and message counting cannot race startup.
     const databaseReady = await connectDatabase().catch(() => false);
     const quotaIntentsReady = client.options.intents.has(GatewayIntentBits.GuildMessages)
         && client.options.intents.has(GatewayIntentBits.MessageContent)
