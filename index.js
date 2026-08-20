@@ -157,6 +157,15 @@ client.once(Events.ClientReady, async readyClient => {
   }
 
   try {
+    const activityModule = require('./src/commands/activityCheck.ts');
+    const { installActivityCheckLiveRepair } = require('./src/runtime/activityCheckLiveRepair.ts');
+    installActivityCheckLiveRepair(activityModule, readyClient);
+    console.log('[ActivityCheckLive] Current and future activity checks will live-update response counts.');
+  } catch (error) {
+    console.warn('[ActivityCheckLive] Live-update repair unavailable:', error instanceof Error ? error.stack || error.message : String(error));
+  }
+
+  try {
     const { registerTicketAiTriage } = require('./src/events/ticketAiTriage.ts');
     registerTicketAiTriage(readyClient);
     console.log('[Tickets] Pre-claim AI triage registered.');
