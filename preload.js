@@ -16,62 +16,77 @@ process.on('warning', warning => {
   console.warn('[Runtime] Node warning:', warning?.stack || warning?.message || String(warning));
 });
 
-// index.js historically used a cached lazy router promise. If that promise
-// rejects once, every later command can fail for the lifetime of the process.
-// Replace only the InteractionCreate listener after index.js creates the client
-// and install one direct stable-router bridge. This leaves all other listeners
-// (ready, messages, shard events, etc.) untouched.
+// index.js still contains a legacy lazy InteractionCreate listener. Install the
+// stable router only after BOTH of these are true:
+//   1. ts-node has registered .ts loading, and
+//   2. index.js has already attached its legacy InteractionCreate listener.
+// This removes the previous 750ms timing race that could leave two handlers on
+// the same interaction and cause Discord's "application didn't respond" errors.
 let directInteractionBridgeInstalled = false;
+let directInteractionBridgeInstalling = false;
+
 const bridgeInstaller = setInterval(() => {
-  if (directInteractionBridgeInstalled) return;
+  if (directInteractionBridgeInstalled || directInteractionBridgeInstalling) return;
+
   const client = globalThis.__discordClient;
-  if (!client || typeof client.on !== 'function') return;
+  if (!client || typeof client.on !== 'function' || typeof client.listenerCount !== 'function') return;
+  if (typeof require.extensions['.ts'] !== 'function') return;
 
-  // Give index.js enough time to attach its original interaction listener so
-  // we can replace it once rather than racing with startup.
-  directInteractionBridgeInstalled = true;
-  clearInterval(bridgeInstaller);
+  let Events;
+  try {
+    ({ Events } = require('discord.js'));
+  } catch {
+    return;
+  }
 
-  setTimeout(() => {
-    try {
-      const { Events, MessageFlags } = require('discord.js');
-      const { interactionCreateStable } = require('./src/handlers/interactionCreateStable.ts');
-      if (typeof interactionCreateStable !== 'function') {
-        throw new Error('interactionCreateStable export is unavailable.');
-      }
+  // Do not replace anything until index.js has attached the listener that this
+  // bridge is meant to supersede. That makes installation deterministic.
+  if (client.listenerCount(Events.InteractionCreate) < 1) return;
 
-      client.removeAllListeners(Events.InteractionCreate);
-      client.on(Events.InteractionCreate, async interaction => {
-        const startedAt = Date.now();
-        try {
-          await interactionCreateStable(interaction);
-          if (interaction.isChatInputCommand?.()) {
-            console.log(`[InteractionBridge] /${interaction.commandName} handled in ${Date.now() - startedAt}ms.`);
-          }
-        } catch (error) {
-          const message = error instanceof Error ? (error.stack || error.message) : String(error);
-          console.error('[InteractionBridge] Stable router failed:', message);
-
-          if (!interaction.isRepliable?.()) return;
-          try {
-            const content = 'The command system hit an internal error. Please try again.';
-            if (interaction.deferred) await interaction.editReply({ content });
-            else if (interaction.replied) await interaction.followUp({ content, flags: MessageFlags.Ephemeral });
-            else await interaction.reply({ content, flags: MessageFlags.Ephemeral });
-          } catch (replyError) {
-            console.error('[InteractionBridge] Could not acknowledge failed interaction:', replyError instanceof Error ? replyError.message : String(replyError));
-          }
-        }
-      });
-
-      console.log('[InteractionBridge] Direct stable interaction bridge installed; cached lazy router bypassed.');
-    } catch (error) {
-      directInteractionBridgeInstalled = false;
-      const message = error instanceof Error ? (error.stack || error.message) : String(error);
-      console.error('[InteractionBridge] Direct bridge installation failed:', message);
+  directInteractionBridgeInstalling = true;
+  try {
+    const { MessageFlags } = require('discord.js');
+    const { interactionCreateStable } = require('./src/handlers/interactionCreateStable.ts');
+    if (typeof interactionCreateStable !== 'function') {
+      throw new Error('interactionCreateStable export is unavailable.');
     }
-  }, 750).unref?.();
-}, 100);
+
+    client.removeAllListeners(Events.InteractionCreate);
+    client.on(Events.InteractionCreate, async interaction => {
+      const startedAt = Date.now();
+      try {
+        await interactionCreateStable(interaction);
+        if (interaction.isChatInputCommand?.()) {
+          console.log(`[InteractionBridge] /${interaction.commandName} handled in ${Date.now() - startedAt}ms.`);
+        }
+      } catch (error) {
+        const message = error instanceof Error ? (error.stack || error.message) : String(error);
+        console.error('[InteractionBridge] Stable router failed:', message);
+
+        if (!interaction.isRepliable?.()) return;
+        try {
+          const content = 'The command system hit an internal error. Please try again.';
+          if (interaction.deferred) await interaction.editReply({ content });
+          else if (interaction.replied) await interaction.followUp({ content, flags: MessageFlags.Ephemeral });
+          else await interaction.reply({ content, flags: MessageFlags.Ephemeral });
+        } catch (replyError) {
+          console.error('[InteractionBridge] Could not acknowledge failed interaction:', replyError instanceof Error ? replyError.message : String(replyError));
+        }
+      }
+    });
+
+    directInteractionBridgeInstalled = true;
+    clearInterval(bridgeInstaller);
+    console.log('[InteractionBridge] Deterministic stable interaction bridge installed; legacy lazy router removed.');
+  } catch (error) {
+    // Keep the interval alive so a temporary cold-import problem can recover on
+    // the next pass instead of permanently disabling every command.
+    const message = error instanceof Error ? (error.stack || error.message) : String(error);
+    console.error('[InteractionBridge] Stable bridge installation failed; retrying:', message);
+  } finally {
+    directInteractionBridgeInstalling = false;
+  }
+}, 50);
 bridgeInstaller.unref?.();
 
 // Render can report the web service as Live while the Discord gateway is no
