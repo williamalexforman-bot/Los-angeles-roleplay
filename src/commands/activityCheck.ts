@@ -1,1 +1,1 @@
-export * from './activityCheckV2';
+export * from './activityCheckV3';
