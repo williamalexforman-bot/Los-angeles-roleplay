@@ -100,56 +100,45 @@ client.on('shardDisconnect', (event, shardId) => {
   console.warn(`[Discord] Shard ${shardId} disconnected (${event?.code ?? 'unknown'}).`);
 });
 
-let routerPromise = null;
-async function loadInteractionRouter() {
-  if (!routerPromise) {
-    routerPromise = Promise.resolve().then(() => {
-      try {
-        const ticketModule = require('./src/commands/tickets.ts');
-        const { installTicketLifecycleEnhancements } = require('./src/commands/ticketLifecycleEnhancements.ts');
-        installTicketLifecycleEnhancements(ticketModule);
-        console.log('[Tickets] Lifecycle enhancements installed lazily.');
-      } catch (error) {
-        console.warn('[Tickets] Lifecycle enhancements unavailable:', error instanceof Error ? error.stack || error.message : String(error));
-      }
-
-      try {
-        const infractionAppealModule = require('./src/commands/infractionAppeal.ts');
-        const { installInfractionAppealRecovery } = require('./src/commands/infractionAppealRecovery.ts');
-        installInfractionAppealRecovery(infractionAppealModule);
-        console.log('[InfractionAppeal] Restart-safe recovery installed lazily.');
-      } catch (error) {
-        console.warn('[InfractionAppeal] Recovery layer unavailable:', error instanceof Error ? error.stack || error.message : String(error));
-      }
-
-      const router = require('./src/handlers/interactionCreate.ts');
-      if (!router || typeof router.interactionCreate !== 'function') {
-        throw new Error('interactionCreate export is unavailable.');
-      }
-      console.log('[Discord] Interaction router lazy-loaded successfully.');
-      return router.interactionCreate;
-    });
+// Load the stable interaction router directly after ts-node registration.
+// There is deliberately no cached lazy promise here: one failed cold import
+// must never poison every later Discord interaction for the lifetime of the process.
+let interactionCreateStable;
+try {
+  ({ interactionCreateStable } = require('./src/handlers/interactionCreateStable.ts'));
+  if (typeof interactionCreateStable !== 'function') {
+    throw new Error('interactionCreateStable export is unavailable.');
   }
-  return routerPromise;
+  console.log('[Discord] Stable interaction router loaded directly.');
+} catch (error) {
+  console.error('[Discord] Stable interaction router failed to load:', error instanceof Error ? error.stack || error.message : String(error));
 }
 
+globalThis.__indexOwnsStableInteractionBridge = true;
 client.on(Events.InteractionCreate, async interaction => {
+  const startedAt = Date.now();
   try {
-    const interactionCreate = await loadInteractionRouter();
-    await interactionCreate(interaction);
+    if (typeof interactionCreateStable !== 'function') {
+      throw new Error('Stable interaction router is unavailable.');
+    }
+    await interactionCreateStable(interaction);
+    if (interaction.isChatInputCommand?.()) {
+      console.log(`[InteractionBridge] /${interaction.commandName} handled in ${Date.now() - startedAt}ms.`);
+    }
   } catch (error) {
-    console.error('[Discord] Interaction bridge failed:', error instanceof Error ? error.stack || error.message : String(error));
+    console.error('[InteractionBridge] Stable router failed:', error instanceof Error ? error.stack || error.message : String(error));
     if (!interaction.isRepliable()) return;
     try {
       const content = 'The command system hit an internal error. Please try again in a moment.';
       if (interaction.deferred) await interaction.editReply({ content });
       else if (interaction.replied) await interaction.followUp({ content, flags: MessageFlags.Ephemeral });
       else await interaction.reply({ content, flags: MessageFlags.Ephemeral });
-    } catch {
-      // Discord may already have expired the interaction.
+    } catch (replyError) {
+      console.error('[InteractionBridge] Could not acknowledge failed interaction:', replyError instanceof Error ? replyError.message : String(replyError));
     }
   }
 });
+console.log('[InteractionBridge] Index-owned stable interaction bridge installed.');
 
 client.once(Events.ClientReady, async readyClient => {
   console.log(`[Discord] READY as ${readyClient.user.tag} (${readyClient.user.id})`);
