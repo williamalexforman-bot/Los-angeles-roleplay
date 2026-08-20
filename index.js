@@ -4,9 +4,9 @@
 require('ts-node').register({ transpileOnly: true, project: require('path').join(__dirname, 'tsconfig.json') });
 require('dotenv').config();
 
-// The custom Partnership and Paid Ad banners are stored as base64 text so the
-// exact artwork can live in the repository even through text-only connector
-// writes. Materialize them before any command module tries to attach them.
+// Custom V2 banners are stored as base64 text so the exact artwork can live
+// in the repository even through text-only connector writes. Materialize them
+// before any command module tries to attach them.
 try {
   const fs = require('fs');
   const path = require('path');
@@ -14,6 +14,7 @@ try {
   const bannerAssets = [
     ['partnership-banner.b64', 'partnership-banner.webp'],
     ['paid-ad-banner.b64', 'paid-ad-banner.webp'],
+    ['activity-check-banner.b64', 'activity-check-banner.jpg'],
   ];
   for (const [sourceName, outputName] of bannerAssets) {
     const source = path.join(assetsDir, sourceName);
