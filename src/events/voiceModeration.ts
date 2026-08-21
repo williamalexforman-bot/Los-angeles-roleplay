@@ -32,6 +32,7 @@ const MAX_CLIP_MS = 20_000;
 const MIN_CLIP_MS = 450;
 const SILENCE_END_MS = 1_200;
 const RECONNECT_DELAY_MS = 8_000;
+const TRANSCRIPTION_QUOTA_COOLDOWN_MS = 15 * 60 * 1000;
 
 const registeredClients = new WeakSet<Client>();
 const activeSpeakers = new Set<string>();
@@ -39,6 +40,8 @@ let connection: VoiceConnection | null = null;
 let receiverAttachedTo: VoiceConnection | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let connecting = false;
+let transcriptionBlockedUntil = 0;
+let quotaWarningLogged = false;
 
 function enabled(): boolean {
     return String(process.env.VOICE_MODERATION_ENABLED || 'true').toLowerCase() !== 'false';
@@ -75,6 +78,11 @@ async function transcribeWav(wav: Buffer): Promise<string> {
         logger.warn('[VoiceMod] OPENAI_API_KEY is missing; voice clips cannot be transcribed.');
         return '';
     }
+
+    if (Date.now() < transcriptionBlockedUntil) {
+        return '';
+    }
+
     const form = new FormData();
     form.append('model', process.env.VOICE_TRANSCRIBE_MODEL?.trim() || 'gpt-4o-mini-transcribe');
     form.append('file', new Blob([wav], { type: 'audio/wav' }), `voice-${Date.now()}.wav`);
@@ -87,9 +95,19 @@ async function transcribeWav(wav: Buffer): Promise<string> {
         });
         if (!response.ok) {
             const details = await response.text().catch(() => '');
+            if (response.status === 429) {
+                transcriptionBlockedUntil = Date.now() + TRANSCRIPTION_QUOTA_COOLDOWN_MS;
+                if (!quotaWarningLogged) {
+                    quotaWarningLogged = true;
+                    logger.warn('[VoiceMod] OpenAI transcription quota is exhausted (429). Pausing transcription attempts for 15 minutes. Voice detection cannot flag speech until API quota is available.');
+                }
+                return '';
+            }
             logger.warn(`[VoiceMod] Transcription failed (${response.status}): ${details.slice(0, 240)}`);
             return '';
         }
+        quotaWarningLogged = false;
+        transcriptionBlockedUntil = 0;
         const payload = await response.json() as { text?: unknown };
         return typeof payload.text === 'string' ? payload.text.trim() : '';
     } catch (error) {
