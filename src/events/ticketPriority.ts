@@ -62,17 +62,17 @@ function openingReasonFromPanel(message: Message, type: TicketType): string {
 
     for (const label of labels) {
         const headingIndex = lines.findIndex(line => line.trim().toLowerCase() === `### ${label}`.toLowerCase());
-        if (headingIndex >= 0) {
-            const collected: string[] = [];
-            for (let index = headingIndex + 1; index < lines.length; index += 1) {
-                const line = lines[index].trim();
-                if (!line || line === '```') continue;
-                if (line.startsWith('### ')) break;
-                collected.push(line);
-            }
-            const reason = collected.join(' ').trim();
-            if (reason) return reason;
+        if (headingIndex < 0) continue;
+
+        const collected: string[] = [];
+        for (let index = headingIndex + 1; index < lines.length; index += 1) {
+            const line = lines[index].trim();
+            if (!line || line === '```') continue;
+            if (line.startsWith('### ')) break;
+            collected.push(line);
         }
+        const reason = collected.join(' ').trim();
+        if (reason) return reason;
     }
     return '';
 }
@@ -97,6 +97,7 @@ async function waitForTicketPanel(channel: TextChannel, metadata: TicketMetadata
             const linked = await channel.messages.fetch(current.panelMessageId).catch(() => null);
             if (linked) return linked;
         }
+
         const recent = await channel.messages.fetch({ limit: 20 }).catch(() => null);
         const panel = recent?.find(message =>
             message.author.id === channel.client.user?.id
@@ -121,25 +122,31 @@ function shortSlug(value: string): string {
         .trim()
         .split(/\s+/)
         .filter(Boolean)
-        .filter(word => !['the', 'a', 'an', 'and', 'or', 'to', 'for', 'of', 'my', 'me', 'i', 'is', 'it', 'this', 'that', 'please', 'ticket'].includes(word))
+        .filter(word => ![
+            'the', 'a', 'an', 'and', 'or', 'to', 'for', 'of', 'my', 'me', 'i', 'is', 'it',
+            'this', 'that', 'please', 'ticket', 'need', 'want', 'help', 'with', 'about', 'because',
+        ].includes(word))
         .slice(0, MAX_TITLE_WORDS);
-    const slug = (words.length ? words : ['support', 'request']).join('-');
-    return slug.slice(0, MAX_TITLE_LENGTH).replace(/-+$/g, '') || 'support-request';
+    const slug = (words.length ? words : ['support']).join('-');
+    return slug.slice(0, MAX_TITLE_LENGTH).replace(/-+$/g, '') || 'support';
 }
 
-function fallbackTitle(reason: string): string {
+function titleForReason(type: TicketType, reason: string): string {
     const normalized = reason.toLowerCase();
     const known: Array<[RegExp, string]> = [
         [/\bban\s+appeal|appeal(?:ing)?\s+(?:a\s+)?ban\b/i, 'ban-appeal'],
         [/\bwarn(?:ing)?\s+appeal|appeal.*warn/i, 'warning-appeal'],
         [/\bstrike\s+appeal|appeal.*strike/i, 'strike-appeal'],
+        [/\bsuspension\s+appeal|appeal.*suspension/i, 'suspension-appeal'],
+        [/\bdemotion\s+appeal|appeal.*demotion/i, 'demotion-appeal'],
+        [/\binfraction\s+appeal|appeal.*infraction/i, 'infraction-appeal'],
         [/\bappeal\b/i, 'appeal-request'],
         [/\bpartner|partnership\b/i, 'partnership-request'],
-        [/\bpaid\s*ad|advertis(?:e|ement|ing)\b/i, 'paid-ad-question'],
+        [/\bpaid\s*ad|advertis(?:e|ement|ing)\b/i, 'paid-ad-help'],
         [/\bhack(?:er|ing|ed)?|exploit(?:er|ing)?\b/i, 'hacker-report'],
         [/\braid(?:ing|er|ers)?\b/i, 'raid-threat'],
         [/\bdoxx?|leak(?:ed|ing)?\s+(?:info|information)\b/i, 'security-threat'],
-        [/\breport(?:ing)?\s+(?:a\s+)?staff|staff\s+report\b/i, 'staff-report'],
+        [/\breport(?:ing)?\s+(?:a\s+)?staff|staff\s+report|staff\s+complaint\b/i, 'staff-report'],
         [/\breport(?:ing)?\s+(?:a\s+)?player|player\s+report\b/i, 'player-report'],
         [/\bapplication\b/i, 'application-question'],
         [/\btransfer\b/i, 'staff-transfer'],
@@ -147,89 +154,53 @@ function fallbackTitle(reason: string): string {
         [/\bperk\b/i, 'perk-help'],
         [/\bprize\b/i, 'prize-claim'],
         [/\bpayment|purchase\b/i, 'payment-help'],
+        [/\bmarketplace\b/i, 'marketplace-help'],
+        [/\bownership|owner\b/i, 'ownership-question'],
         [/\brole\b.*\bmissing|missing.*\brole\b/i, 'missing-role'],
-        [/\bhow\s+do\s+i|question|help\b/i, 'general-question'],
     ];
-    for (const [pattern, title] of known) if (pattern.test(normalized)) return title;
 
-    const words = normalized
-        .replace(/https?:\/\/\S+/g, '')
-        .replace(/[^a-z0-9\s]/g, ' ')
-        .split(/\s+/)
-        .filter(word => word.length > 2 && ![
-            'the', 'and', 'that', 'this', 'with', 'have', 'need', 'want', 'ticket', 'please',
-            'because', 'about', 'would', 'could', 'just', 'someone', 'something', 'hello', 'hey',
-        ].includes(word))
-        .slice(0, MAX_TITLE_WORDS);
-    return shortSlug(words.length ? words.join('-') : 'support-request');
+    for (const [pattern, title] of known) {
+        if (pattern.test(normalized)) return title;
+    }
+
+    const categoryFallback: Record<TicketType, string> = {
+        general: 'general-support',
+        internal: 'internal-affairs',
+        management: 'management-support',
+        highrank: 'high-rank-support',
+    };
+
+    // Only use the user's wording when it contains enough useful content.
+    const slug = shortSlug(reason);
+    return slug && slug !== 'support' ? slug : categoryFallback[type];
 }
 
-function fallbackPriority(type: TicketType, reason: string): PriorityResult {
+function classifyTicket(type: TicketType, reason: string): PriorityResult {
     const normalized = reason.toLowerCase();
-    const activeEmergency = /\b(?:active|currently|right\s+now|happening|ongoing)\b/i.test(normalized);
-    const raidOrHack = /\b(?:raid(?:ing|er|ers)?|hack(?:er|ing|ed)?|exploit(?:er|ing)?|doxx?(?:ing|ed)?)\b/i.test(normalized);
+    const title = titleForReason(type, reason);
 
-    if (raidOrHack && (activeEmergency || /\bthreat(?:en|ening)?\b/i.test(normalized))) {
-        return { priority: 'emergency', title: fallbackTitle(reason) };
+    const activeEmergency = /\b(?:active|currently|right\s+now|happening|ongoing|in\s+progress)\b/i.test(normalized);
+    const attackLanguage = /\b(?:raid(?:ing|er|ers)?|hack(?:er|ing|ed)?|exploit(?:er|ing)?|doxx?(?:ing|ed)?)\b/i.test(normalized);
+    if (attackLanguage && (activeEmergency || /\b(?:threat|attack|attacking)\b/i.test(normalized))) {
+        return { priority: 'emergency', title };
     }
-    if (/\b(?:raid\s*threat|mass\s*raid|server\s*raid|hacker|hacking|exploiter|doxx?)\b/i.test(normalized)
+    if (/\b(?:raid\s*threat|mass\s*raid|server\s*raid|doxx?|active\s+hacker|active\s+exploiter)\b/i.test(normalized)
         && !/\bappeal\b/i.test(normalized)) {
-        return { priority: 'emergency', title: fallbackTitle(reason) };
+        return { priority: 'emergency', title };
     }
-    if (/\b(?:urgent|threat|blackmail|compromised|stolen\s+account|serious\s+staff\s+misconduct)\b/i.test(normalized)) {
-        return { priority: 'high', title: fallbackTitle(reason) };
+    if (/\b(?:urgent|credible\s+threat|blackmail|compromised|stolen\s+account|serious\s+staff\s+misconduct)\b/i.test(normalized)) {
+        return { priority: 'high', title };
     }
-    if (type === 'internal' || /\b(?:report|complaint|partnership|paid\s*ad|payment|purchase|transfer|fast\s*pass)\b/i.test(normalized)) {
-        return { priority: 'medium', title: fallbackTitle(reason) };
-    }
-    return { priority: 'low', title: fallbackTitle(reason) };
-}
 
-async function aiPriority(type: TicketType, reason: string): Promise<PriorityResult> {
-    const fallback = fallbackPriority(type, reason);
-    const apiKey = process.env.OPENAI_API_KEY?.trim();
-    if (!apiKey) return fallback;
+    // Category floors stop nearly every ticket from becoming green.
+    if (type === 'highrank') return { priority: 'high', title };
+    if (type === 'management' || type === 'internal') return { priority: 'medium', title };
 
-    try {
-        const response = await fetch('https://api.openai.com/v1/responses', {
-            method: 'POST',
-            headers: {
-                Authorization: `Bearer ${apiKey}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                model: process.env.TICKET_TRIAGE_MODEL?.trim() || process.env.TICKET_RECAP_MODEL?.trim() || 'gpt-5-mini',
-                input: [
-                    {
-                        role: 'system',
-                        content: [
-                            'Classify the priority of a Discord support ticket and make a very short channel title.',
-                            'Return exactly: priority|short-title',
-                            'priority must be one of low, medium, high, emergency.',
-                            'low: appeals, ordinary questions, simple help, application questions.',
-                            'medium: normal reports, partnership/business requests, payment or transfer issues that are not urgent.',
-                            'high: serious or time-sensitive issues, credible threats, major staff misconduct, compromised accounts.',
-                            'emergency: active raid threats, active raids, hackers/exploiters actively attacking the server, doxxing/security emergencies.',
-                            'The short title MUST be 2 to 4 useful words only, lowercase, letters/numbers/hyphens only.',
-                            'Prefer simple names such as ban-appeal, staff-report, partnership-request, hacked-account, raid-threat.',
-                            'Never repeat the full user sentence. Never include usernames, Discord IDs, links, filler words, or private details.',
-                        ].join(' '),
-                    },
-                    { role: 'user', content: `Ticket category: ${type}\nOpening reason: ${reason.slice(0, 2500)}` },
-                ],
-                max_output_tokens: 30,
-            }),
-            signal: AbortSignal.timeout(6000),
-        });
-        if (!response.ok) return fallback;
-        const payload = await response.json() as { output_text?: unknown };
-        const raw = typeof payload.output_text === 'string' ? payload.output_text.trim() : '';
-        const [priorityRaw, titleRaw] = raw.split('|', 2).map(part => part.trim().toLowerCase());
-        if (!['low', 'medium', 'high', 'emergency'].includes(priorityRaw) || !titleRaw) return fallback;
-        return { priority: priorityRaw as Priority, title: shortSlug(titleRaw) };
-    } catch {
-        return fallback;
+    if (/\b(?:report|complaint|partnership|paid\s*ad|payment|purchase|transfer|fast\s*pass|marketplace)\b/i.test(normalized)) {
+        return { priority: 'medium', title };
     }
+
+    return { priority: 'low', title };
 }
 
 function channelName(result: PriorityResult): string {
@@ -259,24 +230,23 @@ async function prioritizeTicket(channel: TextChannel, suppliedMetadata?: TicketM
             logger.warn(`[Ticket Priority] Could not find opening panel for ${channel.id}.`);
             return false;
         }
+
         const reason = openingReasonFromPanel(panel, metadata.type);
         if (!reason) {
             logger.warn(`[Ticket Priority] Opening reason could not be read for ${channel.id}.`);
             return false;
         }
 
-        let name: string;
-        if (duckNeeded(reason)) {
-            name = '🐥-duck-needed';
-        } else {
-            const result = await aiPriority(metadata.type, reason);
-            name = channelName(result);
-        }
+        const name = duckNeeded(reason)
+            ? '🐥-duck-needed'
+            : channelName(classifyTicket(metadata.type, reason));
 
-        const renamed = await channel.setName(name, 'Automatic ticket priority and reason naming.').then(() => true).catch(error => {
-            logger.warn(`[Ticket Priority] Could not rename ${channel.id}: ${error instanceof Error ? error.message : 'Unknown error'}`);
-            return false;
-        });
+        const renamed = await channel.setName(name, 'Deterministic ticket category, priority, and reason naming.')
+            .then(() => true)
+            .catch(error => {
+                logger.warn(`[Ticket Priority] Could not rename ${channel.id}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                return false;
+            });
         if (!renamed) return false;
 
         completedChannels.add(channel.id);
@@ -305,9 +275,6 @@ export function registerTicketPriority(client: Client): void {
         });
     });
 
-    // Reliability fallback: the V2 opening panel is posted after the channel is
-    // created. If channelCreate arrived before the ticket topic/panel was ready,
-    // this second trigger guarantees another naming attempt once the panel exists.
     client.on('messageCreate', message => {
         if (message.author.id !== client.user?.id || message.channel.type !== ChannelType.GuildText) return;
         if (completedChannels.has(message.channel.id)) return;
@@ -317,5 +284,5 @@ export function registerTicketPriority(client: Client): void {
         });
     });
 
-    logger.info('[Ticket Priority] Reliable concise ticket naming enabled.');
+    logger.info('[Ticket Priority] Single authoritative deterministic ticket naming enabled.');
 }
