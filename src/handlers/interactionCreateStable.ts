@@ -189,6 +189,8 @@ async function runOptionalComponent(interaction: Interaction): Promise<boolean> 
         if (interaction.isModalSubmit()) attempts.push(async () => Boolean(await require('../commands/loa.ts').handleLoaModal?.(interaction)));
     } else if (id.startsWith('applications:') || id.startsWith('ticket:') || id.startsWith('activity-check:')) {
         return false;
+    } else if (id.startsWith('dashboard:')) {
+        if (interaction.isButton()) attempts.push(async () => Boolean(await require('../commands/dashboard.ts').handleDashboardButton?.(interaction)));
     } else if (id.startsWith('suggestion')) {
         if (interaction.isButton()) attempts.push(async () => Boolean(await require('../commands/suggestions.ts').handleSuggestionButton?.(interaction)));
     } else if (id.includes('paid') || id.includes('advert')) {
@@ -211,9 +213,6 @@ async function runOptionalComponent(interaction: Interaction): Promise<boolean> 
         if (interaction.isModalSubmit()) attempts.push(async () => Boolean(await require('../commands/banAppeal.ts').handleBanAppealModal?.(interaction)));
     } else if (id.startsWith('session')) {
         if (interaction.isButton()) {
-            // The canonical session.ts handler MUST run first because /session-vote
-            // creates its live vote state there. The enhanced handler owns only
-            // extra controls such as View Voters after the canonical handler declines.
             attempts.push(
                 async () => Boolean(await require('../commands/session.ts').handleSessionButton?.(interaction)),
                 async () => Boolean(await require('../commands/sessionEnhancements.ts').handleEnhancedSessionButton?.(interaction)),
