@@ -15,6 +15,8 @@ import {
     SeparatorBuilder,
     SeparatorSpacingSize,
     SlashCommandBuilder,
+    StringSelectMenuBuilder,
+    StringSelectMenuInteraction,
     TextDisplayBuilder,
 } from 'discord.js';
 import { BRAND } from '../config/constants';
@@ -73,6 +75,34 @@ function disabledButton(
     return new ActionRowBuilder<ButtonBuilder>().addComponents(button);
 }
 
+function dashboardNavigation(): ActionRowBuilder<StringSelectMenuBuilder> {
+    return new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+        new StringSelectMenuBuilder()
+            .setCustomId('dashboard:menu')
+            .setPlaceholder('Select a dashboard section')
+            .addOptions(
+                {
+                    label: 'Frequently Asked Questions',
+                    value: 'faq',
+                    emoji: '❔',
+                    description: 'Partnerships, verification, and moderator applications',
+                },
+                {
+                    label: 'Discord Bulletin',
+                    value: 'bulletin',
+                    emoji: '📌',
+                    description: 'Official Los Angeles Roleplay resources',
+                },
+                {
+                    label: 'Regulations',
+                    value: 'regulations',
+                    emoji: '📖',
+                    description: 'Discord and voice channel regulations',
+                },
+            ),
+    );
+}
+
 function withDashboardBanner(content: string): ContainerBuilder {
     return new ContainerBuilder()
         .setAccentColor(BRAND.color)
@@ -89,11 +119,7 @@ function mainDashboard(): ContainerBuilder {
         '**Los Angeles Roleplay** is a realistic roleplay community based in ER:LC, focused on immersive sessions, professional departments, community events, and a high-quality Los Angeles roleplay experience.',
     ].join('\n'))
         .addSeparatorComponents(separator())
-        .addActionRowComponents(
-            dashboardButton('dashboard:faq', 'Frequently Asked Questions'),
-            dashboardButton('dashboard:bulletin', 'Discord Bulletin'),
-            dashboardButton('dashboard:regulations', 'Regulations'),
-        )
+        .addActionRowComponents(dashboardNavigation())
         .addSeparatorComponents(separator())
         .addTextDisplayComponents(new TextDisplayBuilder().setContent('*Los Angeles Roleplay • Most immersive Los Angeles experience*'));
 }
@@ -273,8 +299,10 @@ function longRulesPanel(title: string, content: string): ContainerBuilder {
     return panel;
 }
 
+type DashboardPrivateInteraction = ButtonInteraction | StringSelectMenuInteraction;
+
 async function privatePanel(
-    interaction: ButtonInteraction,
+    interaction: DashboardPrivateInteraction,
     panel: ContainerBuilder,
     includeBanner = true,
 ): Promise<void> {
@@ -294,9 +322,6 @@ async function startExistingApplication(interaction: ButtonInteraction, type: 'd
         throw new Error('Existing application starter is unavailable.');
     }
 
-    // Reuse the existing select-menu application engine without creating a
-    // second application/session implementation. ButtonInteraction has all of
-    // the reply/user/guild fields the starter uses; only customId/values differ.
     const synthetic = new Proxy(interaction as unknown as Record<PropertyKey, unknown>, {
         get(target, property, receiver) {
             if (property === 'customId') return 'applications:type';
@@ -306,6 +331,32 @@ async function startExistingApplication(interaction: ButtonInteraction, type: 'd
         },
     });
     await applications.handleApplicationSelect(synthetic);
+}
+
+export async function handleDashboardSelect(interaction: StringSelectMenuInteraction): Promise<boolean> {
+    if (interaction.customId !== 'dashboard:menu') return false;
+    try {
+        switch (interaction.values[0]) {
+            case 'faq':
+                await privatePanel(interaction, faqPanel());
+                return true;
+            case 'bulletin':
+                await privatePanel(interaction, bulletinPanel());
+                return true;
+            case 'regulations':
+                await privatePanel(interaction, regulationsPanel());
+                return true;
+            default:
+                await interaction.reply({ content: 'That dashboard section is unavailable.', flags: MessageFlags.Ephemeral }).catch(() => undefined);
+                return true;
+        }
+    } catch (error) {
+        logger.error(`[Dashboard] Select ${interaction.customId} failed: ${error instanceof Error ? error.stack || error.message : String(error)}`);
+        if (!interaction.deferred && !interaction.replied) {
+            await interaction.reply({ content: 'The dashboard could not open that section right now.', flags: MessageFlags.Ephemeral }).catch(() => undefined);
+        }
+        return true;
+    }
 }
 
 export async function handleDashboardButton(interaction: ButtonInteraction): Promise<boolean> {
@@ -320,8 +371,15 @@ export async function handleDashboardButton(interaction: ButtonInteraction): Pro
 
     try {
         switch (interaction.customId) {
+            // Keep old top-level button IDs supported for dashboards posted before this update.
             case 'dashboard:faq':
                 await privatePanel(interaction, faqPanel());
+                return true;
+            case 'dashboard:bulletin':
+                await privatePanel(interaction, bulletinPanel());
+                return true;
+            case 'dashboard:regulations':
+                await privatePanel(interaction, regulationsPanel());
                 return true;
             case 'dashboard:faq:partner':
                 await privatePanel(interaction, partnershipPanel(), false);
@@ -337,12 +395,6 @@ export async function handleDashboardButton(interaction: ButtonInteraction): Pro
                 return true;
             case 'dashboard:apply:ingame':
                 await startExistingApplication(interaction, 'ingame');
-                return true;
-            case 'dashboard:bulletin':
-                await privatePanel(interaction, bulletinPanel());
-                return true;
-            case 'dashboard:regulations':
-                await privatePanel(interaction, regulationsPanel());
                 return true;
             case 'dashboard:regulations:discord':
                 await privatePanel(interaction, longRulesPanel('## <:Discord:1522529390687293460> Discord Regulations', DISCORD_GUIDELINES));
