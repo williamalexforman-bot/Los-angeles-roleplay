@@ -2,6 +2,7 @@ import {
     ChannelType,
     Client,
     Events,
+    PermissionFlagsBits,
     type Guild,
     type GuildMember,
     type SendableChannels,
@@ -33,7 +34,7 @@ const BITS_PER_SAMPLE = 16;
 const MAX_CLIP_MS = 20_000;
 const MIN_CLIP_MS = 450;
 const SILENCE_END_MS = 1_200;
-const RECONNECT_DELAY_MS = 5_000;
+const RECONNECT_DELAY_MS = 8_000;
 
 const registeredClients = new WeakSet<Client>();
 const activeSpeakers = new Set<string>();
@@ -106,7 +107,6 @@ type Flag = { reason: 'Profanity' | 'Raid Threat' | 'Trolling'; evidence: string
 function detectFlag(transcript: string): Flag {
     const text = transcript.toLowerCase();
 
-    // Explicit threats to raid/spam/attack the server get highest priority.
     const raidPatterns = [
         /\b(?:i(?:'m| am|’m)?|we(?:'re| are|’re)?)\s+(?:gonna|going to|about to|will)\s+(?:raid|spam|attack|nuke)\b/i,
         /\b(?:raid|nuke|spam)\s+(?:this|the)\s+(?:server|discord)\b/i,
@@ -116,12 +116,9 @@ function detectFlag(transcript: string): Flag {
         if (pattern.test(text)) return { reason: 'Raid Threat', evidence: 'Speech matched a raid/spam threat pattern.' };
     }
 
-    // Common explicit profanity. Keep this focused on clear curse words rather
-    // than trying to infer identity-based slurs from imperfect transcription.
     const profanity = /\b(?:fuck(?:ing|ed|er|ers)?|shit(?:ty)?|bitch(?:es)?|asshole(?:s)?|motherfucker(?:s)?|dickhead(?:s)?|bullshit)\b/i;
     if (profanity.test(text)) return { reason: 'Profanity', evidence: 'Speech contained explicit profanity.' };
 
-    // Verbal trolling / disruption statements that are clear enough to act on.
     const trolling = /\b(?:i(?:'m| am|’m)?\s+(?:just\s+)?trolling|this is (?:a )?troll|mic\s*spam|i(?:'m| am|’m)?\s+(?:gonna|going to)\s+(?:spam|troll|annoy|disrupt)|trying to (?:troll|annoy|disrupt)|let(?:'s| us)\s+(?:troll|spam))\b/i;
     if (trolling.test(text)) return { reason: 'Trolling', evidence: 'Speech explicitly described trolling or intentional disruption.' };
 
@@ -254,6 +251,17 @@ async function connectVoiceModeration(client: Client): Promise<void> {
         return;
     }
 
+    const botMember = channel.guild.members.me || await channel.guild.members.fetchMe().catch(() => null);
+    const permissions = botMember ? channel.permissionsFor(botMember) : null;
+    const canView = Boolean(permissions?.has(PermissionFlagsBits.ViewChannel));
+    const canConnect = Boolean(permissions?.has(PermissionFlagsBits.Connect));
+    logger.info(`[VoiceMod] Permission check: view=${canView} connect=${canConnect} channel=${VOICE_CHANNEL_ID}.`);
+    if (!botMember || !canView || !canConnect) {
+        logger.warn(`[VoiceMod] Cannot join ${VOICE_CHANNEL_ID}: bot needs View Channel and Connect permissions.`);
+        scheduleReconnect(client);
+        return;
+    }
+
     if (!process.env.OPENAI_API_KEY?.trim()) {
         logger.warn('[VoiceMod] OPENAI_API_KEY is missing. The bot can join voice but cannot transcribe/moderate speech.');
     }
@@ -269,6 +277,9 @@ async function connectVoiceModeration(client: Client): Promise<void> {
         selfMute: true,
     });
 
+    connection.on('stateChange', (oldState, newState) => {
+        logger.info(`[VoiceMod] Voice state ${oldState.status} -> ${newState.status}.`);
+    });
     connection.on(VoiceConnectionStatus.Disconnected, () => {
         logger.warn('[VoiceMod] Voice connection disconnected; scheduling reconnect.');
         scheduleReconnect(client);
@@ -281,12 +292,13 @@ async function connectVoiceModeration(client: Client): Promise<void> {
     });
 
     try {
-        await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
+        await entersState(connection, VoiceConnectionStatus.Ready, 30_000);
         attachReceiver(client, channel.guild, connection);
-        logger.info(`[VoiceMod] Connected to voice channel ${VOICE_CHANNEL_ID}; flagged clips will go to ${VOICE_MOD_LOG_CHANNEL_ID}.`);
+        logger.info(`[VoiceMod] READY in ${VOICE_CHANNEL_ID}; flagged clips will go to ${VOICE_MOD_LOG_CHANNEL_ID}.`);
     } catch (error) {
-        logger.warn(`[VoiceMod] Could not become ready in voice channel: ${error instanceof Error ? error.message : String(error)}`);
-        connection.destroy();
+        const state = connection.state.status;
+        logger.warn(`[VoiceMod] Could not become ready: state=${state} error=${error instanceof Error ? error.message : String(error)}`);
+        if (connection.state.status !== VoiceConnectionStatus.Destroyed) connection.destroy();
         scheduleReconnect(client);
     }
 }
@@ -302,8 +314,6 @@ export function registerVoiceModeration(client: Client): void {
 
     void connectVoiceModeration(client);
 
-    // If the bot is manually disconnected or moved, restore the configured
-    // moderation channel automatically.
     client.on(Events.VoiceStateUpdate, (_oldState, newState) => {
         if (newState.id !== client.user?.id) return;
         if (newState.channelId !== VOICE_CHANNEL_ID) scheduleReconnect(client);
