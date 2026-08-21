@@ -1,6 +1,7 @@
 import { Client, EmbedBuilder } from 'discord.js';
 import { legacyEmbedToV2Message } from '../utils/embeds';
 import { logger } from '../utils/logger';
+import { registerMemberWelcome } from './memberWelcome';
 
 const registeredClients = new WeakSet<Client>();
 const DEFAULT_JOIN_LOG_CHANNEL_ID = '1529283685168447698';
@@ -8,6 +9,9 @@ const DEFAULT_JOIN_LOG_CHANNEL_ID = '1529283685168447698';
 export function registerJoinAccountDateCorrection(client: Client): void {
     if (registeredClients.has(client)) return;
     registeredClients.add(client);
+
+    // Register the separate plain-text public welcome message exactly once.
+    registerMemberWelcome(client);
 
     client.on('guildMemberAdd', member => {
         void (async () => {
