@@ -80,6 +80,29 @@ async function freshMetadata(channel: TextChannel): Promise<TicketMetadata | nul
     return decodeMetadata(refreshed.topic);
 }
 
+async function dmTicketOwnerClaimed(
+    interaction: ButtonInteraction,
+    metadata: TicketMetadata,
+    channel: TextChannel,
+): Promise<void> {
+    try {
+        const owner = await interaction.client.users.fetch(metadata.ownerId);
+        await owner.send({
+            content: [
+                '🎫 **Your ticket has been claimed!**',
+                '',
+                `**Claimed by:** ${interaction.user.tag}`,
+                `**Ticket:** #${channel.name}`,
+                '',
+                'A staff member is now handling your ticket. Please continue the conversation in the ticket channel.',
+            ].join('\n'),
+        });
+        logger.info(`[TicketClaimRepair] Sent claim DM to ticket opener ${metadata.ownerId}.`);
+    } catch (error) {
+        logger.warn(`[TicketClaimRepair] Could not DM ticket opener ${metadata.ownerId}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+}
+
 export async function handleTicketClaimRepair(interaction: ButtonInteraction): Promise<boolean> {
     if (interaction.customId !== 'ticket:claim') return false;
 
@@ -165,6 +188,8 @@ export async function handleTicketClaimRepair(interaction: ButtonInteraction): P
             }).catch(() => undefined);
             return true;
         }
+
+        await dmTicketOwnerClaimed(interaction, claimedMetadata, channel);
 
         await interaction.followUp({
             content: `✅ Ticket claimed by <@${interaction.user.id}>.`,
