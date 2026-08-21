@@ -10,6 +10,13 @@ require('./preload.js');
 require('ts-node').register({ transpileOnly: true, project: require('path').join(__dirname, 'tsconfig.json') });
 require('dotenv').config();
 
+try {
+  const { logRuntimeEnvironmentAudit } = require('./src/config/env.ts');
+  logRuntimeEnvironmentAudit();
+} catch (error) {
+  console.warn('[EnvAudit] Startup environment audit unavailable:', error instanceof Error ? error.message : String(error));
+}
+
 // Custom V2 banners are stored as base64 text so the exact artwork can live
 // in the repository even through text-only connector writes. Materialize them
 // before any command module tries to attach them.
@@ -74,6 +81,7 @@ const enablePrivileged = String(process.env.ENABLE_PRIVILEGED_INTENTS || 'false'
 const intents = [
   GatewayIntentBits.Guilds,
   GatewayIntentBits.GuildMessages,
+  GatewayIntentBits.GuildVoiceStates,
   GatewayIntentBits.DirectMessages,
 ];
 if (enablePrivileged) {
@@ -182,6 +190,14 @@ client.once(Events.ClientReady, async readyClient => {
     console.log('[Tickets] Generic appeal naming registered.');
   } catch (error) {
     console.warn('[Tickets] Appeal naming override failed to register:', error instanceof Error ? error.stack || error.message : String(error));
+  }
+
+  try {
+    const { registerVoiceModeration } = require('./src/events/voiceModeration.ts');
+    registerVoiceModeration(readyClient);
+    console.log('[VoiceMod] Voice moderation startup hook registered.');
+  } catch (error) {
+    console.warn('[VoiceMod] Voice moderation unavailable:', error instanceof Error ? error.stack || error.message : String(error));
   }
 
   try {
