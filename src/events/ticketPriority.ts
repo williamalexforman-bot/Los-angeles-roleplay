@@ -271,6 +271,36 @@ async function attemptTicketPriority(channel: TextChannel): Promise<void> {
     await prioritizeTicket(channel, metadata);
 }
 
+async function dmTicketOwnerClosed(client: Client, channel: TextChannel, metadata: TicketMetadata): Promise<void> {
+    // A panelMessageId means ticket creation completed. This avoids DMing for a
+    // temporary ticket channel that was deleted because setup itself failed.
+    if (!metadata.panelMessageId) return;
+    try {
+        const owner = await client.users.fetch(metadata.ownerId);
+        const categoryLabel: Record<TicketType, string> = {
+            general: 'General Support',
+            internal: 'Internal Affairs Support',
+            management: 'Management Support',
+            highrank: 'High-Rank Support',
+        };
+        await owner.send({
+            content: [
+                '🔒 **Your ticket has been closed.**',
+                '',
+                `**Ticket:** #${channel.name}`,
+                `**Category:** ${categoryLabel[metadata.type]}`,
+                metadata.claimedBy ? `**Handled by:** <@${metadata.claimedBy}>` : '**Handled by:** Support Team',
+                '',
+                'Thank you for contacting Los Angeles Roleplay Support. If you still need assistance, you may open a new ticket.',
+            ].join('\n'),
+            allowedMentions: { parse: [] },
+        });
+        logger.info(`[Tickets] Sent close DM to ticket opener ${metadata.ownerId} for ${channel.id}.`);
+    } catch (error) {
+        logger.warn(`[Tickets] Could not DM ticket opener ${metadata.ownerId} after ${channel.id} closed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+}
+
 export function registerTicketPriority(client: Client): void {
     if (registeredClients.has(client)) return;
     registeredClients.add(client);
@@ -289,6 +319,15 @@ export function registerTicketPriority(client: Client): void {
         void attemptTicketPriority(message.channel).catch(error => {
             logger.warn(`[Ticket Priority] Opening-panel fallback failed for ${message.channel.id}: ${error instanceof Error ? error.message : 'Unknown error'}`);
         });
+    });
+
+    client.on('channelDelete', channel => {
+        if (channel.type !== ChannelType.GuildText) return;
+        const metadata = decodeMetadata(channel.topic);
+        if (!metadata) return;
+        completedChannels.delete(channel.id);
+        processingChannels.delete(channel.id);
+        void dmTicketOwnerClosed(client, channel, metadata);
     });
 
     logger.info('[Ticket Priority] Single authoritative deterministic ticket naming enabled.');
