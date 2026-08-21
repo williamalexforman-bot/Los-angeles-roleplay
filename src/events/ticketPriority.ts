@@ -113,6 +113,10 @@ function duckNeeded(reason: string): boolean {
     return /\b(?:i\s+need|need|needed|looking\s+for|speak\s+to|talk\s+to|contact|get|want)\s+(?:mr\.?\s*)?duck\b|\b(?:mr\.?\s*)?duck\s+(?:needed|required|please)\b/i.test(reason);
 }
 
+function ownershipNeeded(reason: string): boolean {
+    return /\b(?:merge|merging|server\s+merge|community\s+merge|ownership|owner\s+needed|need\s+(?:the\s+)?owner|need\s+ownership|speak\s+to\s+(?:the\s+)?owner|talk\s+to\s+(?:the\s+)?owner)\b/i.test(reason);
+}
+
 function shortSlug(value: string): string {
     const words = value
         .normalize('NFKD')
@@ -155,7 +159,7 @@ function titleForReason(type: TicketType, reason: string): string {
         [/\bprize\b/i, 'prize-claim'],
         [/\bpayment|purchase\b/i, 'payment-help'],
         [/\bmarketplace\b/i, 'marketplace-help'],
-        [/\bownership|owner\b/i, 'ownership-question'],
+        [/\bownership|owner\b/i, 'ownership-needed'],
         [/\brole\b.*\bmissing|missing.*\brole\b/i, 'missing-role'],
     ];
 
@@ -170,7 +174,6 @@ function titleForReason(type: TicketType, reason: string): string {
         highrank: 'high-rank-support',
     };
 
-    // Only use the user's wording when it contains enough useful content.
     const slug = shortSlug(reason);
     return slug && slug !== 'support' ? slug : categoryFallback[type];
 }
@@ -192,7 +195,6 @@ function classifyTicket(type: TicketType, reason: string): PriorityResult {
         return { priority: 'high', title };
     }
 
-    // Category floors stop nearly every ticket from becoming green.
     if (type === 'highrank') return { priority: 'high', title };
     if (type === 'management' || type === 'internal') return { priority: 'medium', title };
 
@@ -237,9 +239,14 @@ async function prioritizeTicket(channel: TextChannel, suppliedMetadata?: TicketM
             return false;
         }
 
-        const name = duckNeeded(reason)
-            ? '🐥-duck-needed'
-            : channelName(classifyTicket(metadata.type, reason));
+        let name: string;
+        if (duckNeeded(reason)) {
+            name = '🐥-duck-needed';
+        } else if (ownershipNeeded(reason)) {
+            name = '👑-ownership-needed';
+        } else {
+            name = channelName(classifyTicket(metadata.type, reason));
+        }
 
         const renamed = await channel.setName(name, 'Deterministic ticket category, priority, and reason naming.')
             .then(() => true)
