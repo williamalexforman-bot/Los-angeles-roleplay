@@ -27,7 +27,6 @@ import { paidAdCommands } from './paidAds';
 import { advancedInstantPostCommand } from './advancedPaidAds';
 import { accountInfoCommands } from './accountInfo';
 import { suggestionCommands } from './suggestions';
-import { messageQuotaCommands } from './messageQuota';
 import { activityCheckCommands } from './activityCheck';
 import { activityCheckAliasCommands } from './activityAliases';
 
@@ -58,7 +57,6 @@ export const commandDefinitions: CommandDefinition[] = [
     ...communityCommands,
     ...retainedStaffManagementCommands,
     promotionRoleSwapCommand,
-    ...messageQuotaCommands,
     ...activityCheckCommands,
     ...activityCheckAliasCommands,
     sayCommand,
