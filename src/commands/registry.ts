@@ -29,6 +29,7 @@ import { accountInfoCommands } from './accountInfo';
 import { suggestionCommands } from './suggestions';
 import { activityCheckCommands } from './activityCheck';
 import { activityCheckAliasCommands } from './activityAliases';
+import { dashboardCommand } from './dashboard';
 
 export interface CommandDefinition {
     data: {
@@ -70,6 +71,7 @@ export const commandDefinitions: CommandDefinition[] = [
     ...sessionCommands,
     ...ticketCommands,
     applicationsPanelCommand,
+    dashboardCommand,
     roleCommand,
     marketplacePanelCommand,
     ...erlcUtilityCommands,
