@@ -6,10 +6,12 @@ import {
     MessageFlags,
     PermissionFlagsBits,
     type APIInteractionGuildMember,
+    type TextChannel,
 } from 'discord.js';
 import { logger } from '../utils/logger';
 
 const TICKET_SUPPORT_ROLE_ID = '1523122697746382868';
+const claimLocks = new Set<string>();
 
 type TicketMetadata = {
     ownerId: string;
@@ -50,7 +52,11 @@ async function canClaim(interaction: ButtonInteraction): Promise<boolean> {
     if (cachedRoleIds(interaction.member).includes(TICKET_SUPPORT_ROLE_ID)) return true;
 
     const fetched = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
-    return Boolean(fetched?.roles.cache.has(TICKET_SUPPORT_ROLE_ID));
+    return Boolean(
+        fetched?.permissions.has(PermissionFlagsBits.Administrator)
+        || fetched?.permissions.has(PermissionFlagsBits.ManageChannels)
+        || fetched?.roles.cache.has(TICKET_SUPPORT_ROLE_ID),
+    );
 }
 
 function claimedComponents(interaction: ButtonInteraction): unknown[] {
@@ -68,6 +74,12 @@ function claimedComponents(interaction: ButtonInteraction): unknown[] {
     return components;
 }
 
+async function freshMetadata(channel: TextChannel): Promise<TicketMetadata | null> {
+    const refreshed = await channel.fetch().catch(() => null);
+    if (!refreshed || refreshed.type !== ChannelType.GuildText) return decodeMetadata(channel.topic);
+    return decodeMetadata(refreshed.topic);
+}
+
 export async function handleTicketClaimRepair(interaction: ButtonInteraction): Promise<boolean> {
     if (interaction.customId !== 'ticket:claim') return false;
 
@@ -77,51 +89,90 @@ export async function handleTicketClaimRepair(interaction: ButtonInteraction): P
         return true;
     }
 
-    const metadata = decodeMetadata(channel.topic);
-    if (!metadata) {
-        await interaction.reply({ content: 'This is not a managed ticket.', flags: MessageFlags.Ephemeral });
-        return true;
-    }
-
-    if (!(await canClaim(interaction))) {
+    if (claimLocks.has(channel.id)) {
         await interaction.reply({
-            content: `Only members of <@&${TICKET_SUPPORT_ROLE_ID}> or staff with Manage Channels can claim tickets.`,
-            flags: MessageFlags.Ephemeral,
-            allowedMentions: { parse: [] },
-        });
-        return true;
-    }
-
-    if (metadata.claimedBy) {
-        await interaction.reply({ content: `This ticket is already claimed by <@${metadata.claimedBy}>.`, flags: MessageFlags.Ephemeral });
-        return true;
-    }
-
-    await interaction.deferUpdate();
-    const originalMetadata = { ...metadata };
-    metadata.claimedBy = interaction.user.id;
-    metadata.panelMessageId = interaction.message.id;
-
-    try {
-        await channel.setTopic(encodeMetadata(metadata), `Ticket claimed by ${interaction.user.id}`);
-        await interaction.message.edit({
-            components: claimedComponents(interaction) as never,
-            attachments: Array.from(interaction.message.attachments.values()),
-        });
-    } catch (error) {
-        await channel.setTopic(encodeMetadata(originalMetadata), 'Rolling back failed ticket claim').catch(() => undefined);
-        logger.error(`[TicketClaimRepair] Claim failed in ${channel.id}: ${error instanceof Error ? error.message : String(error)}`);
-        await interaction.followUp({
-            content: 'I could not update the ticket claim panel. The claim was rolled back; please try again.',
+            content: 'Someone is already claiming this ticket. Please wait a moment.',
             flags: MessageFlags.Ephemeral,
         }).catch(() => undefined);
         return true;
     }
 
-    await interaction.followUp({
-        content: `✅ Ticket claimed by <@${interaction.user.id}>.`,
-        allowedMentions: { parse: [] },
-    }).catch(() => undefined);
-    logger.info(`[TicketClaimRepair] ${channel.id} claimed by ${interaction.user.id}.`);
-    return true;
+    claimLocks.add(channel.id);
+    try {
+        if (!(await canClaim(interaction))) {
+            await interaction.reply({
+                content: `Only members of <@&${TICKET_SUPPORT_ROLE_ID}> or staff with Manage Channels can claim tickets.`,
+                flags: MessageFlags.Ephemeral,
+                allowedMentions: { parse: [] },
+            });
+            return true;
+        }
+
+        let metadata = await freshMetadata(channel);
+        if (!metadata) {
+            await interaction.reply({ content: 'This is not a managed ticket.', flags: MessageFlags.Ephemeral });
+            return true;
+        }
+
+        if (metadata.claimedBy) {
+            await interaction.reply({
+                content: metadata.claimedBy === interaction.user.id
+                    ? 'You already claimed this ticket.'
+                    : `This ticket is already claimed by <@${metadata.claimedBy}>.`,
+                flags: MessageFlags.Ephemeral,
+                allowedMentions: { parse: [] },
+            });
+            return true;
+        }
+
+        await interaction.deferUpdate();
+
+        // Re-check after acknowledging so another click that won the race is respected.
+        metadata = await freshMetadata(channel);
+        if (!metadata) {
+            await interaction.followUp({ content: 'This ticket is no longer available to claim.', flags: MessageFlags.Ephemeral }).catch(() => undefined);
+            return true;
+        }
+        if (metadata.claimedBy) {
+            await interaction.followUp({
+                content: metadata.claimedBy === interaction.user.id
+                    ? 'You already claimed this ticket.'
+                    : `This ticket was just claimed by <@${metadata.claimedBy}>.`,
+                flags: MessageFlags.Ephemeral,
+                allowedMentions: { parse: [] },
+            }).catch(() => undefined);
+            return true;
+        }
+
+        const originalMetadata = { ...metadata };
+        const claimedMetadata = {
+            ...metadata,
+            claimedBy: interaction.user.id,
+            panelMessageId: interaction.message.id,
+        };
+
+        try {
+            await channel.setTopic(encodeMetadata(claimedMetadata), `Ticket claimed by ${interaction.user.id}`);
+            await interaction.editReply({
+                components: claimedComponents(interaction) as never,
+            });
+        } catch (error) {
+            await channel.setTopic(encodeMetadata(originalMetadata), 'Rolling back failed ticket claim').catch(() => undefined);
+            logger.error(`[TicketClaimRepair] Claim failed in ${channel.id}: ${error instanceof Error ? error.message : String(error)}`);
+            await interaction.followUp({
+                content: 'I could not finish claiming this ticket, so the claim was rolled back. Please try again.',
+                flags: MessageFlags.Ephemeral,
+            }).catch(() => undefined);
+            return true;
+        }
+
+        await interaction.followUp({
+            content: `✅ Ticket claimed by <@${interaction.user.id}>.`,
+            allowedMentions: { parse: [] },
+        }).catch(() => undefined);
+        logger.info(`[TicketClaimRepair] ${channel.id} claimed by ${interaction.user.id}.`);
+        return true;
+    } finally {
+        claimLocks.delete(channel.id);
+    }
 }
