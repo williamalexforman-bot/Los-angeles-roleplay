@@ -189,9 +189,6 @@ async function runOptionalComponent(interaction: Interaction): Promise<boolean> 
         if (interaction.isModalSubmit()) attempts.push(async () => Boolean(await require('../commands/loa.ts').handleLoaModal?.(interaction)));
     } else if (id.startsWith('applications:') || id.startsWith('ticket:') || id.startsWith('activity-check:')) {
         return false;
-    } else if (id.includes('quota')) {
-        if (interaction.isButton()) attempts.push(async () => Boolean(await require('../commands/messageQuota.ts').handleMessageQuotaButton?.(interaction)));
-        if (interaction.isModalSubmit()) attempts.push(async () => Boolean(await require('../commands/messageQuota.ts').handleMessageQuotaModal?.(interaction)));
     } else if (id.startsWith('suggestion')) {
         if (interaction.isButton()) attempts.push(async () => Boolean(await require('../commands/suggestions.ts').handleSuggestionButton?.(interaction)));
     } else if (id.includes('paid') || id.includes('advert')) {
@@ -214,14 +211,15 @@ async function runOptionalComponent(interaction: Interaction): Promise<boolean> 
         if (interaction.isModalSubmit()) attempts.push(async () => Boolean(await require('../commands/banAppeal.ts').handleBanAppealModal?.(interaction)));
     } else if (id.startsWith('session')) {
         if (interaction.isButton()) {
+            // The canonical session.ts handler MUST run first because /session-vote
+            // creates its live vote state there. The enhanced handler owns only
+            // extra controls such as View Voters after the canonical handler declines.
             attempts.push(
-                async () => Boolean(await require('../commands/sessionEnhancements.ts').handleEnhancedSessionButton?.(interaction)),
                 async () => Boolean(await require('../commands/session.ts').handleSessionButton?.(interaction)),
+                async () => Boolean(await require('../commands/sessionEnhancements.ts').handleEnhancedSessionButton?.(interaction)),
             );
         }
     } else {
-        // Unknown components get a small compatibility fallback, but slash
-        // commands never pay this import cost.
         if (interaction.isButton()) {
             attempts.push(
                 async () => Boolean(await require('../commands/community.ts').handleCommunityButton?.(interaction)),
@@ -249,9 +247,6 @@ async function runOptionalComponent(interaction: Interaction): Promise<boolean> 
 
 export async function interactionCreateStable(interaction: Interaction): Promise<void> {
     try {
-        // Route by interaction identity BEFORE importing feature modules. This
-        // prevents unrelated cold imports from consuming Discord's 3-second
-        // acknowledgement window.
         if (isActivityInteraction(interaction)) {
             await runCriticalActivity(interaction);
             return;
