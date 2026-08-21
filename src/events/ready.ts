@@ -1,7 +1,6 @@
-import { ActivityType, Client, GatewayIntentBits, REST, Routes } from 'discord.js';
+import { ActivityType, Client, REST, Routes } from 'discord.js';
 import { commandDefinitions } from '../commands/registry';
 import { loadProhibitedWordOverrides } from '../commands/prohibitedWords';
-import { handleQuotaMessage, startMessageQuotaScheduler } from '../commands/messageQuota';
 import { startActivityCheckScheduler } from '../commands/activityCheck';
 import { connectDatabase } from '../database/connection';
 import { logger } from '../utils/logger';
@@ -19,14 +18,9 @@ const REQUIRED_COMMAND_NAMES = [
     'view-activity-check',
     'end-activity-check',
     'void-activity-check',
-    'view-my-quota',
-    'view-user-quota',
-    'end-weekly-quota-early',
-    'extend-weeks-quota',
 ] as const;
 const OPTIONAL_ACTIVITY_ALIASES = ['activitycheck', 'stopactivitycheck'] as const;
 let memberCountPresenceTimer: ReturnType<typeof setInterval> | null = null;
-let quotaMessageListenerRegistered = false;
 
 type CommandJson = ReturnType<(typeof commandDefinitions)[number]['data']['toJSON']>;
 type RegisteredCommand = { id: string; name: string };
@@ -175,9 +169,6 @@ export const onReady = async (client: Client): Promise<void> => {
                     logger.error(`[SlashCommands] Bulk registration failed in guild ${guildId}: ${error instanceof Error ? error.message : String(error)}`);
                 }
 
-                // Never trust the bulk response alone. Ask Discord for the live
-                // guild command set and directly create any critical command that
-                // is missing. This makes /activity-check self-repairing.
                 try {
                     await verifyAndRepairRequiredGuildCommands(
                         rest,
@@ -201,21 +192,8 @@ export const onReady = async (client: Client): Promise<void> => {
         logger.warn(`Prohibited-word overrides could not be loaded: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
 
-    const databaseReady = await connectDatabase().catch(() => false);
-    const quotaIntentsReady = client.options.intents.has(GatewayIntentBits.GuildMessages)
-        && client.options.intents.has(GatewayIntentBits.MessageContent)
-        && client.options.intents.has(GatewayIntentBits.GuildMembers);
-
-    if (quotaIntentsReady) {
-        if (!quotaMessageListenerRegistered) {
-            client.on('messageCreate', handleQuotaMessage);
-            quotaMessageListenerRegistered = true;
-        }
-        startMessageQuotaScheduler(client);
-        logger.info(`[Quota] Startup complete. Database: ${databaseReady ? 'connected' : 'retrying in fallback mode'}.`);
-    } else {
-        logger.error('[Quota] DISABLED: GuildMessages, MessageContent, and GuildMembers intents are required. Weekly evaluation will not run while quota tracking is disabled.');
-    }
+    await connectDatabase().catch(() => false);
+    logger.info('[Quota] Text/message quota tracking is disabled.');
 
     if (memberCountPresenceTimer) {
         clearInterval(memberCountPresenceTimer);
