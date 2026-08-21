@@ -16,7 +16,7 @@
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts"
   },
   "dependencies": {
-    "@discordjs/voice": "^0.18.0",
+    "@discordjs/voice": "0.19.2",
     "discord.js": "^14.0.0",
     "dotenv": "^10.0.0",
     "mongoose": "^6.0.0",
