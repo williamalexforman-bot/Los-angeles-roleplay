@@ -1,4 +1,4 @@
-import { ChannelType, Client, Events, type GuildMember, type TextChannel } from 'discord.js';
+import { Client, Events, type GuildMember } from 'discord.js';
 import { logger } from '../utils/logger';
 
 const WELCOME_CHANNEL_ID = '1526037215518523462';
@@ -17,19 +17,27 @@ async function getFreshMemberCount(member: GuildMember): Promise<number> {
     return member.guild.memberCount || member.guild.members.cache.size;
 }
 
+async function resolveWelcomeChannel(client: Client) {
+    const cached = client.channels.cache.get(WELCOME_CHANNEL_ID);
+    if (cached?.isSendable()) return cached;
+
+    const fetched = await client.channels.fetch(WELCOME_CHANNEL_ID, { force: true }).catch(() => null);
+    return fetched?.isSendable() ? fetched : null;
+}
+
 async function sendWelcome(member: GuildMember): Promise<void> {
     if (member.user.bot) return;
 
-    const channel = await member.client.channels.fetch(WELCOME_CHANNEL_ID).catch(() => null);
-    if (!channel || channel.type !== ChannelType.GuildText) {
-        logger.warn(`[Welcome] Channel ${WELCOME_CHANNEL_ID} is unavailable or is not a text channel.`);
+    const channel = await resolveWelcomeChannel(member.client);
+    if (!channel) {
+        logger.error(`[Welcome] Channel ${WELCOME_CHANNEL_ID} could not be fetched or the bot cannot send messages there.`);
         return;
     }
 
     const memberCount = await getFreshMemberCount(member);
     const content = `🌴 Welcome <@${member.id}> to Los Angeles Roleplay! You are the ${memberCount} member. We hope you enjoy your time here!`;
 
-    await (channel as TextChannel).send({
+    await channel.send({
         content,
         allowedMentions: {
             parse: [],
@@ -39,7 +47,17 @@ async function sendWelcome(member: GuildMember): Promise<void> {
         },
     });
 
-    logger.info(`[Welcome] Welcomed ${member.user.tag} (${member.id}) as member ${memberCount}.`);
+    logger.info(`[Welcome] Sent public welcome for ${member.user.tag} (${member.id}); memberCount=${memberCount}.`);
+}
+
+async function verifyWelcomeChannel(client: Client): Promise<void> {
+    const channel = await resolveWelcomeChannel(client);
+    if (!channel) {
+        logger.error(`[Welcome] STARTUP CHECK FAILED: channel ${WELCOME_CHANNEL_ID} is unavailable or not sendable. Check View Channel and Send Messages permissions.`);
+        return;
+    }
+
+    logger.info(`[Welcome] STARTUP CHECK PASSED: channel ${WELCOME_CHANNEL_ID} is reachable and sendable.`);
 }
 
 export function registerMemberWelcome(client: Client): void {
@@ -47,10 +65,15 @@ export function registerMemberWelcome(client: Client): void {
     registeredClients.add(client);
 
     client.on(Events.GuildMemberAdd, member => {
+        logger.info(`[Welcome] GuildMemberAdd received for ${member.user.tag} (${member.id}) in guild ${member.guild.id}.`);
         void sendWelcome(member).catch(error => {
-            logger.warn(`[Welcome] Failed to welcome ${member.id}: ${error instanceof Error ? error.message : String(error)}`);
+            logger.error(`[Welcome] Failed to welcome ${member.id}: ${error instanceof Error ? error.stack || error.message : String(error)}`);
         });
     });
 
-    logger.info(`[Welcome] Plain-text member welcome enabled in ${WELCOME_CHANNEL_ID}.`);
+    void verifyWelcomeChannel(client).catch(error => {
+        logger.error(`[Welcome] Startup verification failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
+
+    logger.info(`[Welcome] Plain-text member welcome listener enabled for ${WELCOME_CHANNEL_ID}.`);
 }
