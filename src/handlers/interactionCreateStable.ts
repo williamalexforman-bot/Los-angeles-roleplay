@@ -21,11 +21,6 @@ const TICKET_COMMANDS = new Set([
     'unclaim',
 ]);
 
-type SlashHandler = (interaction: ChatInputCommandInteraction) => Promise<unknown>;
-type RuntimeGlobals = typeof globalThis & {
-    __canonicalCommandHandlers?: Map<string, SlashHandler>;
-};
-
 async function safeReply(interaction: Interaction, message: string): Promise<void> {
     if (!interaction.isRepliable()) return;
     try {
@@ -33,7 +28,7 @@ async function safeReply(interaction: Interaction, message: string): Promise<voi
         else if (interaction.replied) await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral });
         else await interaction.reply({ content: message, flags: MessageFlags.Ephemeral });
     } catch {
-        // The interaction may have expired or another handler may already have acknowledged it.
+        // The interaction may have expired.
     }
 }
 
@@ -167,31 +162,12 @@ async function runCriticalApplications(interaction: Interaction): Promise<boolea
     }
 }
 
-function getCanonicalHandlers(): Map<string, SlashHandler> | null {
-    const globals = globalThis as RuntimeGlobals;
-    if (globals.__canonicalCommandHandlers instanceof Map) return globals.__canonicalCommandHandlers;
-
-    try {
-        const registry = require('../commands/registry.ts') as { commandHandlers?: Map<string, SlashHandler> };
-        if (registry.commandHandlers instanceof Map) {
-            globals.__canonicalCommandHandlers = registry.commandHandlers;
-            logger.info(`[StableRouter] Canonical command registry loaded on fallback with ${registry.commandHandlers.size} handlers.`);
-            return registry.commandHandlers;
-        }
-    } catch (error) {
-        logger.error(`[StableRouter] Canonical command registry unavailable: ${error instanceof Error ? error.stack || error.message : String(error)}`);
-    }
-    return null;
-}
-
 async function runNormalSlashCommand(interaction: ChatInputCommandInteraction): Promise<boolean> {
     try {
-        const handlers = getCanonicalHandlers();
-        if (!handlers) {
-            await safeReply(interaction, 'The command registry is still starting. Please try the command again in a few seconds.');
-            return true;
-        }
-        const handler = handlers.get(interaction.commandName);
+        const registry = require('../commands/registry.ts') as {
+            commandHandlers?: Map<string, (i: ChatInputCommandInteraction) => Promise<unknown>>;
+        };
+        const handler = registry.commandHandlers?.get(interaction.commandName);
         if (!handler) return false;
         await handler(interaction);
         return true;
