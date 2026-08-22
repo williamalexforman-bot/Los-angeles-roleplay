@@ -1,36 +1,36 @@
 'use strict';
 
-// Loaded before index.js. Force the emergency-safe Discord intent set in code
-// so an old Render dashboard value cannot keep the gateway from reaching READY.
+// Recovery mode: keep privileged gateway intents off until the core bot is
+// stable. Slash commands do not require GuildMembers or MessageContent.
 process.env.ENABLE_PRIVILEGED_INTENTS = 'false';
-console.warn('[DiscordSafeMode] Privileged intents are forced OFF for gateway recovery.');
+process.env.VOICE_MODERATION_ENABLED = 'false';
+console.warn('[DiscordSafeMode] Privileged intents and voice moderation are OFF during gateway recovery.');
 
-// Render shared egress can occasionally be rate-limited by Discord/Cloudflare
-// on the authenticated GET /gateway/bot route. discord.js normally calls that
-// route before opening the WebSocket, which can leave the web service healthy
-// while the bot never reaches READY. Patch Client#login before index.js creates
-// its client so the WebSocket manager receives a safe single-shard gateway
-// record locally and connects directly to Discord's documented gateway URL.
-// The bot token is still used normally for the WebSocket IDENTIFY payload.
+// Render shared egress has been receiving HTTP 429 responses from Discord's
+// authenticated GET /gateway/bot endpoint. discord.js asks that REST route for
+// gateway metadata before opening its WebSocket. Intercept that one route at
+// the REST layer and provide the documented gateway locally. This is more
+// reliable than patching Client#login/WebSocket internals because every
+// discord.js REST instance goes through REST.prototype.get.
 try {
-  const { Client } = require('discord.js');
-  const patchKey = Symbol.for('larp.discordGatewayDiscoveryBypass');
+  const { REST } = require('discord.js');
+  const patchKey = Symbol.for('larp.gatewayBotRestBypass');
 
-  if (!Client.prototype[patchKey]) {
-    const originalLogin = Client.prototype.login;
+  if (!REST.prototype[patchKey]) {
+    const originalGet = REST.prototype.get;
 
-    Object.defineProperty(Client.prototype, patchKey, {
+    Object.defineProperty(REST.prototype, patchKey, {
       value: true,
       enumerable: false,
       configurable: false,
       writable: false,
     });
 
-    Client.prototype.login = function larpGatewaySafeLogin(token) {
-      if (this.ws?.options) {
-        this.ws.options.shardCount = 1;
-        this.ws.options.shardIds = [0];
-        this.ws.options.fetchGatewayInformation = async () => ({
+    REST.prototype.get = function larpRestGet(route, options) {
+      const routeText = String(route || '');
+      if (routeText === '/gateway/bot' || routeText.endsWith('/gateway/bot')) {
+        console.warn('[DiscordGatewayBypass] Intercepted /gateway/bot; using direct Discord gateway locally.');
+        return Promise.resolve({
           url: 'wss://gateway.discord.gg',
           shards: 1,
           session_start_limit: {
@@ -40,15 +40,14 @@ try {
             max_concurrency: 1,
           },
         });
-
-        console.warn('[DiscordGatewayBypass] Using direct gateway URL; /gateway/bot REST discovery is bypassed.');
       }
-
-      return originalLogin.call(this, token);
+      return originalGet.call(this, route, options);
     };
+
+    console.log('[DiscordGatewayBypass] REST gateway-discovery bypass installed.');
   }
 } catch (error) {
-  console.error('[DiscordGatewayBypass] Could not install gateway discovery bypass:', error instanceof Error ? error.stack || error.message : String(error));
+  console.error('[DiscordGatewayBypass] Could not install REST bypass:', error instanceof Error ? error.stack || error.message : String(error));
 }
 
 process.on('unhandledRejection', reason => {
