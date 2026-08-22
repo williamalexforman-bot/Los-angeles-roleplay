@@ -1,7 +1,14 @@
 'use strict';
 
-// Loaded before index.js. Optional Discord/database feature failures must never
-// terminate the entire bot process and take commands offline.
+// Loaded before index.js. Force the emergency-safe Discord intent set in code
+// so an old Render dashboard value cannot keep the gateway from reaching READY.
+// Slash commands, buttons, tickets, dashboard interactions, DMs, and voice-state
+// connections can start without privileged GuildMembers/MessageContent intents.
+process.env.ENABLE_PRIVILEGED_INTENTS = 'false';
+console.warn('[DiscordSafeMode] Privileged intents are forced OFF for gateway recovery.');
+
+// Optional Discord/database feature failures must never terminate the entire
+// bot process and take commands offline.
 process.on('unhandledRejection', reason => {
   const message = reason instanceof Error ? (reason.stack || reason.message) : String(reason);
   console.error('[Runtime] Unhandled promise rejection contained:', message);
@@ -18,18 +25,12 @@ process.on('warning', warning => {
 
 // index.js owns the one stable InteractionCreate listener directly.
 // Preload deliberately does NOT add, remove, replace, or reorder Discord
-// interaction listeners. This prevents startup timing races and protects
-// auxiliary listeners such as Activity Check live refresh observers.
+// interaction listeners.
 console.log('[InteractionBridge] Preload listener surgery disabled; index.js owns the stable router.');
 
 // ---------------------------------------------------------------------------
 // Render keepalive + runtime heartbeat
 // ---------------------------------------------------------------------------
-// Render exposes RENDER_EXTERNAL_URL automatically for web services. Free web
-// services can idle after 15 minutes without inbound traffic, so issue a small
-// request to our own /health endpoint every 8 minutes. This is deliberately
-// well below the idle window and also produces a log proving the keepalive is
-// actually succeeding instead of assuming some outside monitor is working.
 const RENDER_KEEPALIVE_INTERVAL_MS = 8 * 60_000;
 const RUNTIME_HEARTBEAT_INTERVAL_MS = 5 * 60_000;
 let lastRenderKeepAliveAt = 0;
@@ -51,7 +52,8 @@ async function sendRenderKeepAlive() {
     return;
   }
 
-  const url = `${baseUrl}/health?source=self-keepalive&t=${Date.now()}`;
+  // index.js currently matches /health exactly, so do not append a query string.
+  const url = `${baseUrl}/health`;
   try {
     const response = await fetch(url, {
       method: 'GET',
@@ -61,7 +63,6 @@ async function sendRenderKeepAlive() {
     });
     lastRenderKeepAliveAt = Date.now();
     lastRenderKeepAliveOk = response.ok;
-    // Consume the response so the underlying connection can be cleanly reused.
     await response.text().catch(() => '');
     console.log(`[KeepAlive] Render /health self-ping ${response.status} at ${new Date(lastRenderKeepAliveAt).toISOString()}.`);
   } catch (error) {
@@ -71,7 +72,6 @@ async function sendRenderKeepAlive() {
   }
 }
 
-// Start shortly after boot, then repeat every eight minutes.
 setTimeout(() => {
   void sendRenderKeepAlive();
 }, 30_000);
@@ -79,8 +79,6 @@ setInterval(() => {
   void sendRenderKeepAlive();
 }, RENDER_KEEPALIVE_INTERVAL_MS);
 
-// A separate heartbeat makes it obvious in Render logs whether Node itself is
-// still alive and whether Discord is connected at that exact moment.
 setInterval(() => {
   const client = globalThis.__discordClient;
   const ready = Boolean(client?.isReady?.());
@@ -93,11 +91,10 @@ setInterval(() => {
   );
 }, RUNTIME_HEARTBEAT_INTERVAL_MS);
 
-// Render can report the web service as Live while the Discord gateway is no
-// longer ready. Watch the globally exposed discord.js Client and force a clean
-// reconnect when it remains disconnected for more than two minutes.
-const DISCORD_WATCH_INTERVAL_MS = 30_000;
-const DISCORD_NOT_READY_GRACE_MS = 2 * 60_000;
+// If the first Discord gateway login hangs, retry quickly instead of leaving
+// the Render web process healthy while the Discord bot remains offline.
+const DISCORD_WATCH_INTERVAL_MS = 10_000;
+const DISCORD_NOT_READY_GRACE_MS = 20_000;
 let discordNotReadySince = 0;
 let discordReconnectInProgress = false;
 
@@ -126,13 +123,13 @@ setInterval(async () => {
   }
 
   discordReconnectInProgress = true;
-  console.warn('[DiscordWatchdog] Discord has remained not-ready for over 2 minutes. Forcing a gateway reconnect.');
+  console.warn('[DiscordWatchdog] Discord has not reached READY within 20 seconds. Forcing one clean gateway reconnect.');
 
   try {
     if (typeof client.destroy === 'function') client.destroy();
     await client.login(token);
     discordNotReadySince = 0;
-    console.log('[DiscordWatchdog] Discord reconnect completed successfully.');
+    console.log('[DiscordWatchdog] Discord reconnect login call completed. Waiting for READY event.');
   } catch (error) {
     const message = error instanceof Error ? (error.stack || error.message) : String(error);
     console.error('[DiscordWatchdog] Discord reconnect failed:', message);
@@ -145,4 +142,4 @@ setInterval(async () => {
 console.log('[Runtime] Emergency crash containment active.');
 console.log('[KeepAlive] Render self-keepalive scheduled every 8 minutes.');
 console.log('[RuntimeHeartbeat] Runtime heartbeat scheduled every 5 minutes.');
-console.log('[DiscordWatchdog] Gateway readiness watchdog active.');
+console.log('[DiscordWatchdog] Gateway readiness watchdog active with 20-second recovery grace.');
