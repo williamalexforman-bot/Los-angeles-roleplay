@@ -246,8 +246,11 @@ async function tick(): Promise<void> {
 export function startTicketInactivityScheduler(client: Client): void {
     schedulerClient = client;
     if (scheduler) return;
+    // Do not scan every guild immediately at READY. Render's shared egress was
+    // being rate-limited by Discord, so give the core gateway/interaction path
+    // a quiet startup window. The normal five-minute interval performs the
+    // first scan automatically.
     scheduler = setInterval(() => void tick(), CHECK_INTERVAL_MS);
     scheduler.unref?.();
-    void tick();
-    logger.info('[TicketInactivity] Scheduler active: warn after 3h, auto-close 6h later if still inactive.');
+    logger.info('[TicketInactivity] Scheduler active: first REST scan delayed 5m; warn after 3h, auto-close 6h later if still inactive.');
 }
