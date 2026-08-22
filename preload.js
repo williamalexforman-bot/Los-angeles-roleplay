@@ -67,63 +67,6 @@ process.on('warning', warning => {
 
 console.log('[InteractionBridge] Preload listener surgery disabled; index.js owns the stable router.');
 
-// ---------------------------------------------------------------------------
-// Slash command timeout protection
-// ---------------------------------------------------------------------------
-// The main router remains authoritative. This only guarantees Discord receives
-// an acknowledgement before its short interaction deadline if a command handler
-// is slow to load or waiting on I/O.
-let interactionSafetyInstalled = false;
-const interactionSafetyInstaller = setInterval(() => {
-  if (interactionSafetyInstalled) return;
-  const client = globalThis.__discordClient;
-  if (!client || typeof client.on !== 'function') return;
-
-  interactionSafetyInstalled = true;
-  clearInterval(interactionSafetyInstaller);
-
-  client.on('interactionCreate', interaction => {
-    if (!interaction?.isChatInputCommand?.()) return;
-
-    const commandName = interaction.commandName || 'unknown';
-    const timer = setTimeout(async () => {
-      if (!interaction?.isRepliable?.() || interaction.replied || interaction.deferred) return;
-      try {
-        await interaction.deferReply({ flags: 64 });
-        console.warn(`[InteractionSafety] Emergency-deferred /${commandName} before Discord timeout.`);
-      } catch (error) {
-        console.error(`[InteractionSafety] Failed to acknowledge /${commandName}: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    }, 1_500);
-
-    if (typeof timer.unref === 'function') timer.unref();
-  });
-
-  // Warm the giant command registry only after the gateway is READY. This keeps
-  // startup safe while ensuring the first user command does not spend its entire
-  // response window importing every command module.
-  client.once('clientReady', () => {
-    setImmediate(() => {
-      try {
-        const registry = require('./src/commands/registry.ts');
-        const count = registry?.commandHandlers instanceof Map ? registry.commandHandlers.size : 0;
-        if (registry?.commandHandlers instanceof Map) {
-          globalThis.__canonicalCommandHandlers = registry.commandHandlers;
-        }
-        console.log(`[InteractionSafety] Prewarmed ${count} slash command handlers after READY.`);
-      } catch (error) {
-        console.error('[InteractionSafety] Command registry prewarm failed:', error instanceof Error ? error.stack || error.message : String(error));
-      }
-    });
-  });
-
-  console.log('[InteractionSafety] Slash-command timeout protection installed.');
-}, 100);
-if (typeof interactionSafetyInstaller.unref === 'function') interactionSafetyInstaller.unref();
-
-// ---------------------------------------------------------------------------
-// Render keepalive + runtime heartbeat
-// ---------------------------------------------------------------------------
 const RENDER_KEEPALIVE_INTERVAL_MS = 8 * 60_000;
 const RUNTIME_HEARTBEAT_INTERVAL_MS = 60_000;
 let lastRenderKeepAliveAt = 0;
@@ -173,8 +116,6 @@ setInterval(() => {
   );
 }, RUNTIME_HEARTBEAT_INTERVAL_MS);
 
-// Never destroy/re-login the Discord client while its first login is pending.
-// The gateway manager handles socket reconnects itself once connected.
 console.log('[DiscordWatchdog] Destructive reconnect loop disabled.');
 console.log('[Runtime] Emergency crash containment active.');
 console.log('[KeepAlive] Render self-keepalive scheduled every 8 minutes.');
