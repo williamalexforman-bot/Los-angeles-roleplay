@@ -1,12 +1,4 @@
-// Always load runtime safety/interaction recovery even when the host starts
-// this service with `node index.js` instead of `node -r ./preload.js index.js`.
-// Node caches required modules, so this is safe when preload.js was already
-// loaded with -r.
 require('./preload.js');
-
-// Emergency-stable Discord runtime.
-// Discord MUST be allowed to log in before any optional feature module loads.
-// A broken ticket/application/database module must never keep the whole bot offline.
 require('ts-node').register({ transpileOnly: true, project: require('path').join(__dirname, 'tsconfig.json') });
 require('dotenv').config();
 
@@ -17,9 +9,6 @@ try {
   console.warn('[EnvAudit] Startup environment audit unavailable:', error instanceof Error ? error.message : String(error));
 }
 
-// Custom V2 banners are stored as base64 text so the exact artwork can live
-// in the repository even through text-only connector writes. Materialize them
-// before any command module tries to attach them.
 try {
   const fs = require('fs');
   const path = require('path');
@@ -27,7 +16,6 @@ try {
   const bannerAssets = [
     ['partnership-banner.b64', 'partnership-banner.webp'],
     ['paid-ad-banner.b64', 'paid-ad-banner.webp'],
-    ['activity-check-banner.b64', 'activity-check-banner.jpg'],
   ];
   for (const [sourceName, outputName] of bannerAssets) {
     const source = path.join(assetsDir, sourceName);
@@ -70,7 +58,6 @@ healthServer.listen(renderPort, '0.0.0.0', () => {
 });
 
 const { Client, Events, GatewayIntentBits, Partials, MessageFlags } = require('discord.js');
-
 const token = (process.env.BOT_TOKEN || process.env.TOKEN || '').trim();
 if (!token) {
   console.error('[FATAL] BOT_TOKEN/TOKEN is missing. Discord cannot start.');
@@ -89,17 +76,14 @@ if (enablePrivileged) {
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildModeration,
   );
-  console.log('[Discord] Privileged intents enabled, including GuildMembers for activity checks.');
+  console.log('[Discord] Privileged intents enabled.');
 } else {
-  console.warn('[Discord] Privileged intents disabled. Activity checks cannot safely snapshot the full staff roster until ENABLE_PRIVILEGED_INTENTS=true and Server Members Intent is enabled in the Discord Developer Portal.');
+  console.warn('[Discord] Privileged intents disabled during recovery.');
 }
 console.log('[VoiceMod] Voice gateway intent and automatic VC moderation are removed from the runtime.');
+console.log('[ActivityCheck] Entire Activity Check runtime has been removed.');
 
-const client = new Client({
-  intents,
-  partials: [Partials.Channel],
-});
-
+const client = new Client({ intents, partials: [Partials.Channel] });
 globalThis.__discordClient = client;
 
 client.on('error', error => console.error('[Discord] Client error:', error?.message || String(error)));
@@ -108,13 +92,10 @@ client.on('shardDisconnect', (event, shardId) => {
   console.warn(`[Discord] Shard ${shardId} disconnected (${event?.code ?? 'unknown'}).`);
 });
 
-// Load the stable interaction router directly after ts-node registration.
 let interactionCreateStable;
 try {
   ({ interactionCreateStable } = require('./src/handlers/interactionCreateStable.ts'));
-  if (typeof interactionCreateStable !== 'function') {
-    throw new Error('interactionCreateStable export is unavailable.');
-  }
+  if (typeof interactionCreateStable !== 'function') throw new Error('interactionCreateStable export is unavailable.');
   console.log('[Discord] Stable interaction router loaded directly.');
 } catch (error) {
   console.error('[Discord] Stable interaction router failed to load:', error instanceof Error ? error.stack || error.message : String(error));
@@ -130,10 +111,6 @@ client.on(Events.InteractionCreate, async interaction => {
     console.log(`[InteractionBridge] RECEIVED /${commandName} interaction=${interaction.id} user=${interaction.user?.id || 'unknown'}.`);
   }
 
-  // Discord requires an acknowledgement quickly. Give normal handlers a short
-  // window to reply/show a modal themselves, then safely defer before timeout.
-  // This timer lives in the one authoritative interaction listener, so there is
-  // no competing second router.
   const acknowledgementTimer = isSlash ? setTimeout(async () => {
     if (!interaction.isRepliable?.() || interaction.replied || interaction.deferred) return;
     try {
@@ -148,9 +125,7 @@ client.on(Events.InteractionCreate, async interaction => {
   acknowledgementTimer?.unref?.();
 
   try {
-    if (typeof interactionCreateStable !== 'function') {
-      throw new Error('Stable interaction router is unavailable.');
-    }
+    if (typeof interactionCreateStable !== 'function') throw new Error('Stable interaction router is unavailable.');
     await interactionCreateStable(interaction);
     if (isSlash) {
       console.log(`[InteractionBridge] /${commandName} handled in ${Date.now() - startedAt}ms replied=${interaction.replied} deferred=${interaction.deferred}.`);
@@ -186,15 +161,6 @@ client.once(Events.ClientReady, async readyClient => {
   }
 
   try {
-    const activityModule = require('./src/commands/activityCheck.ts');
-    const { installActivityCheckLiveRepair } = require('./src/runtime/activityCheckLiveRepair.ts');
-    installActivityCheckLiveRepair(activityModule, readyClient);
-    console.log('[ActivityCheckLive] Current and future activity checks will live-update response counts.');
-  } catch (error) {
-    console.warn('[ActivityCheckLive] Live-update repair unavailable:', error instanceof Error ? error.stack || error.message : String(error));
-  }
-
-  try {
     const { registerTicketAiTriage } = require('./src/events/ticketAiTriage.ts');
     registerTicketAiTriage(readyClient);
     console.log('[Tickets] Pre-claim AI triage registered.');
@@ -219,15 +185,6 @@ client.once(Events.ClientReady, async readyClient => {
   }
 
   console.log('[VoiceMod] Automatic voice moderation startup is disabled and will not join any VC.');
-
-  try {
-    const { startActivityCheckScheduler } = require('./src/commands/activityCheck.ts');
-    startActivityCheckScheduler(readyClient);
-    console.log('[ActivityCheck] Scheduler registered.');
-  } catch (error) {
-    console.warn('[ActivityCheck] Scheduler unavailable:', error instanceof Error ? error.stack || error.message : String(error));
-  }
-
   console.log('[TicketInactivity] Automatic inactivity scanner is disabled during recovery.');
 
   try {
@@ -236,13 +193,6 @@ client.once(Events.ClientReady, async readyClient => {
     console.log('[Discord] Ready hooks completed.');
   } catch (error) {
     console.error('[Discord] Ready hooks failed:', error instanceof Error ? error.stack || error.message : String(error));
-  }
-
-  try {
-    const { forceRepairActivityCheckCommand } = require('./src/events/activityCommandRepair.ts');
-    await forceRepairActivityCheckCommand(readyClient);
-  } catch (error) {
-    console.error('[ActivityCheckRepair] Forced repair failed to run:', error instanceof Error ? error.stack || error.message : String(error));
   }
 
   try {
