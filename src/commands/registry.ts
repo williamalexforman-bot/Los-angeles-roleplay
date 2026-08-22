@@ -27,8 +27,6 @@ import { paidAdCommands } from './paidAds';
 import { advancedInstantPostCommand } from './advancedPaidAds';
 import { accountInfoCommands } from './accountInfo';
 import { suggestionCommands } from './suggestions';
-import { activityCheckCommands } from './activityCheck';
-import { activityCheckAliasCommands } from './activityAliases';
 import { dashboardCommand } from './dashboard';
 
 export interface CommandDefinition {
@@ -58,8 +56,6 @@ const rawCommandDefinitions: CommandDefinition[] = [
     ...communityCommands,
     ...retainedStaffManagementCommands,
     promotionRoleSwapCommand,
-    ...activityCheckCommands,
-    ...activityCheckAliasCommands,
     sayCommand,
     prohibitedWordCommand,
     ...punishmentCommands,
@@ -83,10 +79,6 @@ const rawCommandDefinitions: CommandDefinition[] = [
     { data: cmdsCommandData, execute: executeCmds as (interaction: ChatInputCommandInteraction) => Promise<unknown> },
 ] as CommandDefinition[];
 
-// Keep exactly one local handler per slash-command name. The later/current
-// definition wins, matching the historical Map behavior but also making the
-// exported definitions list itself unique. This prevents old command modules
-// from competing with the current handler in memory.
 const canonicalByName = new Map<string, CommandDefinition>();
 const duplicates = new Set<string>();
 for (const command of rawCommandDefinitions) {
