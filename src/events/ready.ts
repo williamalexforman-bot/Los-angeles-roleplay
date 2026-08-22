@@ -1,4 +1,4 @@
-import { ActivityType, type Client } from 'discord.js';
+import { ActivityType, REST, Routes, type Client } from 'discord.js';
 import { loadProhibitedWordOverrides } from '../commands/prohibitedWords';
 import { startActivityCheckScheduler } from '../commands/activityCheck';
 import { connectDatabase } from '../database/connection';
@@ -11,18 +11,19 @@ import { registerRaidProtection } from './raidProtection';
 
 const MEMBER_COUNT_REFRESH_MS = 5 * 60 * 1000;
 const COMMAND_PREWARM_DELAY_MS = 5_000;
+const COMMAND_SYNC_DELAY_MS = 20_000;
 const NONESSENTIAL_STARTUP_DELAY_MS = 5 * 60_000;
 let memberCountPresenceTimer: ReturnType<typeof setInterval> | null = null;
 let commandPrewarmTimer: ReturnType<typeof setTimeout> | null = null;
+let commandSyncTimer: ReturnType<typeof setTimeout> | null = null;
 let paidAdStartupTimer: ReturnType<typeof setTimeout> | null = null;
+let commandSyncCompleted = false;
 
 async function updateMemberCountPresence(client: Client): Promise<void> {
     try {
         const guildId = process.env.GUILD_ID || client.guilds.cache.firstKey();
         if (!guildId) return;
 
-        // Use Discord's gateway cache only. Do not force a REST fetch here: the
-        // Render egress IP has been receiving Discord/Cloudflare HTTP 429s.
         const guild = client.guilds.cache.get(guildId);
         const memberCount = guild?.memberCount ?? guild?.members.cache.size ?? 0;
         await client.user?.setActivity(`${memberCount} members`, { type: ActivityType.Watching });
@@ -57,6 +58,56 @@ function scheduleCommandPrewarm(): void {
     commandPrewarmTimer.unref?.();
 }
 
+function scheduleOneTimeCommandSync(client: Client): void {
+    if (commandSyncCompleted) return;
+    if (commandSyncTimer) clearTimeout(commandSyncTimer);
+
+    commandSyncTimer = setTimeout(() => {
+        commandSyncTimer = null;
+        void (async () => {
+            if (commandSyncCompleted || !client.isReady() || !client.application) return;
+            const token = client.token?.trim();
+            const guildId = process.env.GUILD_ID?.trim() || client.guilds.cache.firstKey();
+            if (!token || !guildId) {
+                logger.warn('[SlashCommands] One-time sync skipped because token/application/guild information is unavailable.');
+                return;
+            }
+
+            try {
+                const registry = require('../commands/registry.ts') as {
+                    commandDefinitions?: Array<{ data: { name: string; toJSON(): unknown } }>;
+                };
+                const definitions = Array.isArray(registry.commandDefinitions)
+                    ? registry.commandDefinitions
+                    : [];
+                const commands = definitions.slice(0, 100).map(command => command.data.toJSON());
+                if (!commands.length) throw new Error('Canonical command registry is empty.');
+
+                const rest = new REST({ version: '10' }).setToken(token);
+                logger.warn(`[SlashCommands] Running one-time canonical sync for ${commands.length} commands in guild ${guildId}.`);
+
+                // Remove this application's stale global copies first, then do
+                // one bulk guild replacement. This is intentionally only two
+                // REST writes, not the old fetch/delete/verify/repair storm.
+                await rest.put(Routes.applicationCommands(client.application.id), { body: [] });
+                const registered = await rest.put(
+                    Routes.applicationGuildCommands(client.application.id, guildId),
+                    { body: commands },
+                ) as Array<{ name?: string }>;
+
+                commandSyncCompleted = true;
+                logger.info(`[SlashCommands] ONE-TIME SYNC COMPLETE: ${registered.length} current guild commands installed and stale global commands cleared.`);
+            } catch (error) {
+                const status = (error as { status?: number })?.status ?? 'unknown';
+                const code = (error as { code?: string | number })?.code ?? 'unknown';
+                logger.error(`[SlashCommands] One-time sync failed: status=${status} code=${code} ${error instanceof Error ? error.stack || error.message : String(error)}`);
+            }
+        })();
+    }, COMMAND_SYNC_DELAY_MS);
+    commandSyncTimer.unref?.();
+    logger.info('[SlashCommands] One-time canonical command sync scheduled 20 seconds after READY.');
+}
+
 function schedulePaidAdMaintenance(client: Client): void {
     if (paidAdStartupTimer) clearTimeout(paidAdStartupTimer);
     paidAdStartupTimer = setTimeout(() => {
@@ -79,18 +130,8 @@ export const onReady = async (client: Client): Promise<void> => {
     registerJoinAccountDateCorrection(client);
     registerRaidProtection(client);
 
-    // IMPORTANT: Do not wipe, rebuild, verify, or repair slash commands during
-    // startup. Repeated deployments were generating a burst of Discord REST
-    // requests and the Render shared egress IP began receiving HTTP 429s. The
-    // existing Discord command registrations remain usable while the local
-    // command router handles them. Command syncing should be an explicit/manual
-    // maintenance action later, not part of every bot boot.
-    logger.warn('[SlashCommands] Automatic startup registration/repair is DISABLED to avoid Discord REST 429s. Existing registrations are preserved.');
-
-    // Warm the full registry only after Discord is already online. Normal
-    // commands otherwise import every command module on the first interaction,
-    // which can consume Discord's entire initial response window.
     scheduleCommandPrewarm();
+    scheduleOneTimeCommandSync(client);
 
     try {
         await loadProhibitedWordOverrides([...client.guilds.cache.keys()]);
