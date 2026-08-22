@@ -5,6 +5,57 @@
 process.env.ENABLE_PRIVILEGED_INTENTS = 'false';
 console.warn('[DiscordSafeMode] Privileged intents are forced OFF for gateway recovery.');
 
+// Render shared egress can occasionally be rate-limited by Discord/Cloudflare
+// on the authenticated GET /gateway/bot route. discord.js normally calls that
+// route before opening the WebSocket, which can leave the web service healthy
+// while the bot never reaches READY. Patch Client#login before index.js creates
+// its client so the WebSocket manager receives a safe single-shard gateway
+// record locally and connects directly to Discord's documented gateway URL.
+// The bot token is still used normally for the WebSocket IDENTIFY payload.
+try {
+  const { Client } = require('discord.js');
+  const patchKey = Symbol.for('larp.discordGatewayDiscoveryBypass');
+
+  if (!Client.prototype[patchKey]) {
+    const originalLogin = Client.prototype.login;
+
+    Object.defineProperty(Client.prototype, patchKey, {
+      value: true,
+      enumerable: false,
+      configurable: false,
+      writable: false,
+    });
+
+    Client.prototype.login = function larpGatewaySafeLogin(token) {
+      if (this.ws?.options) {
+        // This bot only needs one shard. Setting these explicitly also prevents
+        // the manager from needing gateway metadata to calculate shard IDs.
+        this.ws.options.shardCount = 1;
+        this.ws.options.shardIds = [0];
+
+        // WebSocketManager reads this function every time its gateway cache
+        // expires, so reconnects remain independent of /gateway/bot too.
+        this.ws.options.fetchGatewayInformation = async () => ({
+          url: 'wss://gateway.discord.gg',
+          shards: 1,
+          session_start_limit: {
+            total: 1000,
+            remaining: 1000,
+            reset_after: 0,
+            max_concurrency: 1,
+          },
+        });
+
+        console.warn('[DiscordGatewayBypass] Using direct gateway URL; /gateway/bot REST discovery is bypassed.');
+      }
+
+      return originalLogin.call(this, token);
+    };
+  }
+} catch (error) {
+  console.error('[DiscordGatewayBypass] Could not install gateway discovery bypass:', error instanceof Error ? error.stack || error.message : String(error));
+}
+
 process.on('unhandledRejection', reason => {
   const message = reason instanceof Error ? (reason.stack || reason.message) : String(reason);
   console.error('[Runtime] Unhandled promise rejection contained:', message);
@@ -20,60 +71,6 @@ process.on('warning', warning => {
 });
 
 console.log('[InteractionBridge] Preload listener surgery disabled; index.js owns the stable router.');
-
-// ---------------------------------------------------------------------------
-// Discord startup diagnostics
-// ---------------------------------------------------------------------------
-// This never prints the token. It only verifies that Discord accepts the token
-// over REST and that Render can reach Discord's gateway discovery endpoint.
-async function probeDiscordStartup() {
-  const token = (process.env.BOT_TOKEN || process.env.TOKEN || '').trim();
-  if (!token) {
-    console.error('[DiscordProbe] No BOT_TOKEN/TOKEN is available.');
-    return;
-  }
-
-  const headers = {
-    Authorization: `Bot ${token}`,
-    'User-Agent': 'LARP-Discord-Bot-Diagnostic/1.0',
-  };
-
-  try {
-    const meResponse = await fetch('https://discord.com/api/v10/users/@me', {
-      headers,
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (meResponse.ok) {
-      const me = await meResponse.json().catch(() => ({}));
-      console.log(`[DiscordProbe] Token accepted by Discord REST (HTTP ${meResponse.status}) for bot ${me.username || 'unknown'} (${me.id || 'unknown'}).`);
-    } else {
-      const body = await meResponse.text().catch(() => '');
-      console.error(`[DiscordProbe] Token rejected by Discord REST: HTTP ${meResponse.status}${body ? ` ${body.slice(0, 180)}` : ''}`);
-      return;
-    }
-  } catch (error) {
-    console.error(`[DiscordProbe] Discord REST auth probe failed: ${error instanceof Error ? error.message : String(error)}`);
-    return;
-  }
-
-  try {
-    const gatewayResponse = await fetch('https://discord.com/api/v10/gateway/bot', {
-      headers,
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (gatewayResponse.ok) {
-      const gateway = await gatewayResponse.json().catch(() => ({}));
-      console.log(`[DiscordProbe] Gateway discovery succeeded (HTTP ${gatewayResponse.status}); url=${gateway.url || 'missing'} shards=${gateway.shards ?? 'unknown'}.`);
-    } else {
-      const body = await gatewayResponse.text().catch(() => '');
-      console.error(`[DiscordProbe] Gateway discovery failed: HTTP ${gatewayResponse.status}${body ? ` ${body.slice(0, 180)}` : ''}`);
-    }
-  } catch (error) {
-    console.error(`[DiscordProbe] Gateway discovery request failed: ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
-
-setTimeout(() => void probeDiscordStartup(), 500);
 
 // ---------------------------------------------------------------------------
 // Render keepalive + runtime heartbeat
@@ -127,9 +124,9 @@ setInterval(() => {
   );
 }, RUNTIME_HEARTBEAT_INTERVAL_MS);
 
-// Do not destroy/re-login the Discord client while its first gateway login is
-// still pending. That race can leave the client permanently not-ready.
-console.log('[DiscordWatchdog] Destructive reconnect loop disabled; first login may complete normally.');
+// Never destroy/re-login the Discord client while its first login is pending.
+// The gateway manager handles socket reconnects itself once connected.
+console.log('[DiscordWatchdog] Destructive reconnect loop disabled.');
 console.log('[Runtime] Emergency crash containment active.');
 console.log('[KeepAlive] Render self-keepalive scheduled every 8 minutes.');
 console.log('[RuntimeHeartbeat] Runtime heartbeat scheduled every 60 seconds.');
