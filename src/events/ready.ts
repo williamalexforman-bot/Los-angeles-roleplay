@@ -1,5 +1,5 @@
 import { ActivityType, Client, REST, Routes } from 'discord.js';
-import { commandDefinitions, duplicateCommandNames } from '../commands/registry';
+import { commandDefinitions, commandHandlers, duplicateCommandNames } from '../commands/registry';
 import { loadProhibitedWordOverrides } from '../commands/prohibitedWords';
 import { startActivityCheckScheduler } from '../commands/activityCheck';
 import { connectDatabase } from '../database/connection';
@@ -116,6 +116,13 @@ export const onReady = async (client: Client): Promise<void> => {
         return;
     }
 
+    // The registry is imported with this ready module, so expose its already-
+    // compiled handler map to the stable router before any REST registration,
+    // database work, or scheduler startup. User interactions never need to
+    // cold-load the entire command tree.
+    (globalThis as typeof globalThis & { __canonicalCommandHandlers?: typeof commandHandlers }).__canonicalCommandHandlers = commandHandlers;
+    logger.info(`[SlashCommands] Prewarmed ${commandHandlers.size} canonical command handlers for the stable router.`);
+
     registerTicketAiTriage(client);
     registerTicketPriority(client);
     registerJoinAccountDateCorrection(client);
@@ -153,9 +160,6 @@ export const onReady = async (client: Client): Promise<void> => {
 
     const rest = new REST({ version: '10' }).setToken(token);
     try {
-        // Global + guild commands with the same name can appear twice in the
-        // picker. Always wipe this application's global scope before guild
-        // registration so only the canonical guild copy remains.
         const legacyGlobalCommands = await rest.get(Routes.applicationCommands(client.application.id)) as RegisteredCommand[];
         await rest.put(Routes.applicationCommands(client.application.id), { body: [] });
         if (legacyGlobalCommands.length > 0) {
@@ -183,8 +187,6 @@ export const onReady = async (client: Client): Promise<void> => {
         } else {
             for (const guildId of guildIds) {
                 try {
-                    // First clear the entire guild scope. This removes old
-                    // schemas/commands that are no longer present locally.
                     const previous = await rest.get(
                         Routes.applicationGuildCommands(client.application.id, guildId),
                     ) as RegisteredCommand[];
