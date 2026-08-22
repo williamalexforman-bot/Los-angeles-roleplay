@@ -49,7 +49,7 @@ const retainedMiscCommands = miscCommands.filter(command =>
 const retainedStaffManagementCommands = staffManagementCommands.filter(command => command.data.name !== 'promotion');
 const retainedPaidAdCommands = paidAdCommands.filter(command => command.data.name !== 'instant-post');
 
-export const commandDefinitions: CommandDefinition[] = [
+const rawCommandDefinitions: CommandDefinition[] = [
     ...moderationCommands,
     adminCommands,
     ...retainedStaffCommands,
@@ -83,4 +83,17 @@ export const commandDefinitions: CommandDefinition[] = [
     { data: cmdsCommandData, execute: executeCmds as (interaction: ChatInputCommandInteraction) => Promise<unknown> },
 ] as CommandDefinition[];
 
+// Keep exactly one local definition for each slash-command name. The registry
+// historically contained overlapping command packs; Map assignment makes the
+// later/current definition authoritative, matching the old commandHandlers
+// behavior while preventing duplicate schemas from reaching Discord.
+const canonicalByName = new Map<string, CommandDefinition>();
+const duplicateNames = new Set<string>();
+for (const command of rawCommandDefinitions) {
+    if (canonicalByName.has(command.data.name)) duplicateNames.add(command.data.name);
+    canonicalByName.set(command.data.name, command);
+}
+
+export const duplicateCommandNames = Object.freeze([...duplicateNames].sort());
+export const commandDefinitions: CommandDefinition[] = [...canonicalByName.values()];
 export const commandHandlers = new Map(commandDefinitions.map(command => [command.data.name, command.execute]));
