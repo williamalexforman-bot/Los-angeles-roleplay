@@ -96,4 +96,24 @@ for (const command of rawCommandDefinitions) {
 
 export const duplicateCommandNames = Object.freeze([...duplicateNames].sort());
 export const commandDefinitions: CommandDefinition[] = [...canonicalByName.values()];
-export const commandHandlers = new Map(commandDefinitions.map(command => [command.data.name, command.execute]));
+
+// Normal slash commands should never be allowed to finish silently. If an old
+// or partially migrated handler returns without replying, deferring, or opening
+// a modal, acknowledge it here so Discord does not show “This application did
+// not respond.” Critical ticket/application/activity routes still use their
+// dedicated stable handlers before this map is reached.
+export const commandHandlers = new Map(
+    commandDefinitions.map(command => [
+        command.data.name,
+        async (interaction: ChatInputCommandInteraction): Promise<unknown> => {
+            const result = await command.execute(interaction);
+            if (!interaction.replied && !interaction.deferred) {
+                await interaction.reply({
+                    content: '✅ Command received. This command completed without returning its normal response.',
+                    ephemeral: true,
+                }).catch(() => undefined);
+            }
+            return result;
+        },
+    ]),
+);
