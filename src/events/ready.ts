@@ -64,9 +64,10 @@ function scheduleOneTimeCommandSync(client: Client): void {
             const token = client.token?.trim();
             const guildId = process.env.GUILD_ID?.trim() || client.guilds.cache.firstKey();
             if (!token || !guildId) {
-                logger.warn('[SlashCommands] One-time sync skipped because token/application/guild information is unavailable.');
+                logger.warn('[SlashCommands] Guild sync skipped because token/application/guild information is unavailable.');
                 return;
             }
+
             try {
                 const registry = require('../commands/registry.ts') as {
                     commandDefinitions?: Array<{ data: { name: string; toJSON(): unknown } }>;
@@ -74,24 +75,30 @@ function scheduleOneTimeCommandSync(client: Client): void {
                 const definitions = Array.isArray(registry.commandDefinitions) ? registry.commandDefinitions : [];
                 const commands = definitions.slice(0, 100).map(command => command.data.toJSON());
                 if (!commands.length) throw new Error('Canonical command registry is empty.');
-                const rest = new REST({ version: '10' }).setToken(token);
-                logger.warn(`[SlashCommands] Running one-time canonical sync for ${commands.length} commands in guild ${guildId}.`);
-                await rest.put(Routes.applicationCommands(client.application.id), { body: [] });
+
+                // IMPORTANT: Never clear global commands before the replacement
+                // guild registration succeeds. Render's shared egress has been
+                // rate-limited by Discord, and deleting first can leave stale UI
+                // commands with no live registration behind them.
+                const rest = new REST({ version: '10', timeout: 15_000 }).setToken(token);
+                logger.warn(`[SlashCommands] Uploading ${commands.length} canonical guild commands to ${guildId} without deleting existing commands first.`);
+
                 const registered = await rest.put(
                     Routes.applicationGuildCommands(client.application.id, guildId),
                     { body: commands },
                 ) as Array<{ name?: string }>;
+
                 commandSyncCompleted = true;
-                logger.info(`[SlashCommands] ONE-TIME SYNC COMPLETE: ${registered.length} current guild commands installed and stale global commands cleared.`);
+                logger.info(`[SlashCommands] GUILD SYNC COMPLETE: ${registered.length} current commands installed. Existing global commands were left untouched.`);
             } catch (error) {
                 const status = (error as { status?: number })?.status ?? 'unknown';
                 const code = (error as { code?: string | number })?.code ?? 'unknown';
-                logger.error(`[SlashCommands] One-time sync failed: status=${status} code=${code} ${error instanceof Error ? error.stack || error.message : String(error)}`);
+                logger.error(`[SlashCommands] Guild sync failed without deleting existing commands: status=${status} code=${code} ${error instanceof Error ? error.stack || error.message : String(error)}`);
             }
         })();
     }, COMMAND_SYNC_DELAY_MS);
     commandSyncTimer.unref?.();
-    logger.info('[SlashCommands] One-time canonical command sync scheduled 20 seconds after READY.');
+    logger.info('[SlashCommands] Safe guild-only command sync scheduled 20 seconds after READY.');
 }
 
 function schedulePaidAdMaintenance(client: Client): void {
