@@ -16,20 +16,48 @@ process.on('warning', warning => {
   console.warn('[Runtime] Node warning:', warning?.stack || warning?.message || String(warning));
 });
 
-// index.js owns the one stable InteractionCreate listener directly.
-// Preload deliberately does NOT add, remove, replace, or reorder Discord
-// interaction listeners. This prevents startup timing races and protects
-// auxiliary listeners such as Activity Check live refresh observers.
+// index.js owns the canonical interaction router. Preload does not route
+// commands, but it installs a tiny independent acknowledgement watchdog after
+// the Discord client exists. This protects every slash command from Discord's
+// short initial-response deadline even if a command module, database request,
+// or cold import stalls the main handler.
 console.log('[InteractionBridge] Preload listener surgery disabled; index.js owns the stable router.');
+
+let interactionWatchdogInstalled = false;
+const interactionWatchdogInstaller = setInterval(() => {
+  if (interactionWatchdogInstalled) return;
+  const client = globalThis.__discordClient;
+  if (!client || typeof client.on !== 'function') return;
+
+  interactionWatchdogInstalled = true;
+  clearInterval(interactionWatchdogInstaller);
+
+  client.on('interactionCreate', interaction => {
+    if (!interaction?.isChatInputCommand?.()) return;
+
+    const commandName = interaction.commandName || 'unknown';
+    console.log(`[InteractionWatchdog] Received /${commandName} (${interaction.id}).`);
+
+    const timer = setTimeout(async () => {
+      if (!interaction?.isRepliable?.() || interaction.replied || interaction.deferred) return;
+      try {
+        await interaction.deferReply({ flags: 64 });
+        console.warn(`[InteractionWatchdog] /${commandName} was not acknowledged within 1.8s; emergency defer sent.`);
+      } catch (error) {
+        console.error(`[InteractionWatchdog] Could not emergency-defer /${commandName}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }, 1_800);
+
+    if (typeof timer.unref === 'function') timer.unref();
+  });
+
+  console.log('[InteractionWatchdog] Emergency slash-command acknowledgement watchdog installed.');
+}, 100);
+if (typeof interactionWatchdogInstaller.unref === 'function') interactionWatchdogInstaller.unref();
 
 // ---------------------------------------------------------------------------
 // Render keepalive + runtime heartbeat
 // ---------------------------------------------------------------------------
-// Render exposes RENDER_EXTERNAL_URL automatically for web services. Free web
-// services can idle after 15 minutes without inbound traffic, so issue a small
-// request to our own /health endpoint every 8 minutes. This is deliberately
-// well below the idle window and also produces a log proving the keepalive is
-// actually succeeding instead of assuming some outside monitor is working.
 const RENDER_KEEPALIVE_INTERVAL_MS = 8 * 60_000;
 const RUNTIME_HEARTBEAT_INTERVAL_MS = 5 * 60_000;
 let lastRenderKeepAliveAt = 0;
@@ -51,7 +79,8 @@ async function sendRenderKeepAlive() {
     return;
   }
 
-  const url = `${baseUrl}/health?source=self-keepalive&t=${Date.now()}`;
+  // index.js matches /health exactly, so do not append a query string here.
+  const url = `${baseUrl}/health`;
   try {
     const response = await fetch(url, {
       method: 'GET',
@@ -61,7 +90,6 @@ async function sendRenderKeepAlive() {
     });
     lastRenderKeepAliveAt = Date.now();
     lastRenderKeepAliveOk = response.ok;
-    // Consume the response so the underlying connection can be cleanly reused.
     await response.text().catch(() => '');
     console.log(`[KeepAlive] Render /health self-ping ${response.status} at ${new Date(lastRenderKeepAliveAt).toISOString()}.`);
   } catch (error) {
@@ -71,7 +99,6 @@ async function sendRenderKeepAlive() {
   }
 }
 
-// Start shortly after boot, then repeat every eight minutes.
 setTimeout(() => {
   void sendRenderKeepAlive();
 }, 30_000);
@@ -79,8 +106,6 @@ setInterval(() => {
   void sendRenderKeepAlive();
 }, RENDER_KEEPALIVE_INTERVAL_MS);
 
-// A separate heartbeat makes it obvious in Render logs whether Node itself is
-// still alive and whether Discord is connected at that exact moment.
 setInterval(() => {
   const client = globalThis.__discordClient;
   const ready = Boolean(client?.isReady?.());
@@ -93,9 +118,6 @@ setInterval(() => {
   );
 }, RUNTIME_HEARTBEAT_INTERVAL_MS);
 
-// Render can report the web service as Live while the Discord gateway is no
-// longer ready. Watch the globally exposed discord.js Client and force a clean
-// reconnect when it remains disconnected for more than two minutes.
 const DISCORD_WATCH_INTERVAL_MS = 30_000;
 const DISCORD_NOT_READY_GRACE_MS = 2 * 60_000;
 let discordNotReadySince = 0;
