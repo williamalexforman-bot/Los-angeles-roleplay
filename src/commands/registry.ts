@@ -49,7 +49,7 @@ const retainedMiscCommands = miscCommands.filter(command =>
 const retainedStaffManagementCommands = staffManagementCommands.filter(command => command.data.name !== 'promotion');
 const retainedPaidAdCommands = paidAdCommands.filter(command => command.data.name !== 'instant-post');
 
-export const commandDefinitions: CommandDefinition[] = [
+const rawCommandDefinitions: CommandDefinition[] = [
     ...moderationCommands,
     adminCommands,
     ...retainedStaffCommands,
@@ -83,4 +83,19 @@ export const commandDefinitions: CommandDefinition[] = [
     { data: cmdsCommandData, execute: executeCmds as (interaction: ChatInputCommandInteraction) => Promise<unknown> },
 ] as CommandDefinition[];
 
-export const commandHandlers = new Map(commandDefinitions.map(command => [command.data.name, command.execute]));
+// Keep exactly one local handler per slash-command name. The later/current
+// definition wins, matching the historical Map behavior but also making the
+// exported definitions list itself unique. This prevents old command modules
+// from competing with the current handler in memory.
+const canonicalByName = new Map<string, CommandDefinition>();
+const duplicates = new Set<string>();
+for (const command of rawCommandDefinitions) {
+    if (canonicalByName.has(command.data.name)) duplicates.add(command.data.name);
+    canonicalByName.set(command.data.name, command);
+}
+
+export const duplicateCommandNames = [...duplicates].sort();
+export const commandDefinitions: CommandDefinition[] = [...canonicalByName.values()];
+export const commandHandlers = new Map(
+    commandDefinitions.map(command => [command.data.name, command.execute]),
+);
