@@ -5,13 +5,6 @@ import {
 } from 'discord.js';
 import { logger } from '../utils/logger';
 
-const ACTIVITY_COMMANDS = new Set([
-    'activity-check',
-    'view-activity-check',
-    'end-activity-check',
-    'void-activity-check',
-]);
-
 const TICKET_COMMANDS = new Set([
     'ticket',
     'ticket-panel',
@@ -32,11 +25,6 @@ async function safeReply(interaction: Interaction, message: string): Promise<voi
     }
 }
 
-function isActivityInteraction(interaction: Interaction): boolean {
-    if (interaction.isChatInputCommand()) return ACTIVITY_COMMANDS.has(interaction.commandName);
-    return interaction.isButton() && interaction.customId.startsWith('activity-check:');
-}
-
 function isTicketInteraction(interaction: Interaction): boolean {
     if (interaction.isChatInputCommand()) return TICKET_COMMANDS.has(interaction.commandName);
     if (interaction.isButton() || interaction.isModalSubmit() || interaction.isStringSelectMenu()) {
@@ -50,35 +38,6 @@ function isApplicationInteraction(interaction: Interaction): boolean {
     if (interaction.isButton() || interaction.isModalSubmit() || interaction.isStringSelectMenu()) {
         return interaction.customId.startsWith('applications:');
     }
-    return false;
-}
-
-async function runCriticalActivity(interaction: Interaction): Promise<boolean> {
-    if (!isActivityInteraction(interaction)) return false;
-
-    try {
-        const activity = require('../commands/activityCheck.ts') as {
-            activityCheckCommands?: Array<{ data: { name: string }; execute: (i: ChatInputCommandInteraction) => Promise<unknown> }>;
-            handleActivityCheckButton?: (i: any) => Promise<boolean>;
-        };
-
-        if (interaction.isButton()) {
-            if (typeof activity.handleActivityCheckButton !== 'function') throw new Error('Activity button handler is unavailable.');
-            return await activity.handleActivityCheckButton(interaction);
-        }
-
-        if (interaction.isChatInputCommand()) {
-            const command = activity.activityCheckCommands?.find(entry => entry.data.name === interaction.commandName);
-            if (!command) throw new Error(`Activity command ${interaction.commandName} is unavailable.`);
-            await command.execute(interaction);
-            return true;
-        }
-    } catch (error) {
-        logger.error(`[StableRouter] Activity Check failed independently: ${error instanceof Error ? error.stack || error.message : String(error)}`);
-        await safeReply(interaction, 'Activity Check hit an internal error. The rest of the bot is still online. Please try again.');
-        return true;
-    }
-
     return false;
 }
 
@@ -181,13 +140,12 @@ async function runNormalSlashCommand(interaction: ChatInputCommandInteraction): 
 async function runOptionalComponent(interaction: Interaction): Promise<boolean> {
     if (!(interaction.isButton() || interaction.isModalSubmit() || interaction.isStringSelectMenu())) return false;
     const id = interaction.customId;
-
     const attempts: Array<() => Promise<boolean>> = [];
 
     if (id.startsWith('loa:')) {
         if (interaction.isButton()) attempts.push(async () => Boolean(await require('../commands/loa.ts').handleLoaButton?.(interaction)));
         if (interaction.isModalSubmit()) attempts.push(async () => Boolean(await require('../commands/loa.ts').handleLoaModal?.(interaction)));
-    } else if (id.startsWith('applications:') || id.startsWith('ticket:') || id.startsWith('activity-check:')) {
+    } else if (id.startsWith('applications:') || id.startsWith('ticket:')) {
         return false;
     } else if (id.startsWith('dashboard:')) {
         if (interaction.isButton()) attempts.push(async () => Boolean(await require('../commands/dashboard.ts').handleDashboardButton?.(interaction)));
@@ -247,10 +205,6 @@ async function runOptionalComponent(interaction: Interaction): Promise<boolean> 
 
 export async function interactionCreateStable(interaction: Interaction): Promise<void> {
     try {
-        if (isActivityInteraction(interaction)) {
-            await runCriticalActivity(interaction);
-            return;
-        }
         if (isTicketInteraction(interaction)) {
             await runCriticalTickets(interaction);
             return;
@@ -259,13 +213,11 @@ export async function interactionCreateStable(interaction: Interaction): Promise
             await runCriticalApplications(interaction);
             return;
         }
-
         if (interaction.isChatInputCommand()) {
             if (await runNormalSlashCommand(interaction)) return;
             await safeReply(interaction, 'That command is not currently available.');
             return;
         }
-
         if (await runOptionalComponent(interaction)) return;
     } catch (error) {
         logger.error(`[StableRouter] Top-level interaction error contained: ${error instanceof Error ? error.stack || error.message : String(error)}`);
