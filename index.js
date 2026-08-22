@@ -81,7 +81,6 @@ const enablePrivileged = String(process.env.ENABLE_PRIVILEGED_INTENTS || 'false'
 const intents = [
   GatewayIntentBits.Guilds,
   GatewayIntentBits.GuildMessages,
-  GatewayIntentBits.GuildVoiceStates,
   GatewayIntentBits.DirectMessages,
 ];
 if (enablePrivileged) {
@@ -94,6 +93,7 @@ if (enablePrivileged) {
 } else {
   console.warn('[Discord] Privileged intents disabled. Activity checks cannot safely snapshot the full staff roster until ENABLE_PRIVILEGED_INTENTS=true and Server Members Intent is enabled in the Discord Developer Portal.');
 }
+console.log('[VoiceMod] Voice gateway intent and automatic VC moderation are removed from the runtime.');
 
 const client = new Client({
   intents,
@@ -109,8 +109,6 @@ client.on('shardDisconnect', (event, shardId) => {
 });
 
 // Load the stable interaction router directly after ts-node registration.
-// There is deliberately no cached lazy promise here: one failed cold import
-// must never poison every later Discord interaction for the lifetime of the process.
 let interactionCreateStable;
 try {
   ({ interactionCreateStable } = require('./src/handlers/interactionCreateStable.ts'));
@@ -125,13 +123,37 @@ try {
 globalThis.__indexOwnsStableInteractionBridge = true;
 client.on(Events.InteractionCreate, async interaction => {
   const startedAt = Date.now();
+  const isSlash = Boolean(interaction.isChatInputCommand?.());
+  const commandName = isSlash ? interaction.commandName : null;
+
+  if (isSlash) {
+    console.log(`[InteractionBridge] RECEIVED /${commandName} interaction=${interaction.id} user=${interaction.user?.id || 'unknown'}.`);
+  }
+
+  // Discord requires an acknowledgement quickly. Give normal handlers a short
+  // window to reply/show a modal themselves, then safely defer before timeout.
+  // This timer lives in the one authoritative interaction listener, so there is
+  // no competing second router.
+  const acknowledgementTimer = isSlash ? setTimeout(async () => {
+    if (!interaction.isRepliable?.() || interaction.replied || interaction.deferred) return;
+    try {
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      console.warn(`[InteractionBridge] Emergency-deferred /${commandName} after ${Date.now() - startedAt}ms.`);
+    } catch (error) {
+      const status = error?.status ?? error?.rawError?.status ?? 'unknown';
+      const code = error?.code ?? error?.rawError?.code ?? 'unknown';
+      console.error(`[InteractionBridge] ACK FAILED /${commandName}: status=${status} code=${code} ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }, 1800) : null;
+  acknowledgementTimer?.unref?.();
+
   try {
     if (typeof interactionCreateStable !== 'function') {
       throw new Error('Stable interaction router is unavailable.');
     }
     await interactionCreateStable(interaction);
-    if (interaction.isChatInputCommand?.()) {
-      console.log(`[InteractionBridge] /${interaction.commandName} handled in ${Date.now() - startedAt}ms.`);
+    if (isSlash) {
+      console.log(`[InteractionBridge] /${commandName} handled in ${Date.now() - startedAt}ms replied=${interaction.replied} deferred=${interaction.deferred}.`);
     }
   } catch (error) {
     console.error('[InteractionBridge] Stable router failed:', error instanceof Error ? error.stack || error.message : String(error));
@@ -142,11 +164,15 @@ client.on(Events.InteractionCreate, async interaction => {
       else if (interaction.replied) await interaction.followUp({ content, flags: MessageFlags.Ephemeral });
       else await interaction.reply({ content, flags: MessageFlags.Ephemeral });
     } catch (replyError) {
-      console.error('[InteractionBridge] Could not acknowledge failed interaction:', replyError instanceof Error ? replyError.message : String(replyError));
+      const status = replyError?.status ?? replyError?.rawError?.status ?? 'unknown';
+      const code = replyError?.code ?? replyError?.rawError?.code ?? 'unknown';
+      console.error(`[InteractionBridge] Could not acknowledge failed interaction: status=${status} code=${code} ${replyError instanceof Error ? replyError.message : String(replyError)}`);
     }
+  } finally {
+    if (acknowledgementTimer) clearTimeout(acknowledgementTimer);
   }
 });
-console.log('[InteractionBridge] Index-owned stable interaction bridge installed.');
+console.log('[InteractionBridge] Index-owned stable interaction bridge installed with slash acknowledgement protection.');
 
 client.once(Events.ClientReady, async readyClient => {
   console.log(`[Discord] READY as ${readyClient.user.tag} (${readyClient.user.id})`);
@@ -192,13 +218,7 @@ client.once(Events.ClientReady, async readyClient => {
     console.warn('[Tickets] Appeal naming override failed to register:', error instanceof Error ? error.stack || error.message : String(error));
   }
 
-  try {
-    const { registerVoiceModeration } = require('./src/events/voiceModeration.ts');
-    registerVoiceModeration(readyClient);
-    console.log('[VoiceMod] Voice moderation startup hook registered.');
-  } catch (error) {
-    console.warn('[VoiceMod] Voice moderation unavailable:', error instanceof Error ? error.stack || error.message : String(error));
-  }
+  console.log('[VoiceMod] Automatic voice moderation startup is disabled and will not join any VC.');
 
   try {
     const { startActivityCheckScheduler } = require('./src/commands/activityCheck.ts');
@@ -208,18 +228,12 @@ client.once(Events.ClientReady, async readyClient => {
     console.warn('[ActivityCheck] Scheduler unavailable:', error instanceof Error ? error.stack || error.message : String(error));
   }
 
-  try {
-    const { startTicketInactivityScheduler } = require('./src/events/ticketInactivity.ts');
-    startTicketInactivityScheduler(readyClient);
-    console.log('[TicketInactivity] Automatic inactivity system registered.');
-  } catch (error) {
-    console.warn('[TicketInactivity] Scheduler unavailable:', error instanceof Error ? error.stack || error.message : String(error));
-  }
+  console.log('[TicketInactivity] Automatic inactivity scanner is disabled during recovery.');
 
   try {
     const { onReady } = require('./src/events/ready.ts');
     await onReady(readyClient);
-    console.log('[Discord] Slash commands registered.');
+    console.log('[Discord] Ready hooks completed.');
   } catch (error) {
     console.error('[Discord] Ready hooks failed:', error instanceof Error ? error.stack || error.message : String(error));
   }
