@@ -1,5 +1,5 @@
 import { ActivityType, Client, REST, Routes } from 'discord.js';
-import { commandDefinitions } from '../commands/registry';
+import { commandDefinitions, duplicateCommandNames } from '../commands/registry';
 import { loadProhibitedWordOverrides } from '../commands/prohibitedWords';
 import { startActivityCheckScheduler } from '../commands/activityCheck';
 import { connectDatabase } from '../database/connection';
@@ -24,6 +24,16 @@ let memberCountPresenceTimer: ReturnType<typeof setInterval> | null = null;
 
 type CommandJson = ReturnType<(typeof commandDefinitions)[number]['data']['toJSON']>;
 type RegisteredCommand = { id: string; name: string };
+
+function duplicateNames(commands: RegisteredCommand[]): string[] {
+    const seen = new Set<string>();
+    const duplicates = new Set<string>();
+    for (const command of commands) {
+        if (seen.has(command.name)) duplicates.add(command.name);
+        seen.add(command.name);
+    }
+    return [...duplicates].sort();
+}
 
 async function verifyAndRepairRequiredGuildCommands(
     rest: REST,
@@ -60,6 +70,13 @@ async function verifyAndRepairRequiredGuildCommands(
     ) as RegisteredCommand[];
     currentNames = new Set(current.map(command => command.name));
 
+    const remainingDuplicates = duplicateNames(current);
+    if (remainingDuplicates.length) {
+        logger.error(`[SlashCommands] CRITICAL: Discord still returned duplicate guild commands in ${guildId}: ${remainingDuplicates.join(', ')}`);
+    } else {
+        logger.info(`[SlashCommands] VERIFIED unique guild command names in ${guildId}.`);
+    }
+
     for (const requiredName of REQUIRED_COMMAND_NAMES) {
         if (currentNames.has(requiredName)) {
             logger.info(`[SlashCommands] VERIFIED /${requiredName} in guild ${guildId}.`);
@@ -83,7 +100,7 @@ async function updateMemberCountPresence(client: Client): Promise<void> {
         } catch {
             memberCount = client.guilds.cache.get(guildId)?.memberCount;
         }
-        if (memberCount == null) memberCount = client.guilds.cache.get(guildId)?.members.cache.size ?? 0;
+        if (memberCount == null) memberCount = client.guilds.cache.get(guildId)?.memberCount ?? 0;
         await client.user?.setActivity(`${memberCount} members`, { type: ActivityType.Watching });
         logger.info(`[Presence] Status updated: Watching ${memberCount} members.`);
     } catch (error) {
@@ -104,12 +121,15 @@ export const onReady = async (client: Client): Promise<void> => {
     registerJoinAccountDateCorrection(client);
     registerRaidProtection(client);
 
-    const uniqueNames = new Set<string>();
-    const commandEntries = commandDefinitions.map((command, index) => {
-        if (uniqueNames.has(command.data.name)) throw new Error(`Duplicate slash command definition: ${command.data.name}`);
-        uniqueNames.add(command.data.name);
-        return { name: command.data.name, json: command.data.toJSON(), index };
-    });
+    if (duplicateCommandNames.length) {
+        logger.warn(`[SlashCommands] Removed duplicate local definitions before registration: ${duplicateCommandNames.join(', ')}. Later/current definitions are authoritative.`);
+    }
+
+    const commandEntries = commandDefinitions.map((command, index) => ({
+        name: command.data.name,
+        json: command.data.toJSON(),
+        index,
+    }));
     const commandJsonByName = new Map(commandEntries.map(entry => [entry.name, entry.json]));
 
     const protectedNames = new Set<string>([...REQUIRED_COMMAND_NAMES, ...OPTIONAL_ACTIVITY_ALIASES]);
@@ -123,7 +143,7 @@ export const onReady = async (client: Client): Promise<void> => {
     const selectedNames = new Set(selectedEntries.map(entry => entry.name));
     const skippedNames = prioritizedEntries.slice(DISCORD_CHAT_INPUT_COMMAND_LIMIT).map(entry => entry.name);
 
-    logger.info(`[SlashCommands] Prepared ${commands.length}/${commandEntries.length} chat-input commands for Discord registration.`);
+    logger.info(`[SlashCommands] Prepared ${commands.length}/${commandEntries.length} unique chat-input commands for Discord registration.`);
     if (skippedNames.length) {
         logger.warn(`[SlashCommands] Discord allows at most ${DISCORD_CHAT_INPUT_COMMAND_LIMIT} chat-input commands. Skipped lower-priority commands: ${skippedNames.join(', ')}`);
     }
@@ -133,10 +153,15 @@ export const onReady = async (client: Client): Promise<void> => {
 
     const rest = new REST({ version: '10' }).setToken(token);
     try {
+        // Global + guild commands with the same name can appear twice in the
+        // picker. Always wipe this application's global scope before guild
+        // registration so only the canonical guild copy remains.
         const legacyGlobalCommands = await rest.get(Routes.applicationCommands(client.application.id)) as RegisteredCommand[];
+        await rest.put(Routes.applicationCommands(client.application.id), { body: [] });
         if (legacyGlobalCommands.length > 0) {
-            await rest.put(Routes.applicationCommands(client.application.id), { body: [] });
-            logger.info(`Removed ${legacyGlobalCommands.length} legacy global slash commands.`);
+            logger.info(`[SlashCommands] Purged ${legacyGlobalCommands.length} global slash commands to remove stale/duplicate copies.`);
+        } else {
+            logger.info('[SlashCommands] Global command scope verified empty.');
         }
 
         const guildIds = new Set<string>(client.guilds.cache.keys());
@@ -149,24 +174,41 @@ export const onReady = async (client: Client): Promise<void> => {
                 { body: commands },
             ) as RegisteredCommand[];
             const registeredNames = registered.map(command => command.name);
+            const duplicates = duplicateNames(registered);
             logger.info(`Registered ${registered.length} global slash commands because no connected guild was available.`);
+            if (duplicates.length) logger.error(`[SlashCommands] Discord returned duplicate global command names: ${duplicates.join(', ')}`);
             for (const requiredName of REQUIRED_COMMAND_NAMES) {
                 if (!registeredNames.includes(requiredName)) logger.error(`[SlashCommands] Discord did not return required global command ${requiredName}.`);
             }
         } else {
             for (const guildId of guildIds) {
                 try {
+                    // First clear the entire guild scope. This removes old
+                    // schemas/commands that are no longer present locally.
+                    const previous = await rest.get(
+                        Routes.applicationGuildCommands(client.application.id, guildId),
+                    ) as RegisteredCommand[];
+                    await rest.put(
+                        Routes.applicationGuildCommands(client.application.id, guildId),
+                        { body: [] },
+                    );
+                    logger.info(`[SlashCommands] Cleared ${previous.length} existing guild commands in ${guildId} before canonical rebuild.`);
+
                     const registered = await rest.put(
                         Routes.applicationGuildCommands(client.application.id, guildId),
                         { body: commands },
                     ) as RegisteredCommand[];
                     const registeredNames = registered.map(command => command.name);
-                    logger.info(`Registered ${registered.length} guild slash commands in ${guildId}: ${registeredNames.join(', ')}`);
+                    const duplicates = duplicateNames(registered);
+                    logger.info(`Registered ${registered.length} canonical guild slash commands in ${guildId}: ${registeredNames.join(', ')}`);
+                    if (duplicates.length) {
+                        logger.error(`[SlashCommands] Discord returned duplicate guild command names in ${guildId}: ${duplicates.join(', ')}`);
+                    }
                     for (const requiredName of REQUIRED_COMMAND_NAMES) {
                         if (!registeredNames.includes(requiredName)) logger.error(`[SlashCommands] Discord did not return required command ${requiredName} for guild ${guildId}.`);
                     }
                 } catch (error) {
-                    logger.error(`[SlashCommands] Bulk registration failed in guild ${guildId}: ${error instanceof Error ? error.message : String(error)}`);
+                    logger.error(`[SlashCommands] Canonical rebuild failed in guild ${guildId}: ${error instanceof Error ? error.message : String(error)}`);
                 }
 
                 try {
