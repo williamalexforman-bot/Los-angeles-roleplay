@@ -142,7 +142,10 @@ async function runOptionalComponent(interaction: Interaction): Promise<boolean> 
     const id = interaction.customId;
     const attempts: Array<() => Promise<boolean>> = [];
 
-    if (id.startsWith('loa:')) {
+    if (id.startsWith('dashboard:')) {
+        if (interaction.isButton()) attempts.push(async () => Boolean(await require('../commands/dashboard.ts').handleDashboardButton?.(interaction)));
+        if (interaction.isStringSelectMenu()) attempts.push(async () => Boolean(await require('../commands/dashboard.ts').handleDashboardSelect?.(interaction)));
+    } else if (id.startsWith('loa:')) {
         if (interaction.isButton()) attempts.push(async () => Boolean(await require('../commands/loa.ts').handleLoaButton?.(interaction)));
         if (interaction.isModalSubmit()) attempts.push(async () => Boolean(await require('../commands/loa.ts').handleLoaModal?.(interaction)));
     } else if (id.startsWith('applications:') || id.startsWith('ticket:')) {
