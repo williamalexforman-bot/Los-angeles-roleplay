@@ -1,4 +1,4 @@
-import type { Client } from 'discord.js';
+import { ActivityType, type Client } from 'discord.js';
 import { connectDatabase } from '../database/connection';
 import { logger } from '../utils/logger';
 import { loadProhibitedWordOverrides } from '../commands/prohibitedWords';
@@ -7,6 +7,45 @@ import { registerRaidProtection } from './raidProtection';
 
 const COMMAND_PREWARM_DELAY_MS = 1_000;
 let commandPrewarmTimer: ReturnType<typeof setTimeout> | null = null;
+
+function getTotalMemberCount(client: Client): number {
+    return client.guilds.cache.reduce((total, guild) => total + (guild.memberCount || 0), 0);
+}
+
+function updateMemberCountPresence(client: Client): void {
+    if (!client.user) return;
+
+    const memberCount = getTotalMemberCount(client);
+    const label = `${memberCount.toLocaleString()} ${memberCount === 1 ? 'member' : 'members'}`;
+
+    try {
+        client.user.setPresence({
+            status: 'online',
+            activities: [
+                {
+                    name: label,
+                    type: ActivityType.Watching,
+                },
+            ],
+        });
+        logger.info(`[Presence] Watching ${label}.`);
+    } catch (error) {
+        logger.warn(`[Presence] Could not update member-count activity: ${error instanceof Error ? error.message : String(error)}`);
+    }
+}
+
+function registerMemberCountPresence(client: Client): void {
+    updateMemberCountPresence(client);
+
+    // Guild create/delete events do not require the privileged GuildMembers intent.
+    // They keep the total correct when the bot joins or leaves a server.
+    client.on('guildCreate', () => updateMemberCountPresence(client));
+    client.on('guildDelete', () => updateMemberCountPresence(client));
+
+    // Refresh periodically as a harmless fallback while avoiding extra Discord REST requests.
+    const presenceRefreshTimer = setInterval(() => updateMemberCountPresence(client), 5 * 60 * 1000);
+    presenceRefreshTimer.unref?.();
+}
 
 function scheduleCommandPrewarm(): void {
     if (commandPrewarmTimer) clearTimeout(commandPrewarmTimer);
@@ -73,6 +112,13 @@ function scheduleCommandPrewarm(): void {
 
 export const onReady = async (client: Client): Promise<void> => {
     logger.info(`Logged in as ${client.user?.tag}.`);
+
+    try {
+        registerMemberCountPresence(client);
+        logger.info('[Presence] Member-count watching activity enabled.');
+    } catch (error) {
+        logger.warn(`[Presence] Failed to register member-count activity: ${error instanceof Error ? error.message : String(error)}`);
+    }
 
     try {
         registerTicketPriority(client);
