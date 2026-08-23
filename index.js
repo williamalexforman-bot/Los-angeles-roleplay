@@ -38,6 +38,37 @@ globalThis.__indexOwnsStableInteractionBridge = true;
 
 console.log(`[MessageModeration] Curse/raid message monitoring ${messageModerationEnabled ? 'ENABLED' : 'DISABLED'}.`);
 
+function restErrorMeta(error) {
+  const status = error?.status ?? error?.rawError?.status ?? error?.response?.status ?? 'unknown';
+  const code = error?.code ?? error?.rawError?.code ?? 'unknown';
+  const retryAfter = error?.retryAfter ?? error?.rawError?.retry_after ?? error?.response?.headers?.get?.('retry-after') ?? 'unknown';
+  return `status=${status} code=${code} retryAfter=${retryAfter} message=${error?.message || String(error)}`;
+}
+
+// Log the real discord.js REST layer. These events do not make extra Discord
+// requests; they only expose failures/rate limits that used to be invisible.
+client.rest.on('rateLimited', info => {
+  console.warn(
+    `[DiscordREST] RATE_LIMITED global=${Boolean(info?.global)}`
+    + ` timeToReset=${info?.timeToReset ?? 'unknown'}ms`
+    + ` limit=${info?.limit ?? 'unknown'} method=${info?.method ?? 'unknown'}`
+    + ` route=${info?.route ?? info?.hash ?? 'unknown'}`,
+  );
+});
+client.rest.on('invalidRequestWarning', info => {
+  console.warn(`[DiscordREST] INVALID_REQUEST_WARNING count=${info?.count ?? 'unknown'} remaining=${info?.remainingTime ?? 'unknown'}ms`);
+});
+client.rest.on('response', (request, response) => {
+  const status = Number(response?.status || 0);
+  if (status >= 400) {
+    console.error(
+      `[DiscordREST] HTTP ${status} method=${request?.method ?? 'unknown'}`
+      + ` route=${request?.route ?? request?.fullRoute ?? 'unknown'}`
+      + ` retryAfter=${response?.headers?.get?.('retry-after') ?? 'none'}`,
+    );
+  }
+});
+
 const port = Number(process.env.PORT || process.env.WEBHOOK_PORT || 10000);
 const server = http.createServer((req, res) => {
   if (req.url === '/' || req.url === '/health') {
@@ -140,10 +171,8 @@ client.on(Events.InteractionCreate, async interaction => {
       + ` replied=${interaction.replied} deferred=${interaction.deferred}.`,
     );
   } catch (error) {
-    // Do not send a second network acknowledgement here. The stable router owns
-    // the response path; a second retry can turn one upstream rate limit into
-    // multiple failed callbacks for the same interaction.
-    console.error(`[InteractionBridge] ROUTER ERROR ${name}:`, error?.stack || error?.message || String(error));
+    console.error(`[InteractionBridge] ROUTER ERROR ${name}: ${restErrorMeta(error)}`);
+    if (error?.stack) console.error(error.stack);
   }
 });
 
@@ -152,6 +181,19 @@ console.log(`[InteractionBridge] Single native command listener installed. liste
 client.once(Events.ClientReady, async readyClient => {
   console.log(`[Discord] READY as ${readyClient.user.tag} (${readyClient.user.id})`);
   console.log(`[InteractionBridge] READY listener count=${readyClient.listenerCount(Events.InteractionCreate)}.`);
+
+  // One authenticated REST read proves whether Render can reach Discord's REST
+  // API independently of slash-command code. This runs once per process only.
+  setTimeout(() => {
+    void readyClient.rest.get('/users/@me')
+      .then(result => {
+        const id = result && typeof result === 'object' ? result.id : undefined;
+        console.log(`[DiscordRESTCanary] OK authenticated Discord REST is reachable${id ? ` as ${id}` : ''}.`);
+      })
+      .catch(error => {
+        console.error(`[DiscordRESTCanary] FAILED ${restErrorMeta(error)}`);
+      });
+  }, 2_000).unref?.();
 
   try {
     const { onReady } = require('./src/events/ready.ts');
