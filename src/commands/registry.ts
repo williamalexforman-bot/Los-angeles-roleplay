@@ -25,6 +25,7 @@ import { erlcUtilityCommands } from './erlcUtilities';
 import { dockConfigCommand } from './dockConfig';
 import { accountInfoCommands } from './accountInfo';
 import { suggestionCommands } from './suggestions';
+import { dashboardCommand } from './dashboard';
 import { partnershipV2Command } from '../handlers/partnershipV2Command';
 
 export interface CommandDefinition {
@@ -63,6 +64,7 @@ addCommands('misc', retainedMiscCommands);
 addCommands('game', gameCommands);
 addCommands('community', retainedCommunityCommands);
 addCommands('partnershipV2', partnershipV2Command);
+addCommands('dashboard', dashboardCommand);
 addCommands('staffManagement', retainedStaffManagementCommands);
 addCommands('promotionRoleSwap', promotionRoleSwapCommand);
 addCommands('say', sayCommand);
