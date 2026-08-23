@@ -2,6 +2,7 @@ import type { Client } from 'discord.js';
 import { connectDatabase } from '../database/connection';
 import { logger } from '../utils/logger';
 import { startAdvancedPaidAdScheduler } from '../commands/advancedPaidAds';
+import { loadProhibitedWordOverrides } from '../commands/prohibitedWords';
 import { registerTicketAiTriage } from './ticketAiTriage';
 import { registerTicketPriority } from './ticketPriority';
 import { registerRaidProtection } from './raidProtection';
@@ -52,9 +53,6 @@ function schedulePaidAds(client: Client): void {
 export const onReady = async (client: Client): Promise<void> => {
     logger.info(`Logged in as ${client.user?.tag}.`);
 
-    // Keep the features the server needs, but avoid startup REST-heavy systems.
-    // These listeners are registered locally and do not perform slash-command
-    // registration. Paid ads are deliberately delayed to protect command traffic.
     try {
         registerTicketAiTriage(client);
         logger.info('[Tickets] Pre-claim AI triage enabled.');
@@ -79,11 +77,19 @@ export const onReady = async (client: Client): Promise<void> => {
     schedulePaidAds(client);
     scheduleCommandPrewarm();
 
-    logger.warn('[Recovery] Welcome, Dashboard, Activity Check, voice moderation, presence refreshes, prohibited-word startup fetches, and automatic slash registration remain disabled.');
+    logger.warn('[Recovery] Welcome, Dashboard, Activity Check, voice moderation, presence refreshes, and automatic slash registration remain disabled.');
     logger.warn('[SlashCommands] Automatic Discord command registration remains disabled; existing Discord registrations are preserved.');
 
-    void connectDatabase().then(available => {
+    void connectDatabase().then(async available => {
         logger.info(`[Database] ${available ? 'Connected.' : 'Unavailable; Discord remains online.'}`);
+        if (!available) return;
+
+        try {
+            await loadProhibitedWordOverrides([...client.guilds.cache.keys()]);
+            logger.info('[MessageModeration] Persistent prohibited-word overrides loaded.');
+        } catch (error) {
+            logger.warn(`[MessageModeration] Could not load prohibited-word overrides: ${error instanceof Error ? error.message : String(error)}`);
+        }
     }).catch(error => {
         logger.warn(`[Database] Connection failed without taking Discord offline: ${error instanceof Error ? error.message : String(error)}`);
     });
