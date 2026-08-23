@@ -12,7 +12,6 @@ const {
   Client,
   Events,
   GatewayIntentBits,
-  MessageFlags,
   Partials,
 } = require('discord.js');
 
@@ -28,9 +27,7 @@ const intents = [
   GatewayIntentBits.GuildMessages,
   GatewayIntentBits.DirectMessages,
 ];
-if (messageModerationEnabled) {
-  intents.push(GatewayIntentBits.MessageContent);
-}
+if (messageModerationEnabled) intents.push(GatewayIntentBits.MessageContent);
 
 const client = new Client({
   intents,
@@ -41,14 +38,6 @@ globalThis.__indexOwnsStableInteractionBridge = true;
 
 console.log(`[MessageModeration] Curse/raid message monitoring ${messageModerationEnabled ? 'ENABLED' : 'DISABLED'}.`);
 
-function interactionRateLimited() {
-  return Number(globalThis.__discordInteractionRateLimitedUntil || 0) > Date.now();
-}
-
-function interactionRateLimitSeconds() {
-  return Math.max(0, Math.ceil((Number(globalThis.__discordInteractionRateLimitedUntil || 0) - Date.now()) / 1000));
-}
-
 const port = Number(process.env.PORT || process.env.WEBHOOK_PORT || 10000);
 const server = http.createServer((req, res) => {
   if (req.url === '/' || req.url === '/health') {
@@ -57,7 +46,7 @@ const server = http.createServer((req, res) => {
       discordReady: client.isReady(),
       uptimeSeconds: Math.floor(process.uptime()),
       interactionListeners: client.listenerCount(Events.InteractionCreate),
-      interactionRateLimitedSeconds: interactionRateLimitSeconds(),
+      interactionTransport: 'discord.js-native',
       messageModerationEnabled,
     });
     res.writeHead(200, {
@@ -129,33 +118,6 @@ try {
   console.error('[InteractionBridge] Stable router failed to load:', error?.stack || error?.message || String(error));
 }
 
-function errorMeta(error) {
-  return `status=${error?.status ?? error?.rawError?.status ?? 'unknown'} code=${error?.code ?? error?.rawError?.code ?? 'unknown'} message=${error?.message || String(error)}`;
-}
-
-async function directRecoveryReply(interaction) {
-  const name = interaction.commandName;
-  if (name !== 'cmds' && name !== 'help') return false;
-
-  if (interactionRateLimited()) {
-    console.warn(`[InteractionBridge] /${name} received while Discord interaction REST is rate-limited for ~${interactionRateLimitSeconds()}s; no duplicate callback sent.`);
-    return true;
-  }
-
-  try {
-    await interaction.reply({
-      content:
-        '✅ **Los Angeles Roleplay bot is receiving slash commands.**\n'
-        + 'The command gateway and interaction reply path are working. `/cmds` is the current command-list command.',
-      flags: MessageFlags.Ephemeral,
-    });
-    console.log(`[InteractionBridge] DIRECT RECOVERY REPLY succeeded for /${name}.`);
-  } catch (error) {
-    console.error(`[InteractionBridge] DIRECT RECOVERY REPLY FAILED /${name}: ${errorMeta(error)}`);
-  }
-  return true;
-}
-
 client.on(Events.InteractionCreate, async interaction => {
   const startedAt = Date.now();
   const isSlash = interaction.isChatInputCommand?.() === true;
@@ -166,60 +128,26 @@ client.on(Events.InteractionCreate, async interaction => {
     + ` id=${interaction.id} guild=${interaction.guildId || 'DM'}`,
   );
 
-  if (isSlash && await directRecoveryReply(interaction)) return;
+  if (typeof stableRouter !== 'function') {
+    console.error(`[InteractionBridge] ROUTER UNAVAILABLE for ${name}.`);
+    return;
+  }
 
   try {
-    if (typeof stableRouter !== 'function') {
-      throw new Error('Stable interaction router is unavailable');
-    }
-
     await stableRouter(interaction);
-
-    if (interaction.isRepliable?.() && !interaction.replied && !interaction.deferred) {
-      if (interactionRateLimited()) {
-        console.warn(`[InteractionBridge] Fallback acknowledgement suppressed for ${name}; Discord interaction REST is rate-limited for ~${interactionRateLimitSeconds()}s.`);
-      } else {
-        try {
-          await interaction.reply({
-            content: 'That interaction did not produce a response. The command router is online, but that specific handler needs repair.',
-            flags: MessageFlags.Ephemeral,
-          });
-          console.warn(`[InteractionBridge] Fallback reply used for ${name}.`);
-        } catch (error) {
-          console.error(`[InteractionBridge] FALLBACK ACK FAILED ${name}: ${errorMeta(error)}`);
-        }
-      }
-    }
-
     console.log(
       `[InteractionBridge] HANDLED ${name} in ${Date.now() - startedAt}ms`
       + ` replied=${interaction.replied} deferred=${interaction.deferred}.`,
     );
   } catch (error) {
+    // Do not send a second network acknowledgement here. The stable router owns
+    // the response path; a second retry can turn one upstream rate limit into
+    // multiple failed callbacks for the same interaction.
     console.error(`[InteractionBridge] ROUTER ERROR ${name}:`, error?.stack || error?.message || String(error));
-    if (!interaction.isRepliable?.()) return;
-
-    if (interactionRateLimited()) {
-      console.warn(`[InteractionBridge] Error acknowledgement suppressed for ${name}; Discord interaction REST is rate-limited for ~${interactionRateLimitSeconds()}s.`);
-      return;
-    }
-
-    try {
-      if (interaction.deferred) {
-        await interaction.editReply({ content: 'The command handler failed, but the bot is online.' });
-      } else if (!interaction.replied) {
-        await interaction.reply({
-          content: 'The command handler failed, but the bot is online.',
-          flags: MessageFlags.Ephemeral,
-        });
-      }
-    } catch (replyError) {
-      console.error(`[InteractionBridge] ERROR REPLY FAILED ${name}: ${errorMeta(replyError)}`);
-    }
   }
 });
 
-console.log(`[InteractionBridge] Command-first listener installed. listeners=${client.listenerCount(Events.InteractionCreate)}.`);
+console.log(`[InteractionBridge] Single native command listener installed. listeners=${client.listenerCount(Events.InteractionCreate)}.`);
 
 client.once(Events.ClientReady, async readyClient => {
   console.log(`[Discord] READY as ${readyClient.user.tag} (${readyClient.user.id})`);
