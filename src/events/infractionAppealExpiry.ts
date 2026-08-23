@@ -3,6 +3,7 @@ import { logger } from '../utils/logger';
 
 const INFRACTION_PARENT_CHANNEL_ID = '1526044664975851642';
 const APPEAL_WINDOW_MS = 24 * 60 * 60 * 1000;
+const SAFETY_RESCAN_MS = 60 * 60 * 1000;
 const timers = new Map<string, ReturnType<typeof setTimeout>>();
 let registered = false;
 
@@ -88,6 +89,13 @@ export function registerInfractionAppealExpiry(client: Client): void {
     void scheduleExisting(client).catch(error => {
         logger.warn(`[InfractionAppeal] Could not schedule existing appeal expirations: ${error instanceof Error ? error.message : String(error)}`);
     });
+
+    const safetyRescan = setInterval(() => {
+        void scheduleExisting(client).catch(error => {
+            logger.warn(`[InfractionAppeal] Safety rescan failed: ${error instanceof Error ? error.message : String(error)}`);
+        });
+    }, SAFETY_RESCAN_MS);
+    safetyRescan.unref?.();
 
     logger.info('[InfractionAppeal] 24-hour appeal expiry watcher enabled.');
 }
