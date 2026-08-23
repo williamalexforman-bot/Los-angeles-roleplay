@@ -1,9 +1,15 @@
 import type { Client } from 'discord.js';
 import { connectDatabase } from '../database/connection';
 import { logger } from '../utils/logger';
+import { startAdvancedPaidAdScheduler } from '../commands/advancedPaidAds';
+import { registerTicketAiTriage } from './ticketAiTriage';
+import { registerTicketPriority } from './ticketPriority';
+import { registerRaidProtection } from './raidProtection';
 
 const COMMAND_PREWARM_DELAY_MS = 1_000;
+const PAID_AD_STARTUP_DELAY_MS = 5 * 60_000;
 let commandPrewarmTimer: ReturnType<typeof setTimeout> | null = null;
+let paidAdStartupTimer: ReturnType<typeof setTimeout> | null = null;
 
 function scheduleCommandPrewarm(): void {
     if (commandPrewarmTimer) clearTimeout(commandPrewarmTimer);
@@ -28,18 +34,53 @@ function scheduleCommandPrewarm(): void {
     commandPrewarmTimer.unref?.();
 }
 
+function schedulePaidAds(client: Client): void {
+    if (paidAdStartupTimer) clearTimeout(paidAdStartupTimer);
+    paidAdStartupTimer = setTimeout(() => {
+        paidAdStartupTimer = null;
+        try {
+            startAdvancedPaidAdScheduler(client);
+            logger.info('[PaidAds] Advanced paid-ad scheduler started.');
+        } catch (error) {
+            logger.warn(`[PaidAds] Scheduler failed to start without affecting commands: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }, PAID_AD_STARTUP_DELAY_MS);
+    paidAdStartupTimer.unref?.();
+    logger.info('[PaidAds] Scheduler will start 5 minutes after READY so slash commands get priority.');
+}
+
 export const onReady = async (client: Client): Promise<void> => {
     logger.info(`Logged in as ${client.user?.tag}.`);
 
-    // Recovery mode intentionally keeps startup quiet. Do not register background
-    // listeners, run Discord channel verification, update presence, start ad
-    // schedulers, fetch prohibited-word overrides, or perform command-sync REST
-    // calls here. Slash interactions get first priority while Render's Discord
-    // HTTP egress recovers from the upstream 429 block.
-    logger.warn('[Recovery] Core-only startup active: background Discord REST work is disabled.');
-    logger.warn('[SlashCommands] Automatic Discord command registration remains disabled; existing Discord registrations are preserved.');
+    // Keep the features the server needs, but avoid startup REST-heavy systems.
+    // These listeners are registered locally and do not perform slash-command
+    // registration. Paid ads are deliberately delayed to protect command traffic.
+    try {
+        registerTicketAiTriage(client);
+        logger.info('[Tickets] Pre-claim AI triage enabled.');
+    } catch (error) {
+        logger.warn(`[Tickets] AI triage failed to register: ${error instanceof Error ? error.message : String(error)}`);
+    }
 
+    try {
+        registerTicketPriority(client);
+        logger.info('[Tickets] Priority channel naming enabled.');
+    } catch (error) {
+        logger.warn(`[Tickets] Priority naming failed to register: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    try {
+        registerRaidProtection(client);
+        logger.info('[Raid Protection] Runtime protection enabled.');
+    } catch (error) {
+        logger.warn(`[Raid Protection] Failed to register: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    schedulePaidAds(client);
     scheduleCommandPrewarm();
+
+    logger.warn('[Recovery] Welcome, Dashboard, Activity Check, voice moderation, presence refreshes, prohibited-word startup fetches, and automatic slash registration remain disabled.');
+    logger.warn('[SlashCommands] Automatic Discord command registration remains disabled; existing Discord registrations are preserved.');
 
     void connectDatabase().then(available => {
         logger.info(`[Database] ${available ? 'Connected.' : 'Unavailable; Discord remains online.'}`);
