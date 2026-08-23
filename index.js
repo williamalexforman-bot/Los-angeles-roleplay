@@ -22,16 +22,24 @@ if (!token) {
   process.exit(1);
 }
 
+const messageModerationEnabled = String(process.env.ENABLE_MESSAGE_MODERATION || 'true').toLowerCase() !== 'false';
+const intents = [
+  GatewayIntentBits.Guilds,
+  GatewayIntentBits.GuildMessages,
+  GatewayIntentBits.DirectMessages,
+];
+if (messageModerationEnabled) {
+  intents.push(GatewayIntentBits.MessageContent);
+}
+
 const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.DirectMessages,
-  ],
+  intents,
   partials: [Partials.Channel],
 });
 globalThis.__discordClient = client;
 globalThis.__indexOwnsStableInteractionBridge = true;
+
+console.log(`[MessageModeration] Curse/raid message monitoring ${messageModerationEnabled ? 'ENABLED' : 'DISABLED'}.`);
 
 function interactionRateLimited() {
   return Number(globalThis.__discordInteractionRateLimitedUntil || 0) > Date.now();
@@ -50,6 +58,7 @@ const server = http.createServer((req, res) => {
       uptimeSeconds: Math.floor(process.uptime()),
       interactionListeners: client.listenerCount(Events.InteractionCreate),
       interactionRateLimitedSeconds: interactionRateLimitSeconds(),
+      messageModerationEnabled,
     });
     res.writeHead(200, {
       'Content-Type': 'application/json; charset=utf-8',
@@ -90,6 +99,26 @@ client.on('raw', packet => {
   const id = packet?.d?.id || 'unknown';
   console.log(`[RawInteraction] INTERACTION_CREATE name=${name} id=${id}.`);
 });
+
+if (messageModerationEnabled) {
+  let handleMessageModeration = null;
+  try {
+    ({ handleMessageModeration } = require('./src/events/messageModeration.ts'));
+    if (typeof handleMessageModeration !== 'function') throw new Error('handleMessageModeration export missing');
+    console.log('[MessageModeration] Prohibited-word and raid-threat handler loaded.');
+  } catch (error) {
+    console.error('[MessageModeration] Handler failed to load:', error?.stack || error?.message || String(error));
+  }
+
+  client.on(Events.MessageCreate, async message => {
+    if (typeof handleMessageModeration !== 'function') return;
+    try {
+      await handleMessageModeration(message);
+    } catch (error) {
+      console.error('[MessageModeration] Message handler failed:', error?.stack || error?.message || String(error));
+    }
+  });
+}
 
 let stableRouter = null;
 try {
