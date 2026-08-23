@@ -1,15 +1,12 @@
 import {
-    AttachmentBuilder,
     AuditLogEvent,
     Client,
     EmbedBuilder,
     GuildBan,
     GuildMember,
     Message,
-    PermissionFlagsBits,
     type PartialGuildMember,
 } from 'discord.js';
-import sharp from 'sharp';
 import { BRAND, CHANNEL_IDS } from '../config/constants';
 import { legacyEmbedToV2Message } from '../utils/embeds';
 import { logger } from '../utils/logger';
@@ -24,8 +21,6 @@ const MASS_ACTION_WINDOW_MS = 12_000;
 const SAME_EXECUTOR_ACTION_THRESHOLD = 3;
 const GLOBAL_ACTION_THRESHOLD = 5;
 const ALERT_COOLDOWN_MS = 30_000;
-const IMAGE_MAX_BYTES = 12 * 1024 * 1024;
-const MAX_IMAGES_PER_MESSAGE = 3;
 
 interface ModerationAction {
     kind: 'Kick' | 'Ban';
@@ -40,30 +35,21 @@ interface UserMessageState {
     lastAlertAt: number;
 }
 
-type UnknownRecord = Record<string, unknown>;
-
 const actionHistory = new Map<string, ModerationAction[]>();
 const messageHistory = new Map<string, UserMessageState>();
 const massActionAlertAt = new Map<string, number>();
-const imageModerationInFlight = new Set<string>();
-let imageModerationMissingKeyLogged = false;
-
-function isRecord(value: unknown): value is UnknownRecord {
-    return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 function emergencyRoleId(): string | null {
     const value = process.env.EMERGENCY_STAFF_ROLE_ID?.trim() || '';
     return /^\d{17,20}$/.test(value) ? value : null;
 }
 
-async function sendRaidAlert(client: Client, embed: EmbedBuilder, files: AttachmentBuilder[] = []): Promise<void> {
+async function sendRaidAlert(client: Client, embed: EmbedBuilder): Promise<void> {
     const channel = await client.channels.fetch(RAID_CHANNEL_ID).catch(() => null);
     if (!channel?.isSendable()) return;
     const roleId = emergencyRoleId();
     await channel.send(legacyEmbedToV2Message(embed, {
         content: roleId ? `<@&${roleId}>` : undefined,
-        files,
         allowedMentions: roleId ? { roles: [roleId] } : { parse: [] },
     })).catch(error => {
         logger.warn(`[Raid Protection] Could not send raid alert: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -125,7 +111,6 @@ async function fetchMatchingAuditEntry(
     type: AuditLogEvent.MemberKick | AuditLogEvent.MemberBanAdd,
     targetId: string,
 ): Promise<{ executorId: string | null } | null> {
-    // Audit-log delivery can trail the gateway event slightly.
     await new Promise(resolve => setTimeout(resolve, 700));
     const logs = await guild.fetchAuditLogs({ type, limit: 6 }).catch(() => null);
     if (!logs) return null;
@@ -239,127 +224,9 @@ async function handleSpam(message: Message): Promise<void> {
     await sendRaidAlert(message.client, embed);
 }
 
-function isImageAttachment(attachment: { contentType?: string | null; name?: string | null; url: string }): boolean {
-    if (attachment.contentType?.toLowerCase().startsWith('image/')) return true;
-    const filename = attachment.name?.toLowerCase() || '';
-    return /\.(?:png|jpe?g|webp|gif)$/u.test(filename);
-}
-
-async function imageIsSexual(imageUrl: string): Promise<boolean | null> {
-    const apiKey = process.env.OPENAI_API_KEY?.trim();
-    if (!apiKey) {
-        if (!imageModerationMissingKeyLogged) {
-            imageModerationMissingKeyLogged = true;
-            logger.warn('[Raid Protection] OPENAI_API_KEY is not configured; sexual-image classification is disabled. Spam and mass-action raid detection remain active.');
-        }
-        return null;
-    }
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 12_000);
-    try {
-        const response = await fetch('https://api.openai.com/v1/moderations', {
-            method: 'POST',
-            headers: {
-                Authorization: `Bearer ${apiKey}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                model: 'omni-moderation-latest',
-                input: [{
-                    type: 'image_url',
-                    image_url: { url: imageUrl },
-                }],
-            }),
-            signal: controller.signal,
-        });
-        if (!response.ok) {
-            logger.warn(`[Raid Protection] Image moderation returned HTTP ${response.status}.`);
-            return null;
-        }
-        const body = await response.json().catch(() => null);
-        if (!isRecord(body) || !Array.isArray(body.results) || !isRecord(body.results[0])) return null;
-        const categories = isRecord(body.results[0].categories) ? body.results[0].categories : null;
-        return categories?.sexual === true;
-    } catch (error) {
-        logger.warn(`[Raid Protection] Image moderation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        return null;
-    } finally {
-        clearTimeout(timeout);
-    }
-}
-
-async function obscuredEvidence(imageUrl: string, messageId: string): Promise<AttachmentBuilder | null> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10_000);
-    try {
-        const response = await fetch(imageUrl, { signal: controller.signal });
-        if (!response.ok) return null;
-        const declaredLength = Number(response.headers.get('content-length') || 0);
-        if (declaredLength > IMAGE_MAX_BYTES) return null;
-        const source = Buffer.from(await response.arrayBuffer());
-        if (!source.length || source.length > IMAGE_MAX_BYTES) return null;
-
-        // Deliberately destroy visual detail before storing evidence in Discord.
-        const preview = await sharp(source, { animated: false, failOn: 'none' })
-            .resize({ width: 48, height: 48, fit: 'inside', withoutEnlargement: false })
-            .resize({ width: 640, height: 640, fit: 'inside', kernel: 'nearest' })
-            .blur(8)
-            .jpeg({ quality: 45 })
-            .toBuffer();
-        return new AttachmentBuilder(preview, { name: `obscured-evidence-${messageId}.jpg` });
-    } catch {
-        return null;
-    } finally {
-        clearTimeout(timeout);
-    }
-}
-
-async function handleImageSafety(message: Message): Promise<void> {
-    if (!message.attachments.size || imageModerationInFlight.has(message.id)) return;
-    const images = [...message.attachments.values()]
-        .filter(attachment => isImageAttachment(attachment))
-        .slice(0, MAX_IMAGES_PER_MESSAGE);
-    if (!images.length) return;
-
-    imageModerationInFlight.add(message.id);
-    try {
-        for (const attachment of images) {
-            const sexual = await imageIsSexual(attachment.url);
-            if (sexual !== true) continue;
-
-            // Create obscured evidence before deleting the source message.
-            const evidence = await obscuredEvidence(attachment.url, message.id);
-            await message.delete().catch(() => undefined);
-            const timedOut = await timeoutMember(message, 'Raid protection: sexual image content');
-
-            const embed = new EmbedBuilder()
-                .setColor(0xef4444)
-                .setAuthor({ name: 'LARP Raid Protection', iconURL: message.author.displayAvatarURL() })
-                .setTitle('🚨 Sexual Image Content Detected')
-                .setDescription('The original image message was removed automatically. The attached evidence preview is intentionally obscured so explicit content is not redistributed.')
-                .addFields(
-                    { name: 'Member', value: `<@${message.author.id}>`, inline: true },
-                    { name: 'Channel', value: `<#${message.channelId}>`, inline: true },
-                    { name: 'Filename', value: attachment.name ? `\`${attachment.name.slice(0, 180)}\`` : 'Unknown', inline: true },
-                    { name: 'Automatic Action', value: timedOut ? '5-minute timeout applied' : 'Timeout could not be applied; check role hierarchy/permissions', inline: false },
-                )
-                .setFooter({ text: BRAND.footer })
-                .setTimestamp();
-            await sendRaidAlert(message.client, embed, evidence ? [evidence] : []);
-            return;
-        }
-    } finally {
-        imageModerationInFlight.delete(message.id);
-    }
-}
-
 export async function handleRaidProtectionMessage(message: Message): Promise<void> {
     if (!message.guild || message.author.bot || message.webhookId) return;
     await handleSpam(message);
-    // If spam handling deleted the message, attachment URLs can still be usable for a
-    // short time, but avoid unnecessary classifier requests for obvious spam bursts.
-    await handleImageSafety(message);
 }
 
 export function registerRaidProtection(client: Client): void {
@@ -379,5 +246,5 @@ export function registerRaidProtection(client: Client): void {
         });
     });
 
-    logger.info('[Raid Protection] Active: mass kick/ban bursts, spam raids, and sexual-image moderation are enabled when required Discord intents/API configuration are available.');
+    logger.info('[Raid Protection] Active: mass kick/ban burst detection and spam-raid protection are enabled. AI image moderation is removed from the runtime.');
 }
