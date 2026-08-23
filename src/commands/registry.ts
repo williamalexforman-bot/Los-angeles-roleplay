@@ -25,6 +25,7 @@ import { erlcUtilityCommands } from './erlcUtilities';
 import { dockConfigCommand } from './dockConfig';
 import { accountInfoCommands } from './accountInfo';
 import { suggestionCommands } from './suggestions';
+import { partnershipV2Command } from '../handlers/partnershipV2Command';
 
 export interface CommandDefinition {
     data: {
@@ -46,6 +47,7 @@ const retainedMiscCommands = miscCommands.filter(command =>
     !['movie-feedback', 'staff-feedback', 'partnership', 'staff-complaint'].includes(command.data.name)
     && command.data.name !== 'training-result',
 );
+const retainedCommunityCommands = communityCommands.filter(command => command.data.name !== 'partnership');
 const retainedStaffManagementCommands = staffManagementCommands.filter(command => command.data.name !== 'promotion');
 
 const sourcedDefinitions: SourcedCommandDefinition[] = [];
@@ -59,7 +61,8 @@ addCommands('admin', adminCommands);
 addCommands('staff', retainedStaffCommands);
 addCommands('misc', retainedMiscCommands);
 addCommands('game', gameCommands);
-addCommands('community', communityCommands);
+addCommands('community', retainedCommunityCommands);
+addCommands('partnershipV2', partnershipV2Command);
 addCommands('staffManagement', retainedStaffManagementCommands);
 addCommands('promotionRoleSwap', promotionRoleSwapCommand);
 addCommands('say', sayCommand);
