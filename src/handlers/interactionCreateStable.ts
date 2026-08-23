@@ -149,15 +149,6 @@ async function runOptionalComponent(interaction: Interaction): Promise<boolean> 
         return false;
     } else if (id.startsWith('suggestion')) {
         if (interaction.isButton()) attempts.push(async () => Boolean(await require('../commands/suggestions.ts').handleSuggestionButton?.(interaction)));
-    } else if (id.includes('paid') || id.includes('advert')) {
-        if (interaction.isButton()) attempts.push(async () => Boolean(await require('../commands/paidAds.ts').handlePaidAdButton?.(interaction)));
-        if (interaction.isModalSubmit()) attempts.push(async () => Boolean(await require('../commands/paidAds.ts').handlePaidAdModal?.(interaction)));
-        if (interaction.isStringSelectMenu()) {
-            attempts.push(
-                async () => Boolean(await require('../commands/advancedPaidAds.ts').handleAdvancedPaidAdSelect?.(interaction)),
-                async () => Boolean(await require('../commands/paidAds.ts').handlePaidAdSelect?.(interaction)),
-            );
-        }
     } else if (id.startsWith('partnership:') || id.startsWith('community:')) {
         if (interaction.isButton()) attempts.push(async () => Boolean(await require('../commands/community.ts').handleCommunityButton?.(interaction)));
         if (interaction.isModalSubmit()) attempts.push(async () => Boolean(await require('../commands/community.ts').handleCommunityModal?.(interaction)));
