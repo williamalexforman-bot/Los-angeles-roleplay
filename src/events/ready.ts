@@ -6,6 +6,7 @@ import { registerTicketPriority } from './ticketPriority';
 import { registerRaidProtection } from './raidProtection';
 import { registerInfractionAppealExpiry } from './infractionAppealExpiry';
 import { registerLoaLifecycleEnhancements } from './loaLifecycleEnhancements';
+import { registerLegacyLoaActiveMigration } from './loaActiveMigration';
 
 const COMMAND_PREWARM_DELAY_MS = 1_000;
 let commandPrewarmTimer: ReturnType<typeof setTimeout> | null = null;
@@ -144,7 +145,8 @@ export const onReady = async (client: Client): Promise<void> => {
 
     try {
         registerLoaLifecycleEnhancements(client);
-        logger.info('[LOA] Enhanced active/log lifecycle enabled.');
+        registerLegacyLoaActiveMigration(client);
+        logger.info('[LOA] Enhanced active/log lifecycle and active-LOA migration enabled.');
     } catch (error) {
         logger.warn(`[LOA] Failed to register enhanced lifecycle: ${error instanceof Error ? error.message : String(error)}`);
     }
