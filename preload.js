@@ -36,8 +36,38 @@ function appendQuery(url, query) {
   return url;
 }
 
+function retryAfterMs(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return 30_000;
+  // Discord/Cloudflare responses seen on Render have returned values such as
+  // 24632. Treat large integer values as milliseconds and ordinary decimal
+  // values as seconds. Always allow a little extra recovery time.
+  const parsed = numeric > 1_000 ? numeric : numeric * 1_000;
+  return Math.max(30_000, Math.min(parsed + 5_000, 10 * 60_000));
+}
+
+function interactionRateLimitRemainingMs() {
+  const until = Number(globalThis.__discordInteractionRateLimitedUntil || 0);
+  return Math.max(0, until - Date.now());
+}
+
+function makeCircuitBreakerError(remainingMs) {
+  const error = new Error(`Discord interaction REST circuit breaker active for ${Math.ceil(remainingMs / 1000)}s after HTTP 429.`);
+  error.status = 429;
+  error.code = 'INTERACTION_RATE_LIMIT_CIRCUIT_OPEN';
+  return error;
+}
+
 async function directDiscordRequest(method, route, options = {}) {
   const routeText = String(route || '');
+
+  if (isInteractionRoute(routeText)) {
+    const remainingMs = interactionRateLimitRemainingMs();
+    if (remainingMs > 0) {
+      throw makeCircuitBreakerError(remainingMs);
+    }
+  }
+
   let url = `https://discord.com/api/v10${routeText}`;
   url = appendQuery(url, options.query);
 
@@ -72,6 +102,13 @@ async function directDiscordRequest(method, route, options = {}) {
   if (!response.ok) {
     const retryAfter = response.headers.get('retry-after') || response.headers.get('x-ratelimit-reset-after') || 'none';
     const safeBody = responseText.slice(0, 300).replace(/\s+/g, ' ');
+
+    if (response.status === 429 && isInteractionRoute(routeText)) {
+      const blockMs = retryAfterMs(retryAfter);
+      globalThis.__discordInteractionRateLimitedUntil = Date.now() + blockMs;
+      console.error(`[InteractionTransport] Discord/Cloudflare HTTP 429 detected. Circuit breaker opened for ${Math.ceil(blockMs / 1000)}s; duplicate interaction retries will be suppressed.`);
+    }
+
     const error = new Error(`Direct Discord ${method} failed HTTP ${response.status} retryAfter=${retryAfter} body=${safeBody}`);
     error.status = response.status;
     throw error;
@@ -154,20 +191,16 @@ try {
     };
 
     console.log('[DiscordGatewayBypass] REST gateway-discovery bypass installed.');
-    console.log('[InteractionTransport] Direct interaction REST transport installed.');
+    console.log('[InteractionTransport] Direct interaction REST transport installed with 429 circuit breaker.');
   }
 } catch (error) {
   console.error('[DiscordRecovery] Could not install REST recovery bypass:', errorText(error));
 }
 
-// Do not swallow process-level failures during command recovery. If a truly
-// fatal exception escapes every local try/catch, let Node exit so Render can
-// restart into a clean process instead of keeping a half-broken bot alive.
 process.on('warning', warning => {
   console.warn('[Runtime] Node warning:', warning?.stack || warning?.message || String(warning));
 });
 console.log('[Runtime] Native Node crash behavior restored; fatal errors can restart cleanly.');
-
 console.log('[InteractionBridge] Preload listener surgery disabled; index.js owns the stable router.');
 
 const RENDER_KEEPALIVE_INTERVAL_MS = 8 * 60_000;
@@ -213,9 +246,11 @@ setInterval(() => {
   const keepAliveAgeSeconds = lastRenderKeepAliveAt
     ? Math.floor((Date.now() - lastRenderKeepAliveAt) / 1_000)
     : null;
+  const interactionRateLimitSeconds = Math.ceil(interactionRateLimitRemainingMs() / 1000);
   console.log(
     `[RuntimeHeartbeat] uptime=${Math.floor(process.uptime())}s discordReady=${ready}`
-    + ` keepAliveOk=${lastRenderKeepAliveOk} keepAliveAge=${keepAliveAgeSeconds ?? 'never'}s`,
+    + ` keepAliveOk=${lastRenderKeepAliveOk} keepAliveAge=${keepAliveAgeSeconds ?? 'never'}s`
+    + ` interaction429=${interactionRateLimitSeconds}s`,
   );
 }, RUNTIME_HEARTBEAT_INTERVAL_MS);
 
