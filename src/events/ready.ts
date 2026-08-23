@@ -21,12 +21,19 @@ function scheduleCommandPrewarm(): void {
             const registry = require('../commands/registry.ts') as {
                 commandHandlers?: Map<string, unknown>;
                 duplicateCommandNames?: string[];
+                duplicateCommandSources?: Record<string, string[]>;
             };
             const count = registry.commandHandlers instanceof Map ? registry.commandHandlers.size : 0;
             const duplicateNames = Array.isArray(registry.duplicateCommandNames) ? registry.duplicateCommandNames : [];
             logger.info(`[SlashCommands] Warmed ${count} canonical command handlers in ${Date.now() - startedAt}ms.`);
+
             if (duplicateNames.length) {
-                logger.warn(`[SlashCommands] Duplicate command definitions collapsed safely: ${duplicateNames.join(', ')}`);
+                for (const name of duplicateNames) {
+                    const sources = registry.duplicateCommandSources?.[name] || [];
+                    logger.warn(`[SlashCommands] Duplicate /${name} rejected. First handler kept; sources=${sources.join(' -> ') || 'unknown'}.`);
+                }
+            } else {
+                logger.info('[SlashCommands] Duplicate audit passed: every active slash-command name is unique.');
             }
         } catch (error) {
             logger.error(`[SlashCommands] Command warmup failed: ${error instanceof Error ? error.stack || error.message : String(error)}`);
@@ -77,8 +84,9 @@ export const onReady = async (client: Client): Promise<void> => {
     schedulePaidAds(client);
     scheduleCommandPrewarm();
 
-    logger.warn('[Recovery] Welcome, Dashboard, Activity Check, voice moderation, presence refreshes, and automatic slash registration remain disabled.');
-    logger.warn('[SlashCommands] Automatic Discord command registration remains disabled; existing Discord registrations are preserved.');
+    // Slash commands are intentionally not re-uploaded during startup. Existing
+    // Discord registrations remain untouched so startup does not add REST load.
+    logger.info('[SlashCommands] Startup command re-upload is off; runtime handlers are loaded locally.');
 
     void connectDatabase().then(async available => {
         logger.info(`[Database] ${available ? 'Connected.' : 'Unavailable; Discord remains online.'}`);
