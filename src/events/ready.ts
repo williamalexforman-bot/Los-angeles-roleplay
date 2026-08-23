@@ -5,6 +5,7 @@ import { loadProhibitedWordOverrides } from '../commands/prohibitedWords';
 import { registerTicketPriority } from './ticketPriority';
 import { registerRaidProtection } from './raidProtection';
 import { registerInfractionAppealExpiry } from './infractionAppealExpiry';
+import { registerLoaLifecycleEnhancements } from './loaLifecycleEnhancements';
 
 const COMMAND_PREWARM_DELAY_MS = 1_000;
 let commandPrewarmTimer: ReturnType<typeof setTimeout> | null = null;
@@ -139,6 +140,13 @@ export const onReady = async (client: Client): Promise<void> => {
         registerInfractionAppealExpiry(client);
     } catch (error) {
         logger.warn(`[InfractionAppeal] Failed to register 24-hour expiry watcher: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    try {
+        registerLoaLifecycleEnhancements(client);
+        logger.info('[LOA] Enhanced active/log lifecycle enabled.');
+    } catch (error) {
+        logger.warn(`[LOA] Failed to register enhanced lifecycle: ${error instanceof Error ? error.message : String(error)}`);
     }
 
     scheduleCommandPrewarm();
