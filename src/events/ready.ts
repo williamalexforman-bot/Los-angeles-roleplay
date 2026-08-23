@@ -1,4 +1,4 @@
-import { ActivityType, REST, Routes, type Client } from 'discord.js';
+import { ActivityType, type Client } from 'discord.js';
 import { loadProhibitedWordOverrides } from '../commands/prohibitedWords';
 import { connectDatabase } from '../database/connection';
 import { logger } from '../utils/logger';
@@ -10,13 +10,10 @@ import { registerRaidProtection } from './raidProtection';
 
 const MEMBER_COUNT_REFRESH_MS = 5 * 60 * 1000;
 const COMMAND_PREWARM_DELAY_MS = 5_000;
-const COMMAND_SYNC_DELAY_MS = 20_000;
 const NONESSENTIAL_STARTUP_DELAY_MS = 5 * 60_000;
 let memberCountPresenceTimer: ReturnType<typeof setInterval> | null = null;
 let commandPrewarmTimer: ReturnType<typeof setTimeout> | null = null;
-let commandSyncTimer: ReturnType<typeof setTimeout> | null = null;
 let paidAdStartupTimer: ReturnType<typeof setTimeout> | null = null;
-let commandSyncCompleted = false;
 
 async function updateMemberCountPresence(client: Client): Promise<void> {
     try {
@@ -54,53 +51,6 @@ function scheduleCommandPrewarm(): void {
     commandPrewarmTimer.unref?.();
 }
 
-function scheduleOneTimeCommandSync(client: Client): void {
-    if (commandSyncCompleted) return;
-    if (commandSyncTimer) clearTimeout(commandSyncTimer);
-    commandSyncTimer = setTimeout(() => {
-        commandSyncTimer = null;
-        void (async () => {
-            if (commandSyncCompleted || !client.isReady() || !client.application) return;
-            const token = client.token?.trim();
-            const guildId = process.env.GUILD_ID?.trim() || client.guilds.cache.firstKey();
-            if (!token || !guildId) {
-                logger.warn('[SlashCommands] Guild sync skipped because token/application/guild information is unavailable.');
-                return;
-            }
-
-            try {
-                const registry = require('../commands/registry.ts') as {
-                    commandDefinitions?: Array<{ data: { name: string; toJSON(): unknown } }>;
-                };
-                const definitions = Array.isArray(registry.commandDefinitions) ? registry.commandDefinitions : [];
-                const commands = definitions.slice(0, 100).map(command => command.data.toJSON());
-                if (!commands.length) throw new Error('Canonical command registry is empty.');
-
-                // IMPORTANT: Never clear global commands before the replacement
-                // guild registration succeeds. Render's shared egress has been
-                // rate-limited by Discord, and deleting first can leave stale UI
-                // commands with no live registration behind them.
-                const rest = new REST({ version: '10', timeout: 15_000 }).setToken(token);
-                logger.warn(`[SlashCommands] Uploading ${commands.length} canonical guild commands to ${guildId} without deleting existing commands first.`);
-
-                const registered = await rest.put(
-                    Routes.applicationGuildCommands(client.application.id, guildId),
-                    { body: commands },
-                ) as Array<{ name?: string }>;
-
-                commandSyncCompleted = true;
-                logger.info(`[SlashCommands] GUILD SYNC COMPLETE: ${registered.length} current commands installed. Existing global commands were left untouched.`);
-            } catch (error) {
-                const status = (error as { status?: number })?.status ?? 'unknown';
-                const code = (error as { code?: string | number })?.code ?? 'unknown';
-                logger.error(`[SlashCommands] Guild sync failed without deleting existing commands: status=${status} code=${code} ${error instanceof Error ? error.stack || error.message : String(error)}`);
-            }
-        })();
-    }, COMMAND_SYNC_DELAY_MS);
-    commandSyncTimer.unref?.();
-    logger.info('[SlashCommands] Safe guild-only command sync scheduled 20 seconds after READY.');
-}
-
 function schedulePaidAdMaintenance(client: Client): void {
     if (paidAdStartupTimer) clearTimeout(paidAdStartupTimer);
     paidAdStartupTimer = setTimeout(() => {
@@ -121,8 +71,9 @@ export const onReady = async (client: Client): Promise<void> => {
     registerTicketPriority(client);
     registerJoinAccountDateCorrection(client);
     registerRaidProtection(client);
+
     scheduleCommandPrewarm();
-    scheduleOneTimeCommandSync(client);
+    logger.warn('[SlashCommands] Automatic Discord command registration is fully disabled during recovery. No startup REST writes will run.');
 
     try {
         await loadProhibitedWordOverrides([...client.guilds.cache.keys()]);
