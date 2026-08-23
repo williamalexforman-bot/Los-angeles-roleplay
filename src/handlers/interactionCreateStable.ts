@@ -14,6 +14,21 @@ const TICKET_COMMANDS = new Set([
     'unclaim',
 ]);
 
+function isRateLimitError(error: unknown): boolean {
+    const candidate = error as {
+        status?: number;
+        rawError?: { status?: number; retry_after?: number };
+        response?: { status?: number };
+        code?: number | string;
+    } | null;
+
+    return candidate?.status === 429
+        || candidate?.rawError?.status === 429
+        || candidate?.response?.status === 429
+        || candidate?.code === 429
+        || candidate?.code === '429';
+}
+
 async function safeReply(interaction: Interaction, message: string): Promise<void> {
     if (!interaction.isRepliable()) return;
     try {
@@ -92,7 +107,9 @@ async function runCriticalTickets(interaction: Interaction): Promise<boolean> {
         throw new Error(`No ticket handler accepted ${interaction.isChatInputCommand() ? interaction.commandName : interaction.customId}.`);
     } catch (error) {
         logger.error(`[StableRouter] Tickets failed independently: ${error instanceof Error ? error.stack || error.message : String(error)}`);
-        await safeReply(interaction, 'The ticket system hit an internal error, but other bot systems are still online. Please try again.');
+        if (!isRateLimitError(error)) {
+            await safeReply(interaction, 'The ticket system hit an internal error, but other bot systems are still online. Please try again.');
+        }
         return true;
     }
 }
@@ -126,7 +143,9 @@ async function runCriticalApplications(interaction: Interaction): Promise<boolea
         throw new Error(`No application handler accepted ${interaction.customId}.`);
     } catch (error) {
         logger.error(`[StableRouter] Applications failed independently: ${error instanceof Error ? error.stack || error.message : String(error)}`);
-        await safeReply(interaction, 'The application system hit an internal error, but other bot systems are still online. Please try again.');
+        if (!isRateLimitError(error)) {
+            await safeReply(interaction, 'The application system hit an internal error, but other bot systems are still online. Please try again.');
+        }
         return true;
     }
 }
@@ -142,7 +161,11 @@ async function runNormalSlashCommand(interaction: ChatInputCommandInteraction): 
         return true;
     } catch (error) {
         logger.error(`[StableRouter] Command ${interaction.commandName} failed: ${error instanceof Error ? error.stack || error.message : String(error)}`);
-        await safeReply(interaction, 'That command hit an internal error. Please try again.');
+        if (!isRateLimitError(error)) {
+            await safeReply(interaction, 'That command hit an internal error. Please try again.');
+        } else {
+            logger.warn(`[StableRouter] Suppressed duplicate callback for /${interaction.commandName} because Discord returned HTTP 429.`);
+        }
         return true;
     }
 }
@@ -222,6 +245,8 @@ export async function interactionCreateStable(interaction: Interaction): Promise
         if (await runOptionalComponent(interaction)) return;
     } catch (error) {
         logger.error(`[StableRouter] Top-level interaction error contained: ${error instanceof Error ? error.stack || error.message : String(error)}`);
-        await safeReply(interaction, 'The bot hit an internal interaction error. Please try again.');
+        if (!isRateLimitError(error)) {
+            await safeReply(interaction, 'The bot hit an internal interaction error. Please try again.');
+        }
     }
 }
