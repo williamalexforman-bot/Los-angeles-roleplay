@@ -21,7 +21,7 @@ async function safeReply(interaction: Interaction, message: string): Promise<voi
         else if (interaction.replied) await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral });
         else await interaction.reply({ content: message, flags: MessageFlags.Ephemeral });
     } catch {
-        // The interaction may have expired.
+        // The interaction may have expired or Discord may be rate-limiting this host.
     }
 }
 
@@ -147,9 +147,6 @@ async function runOptionalComponent(interaction: Interaction): Promise<boolean> 
         if (interaction.isModalSubmit()) attempts.push(async () => Boolean(await require('../commands/loa.ts').handleLoaModal?.(interaction)));
     } else if (id.startsWith('applications:') || id.startsWith('ticket:')) {
         return false;
-    } else if (id.startsWith('dashboard:')) {
-        if (interaction.isButton()) attempts.push(async () => Boolean(await require('../commands/dashboard.ts').handleDashboardButton?.(interaction)));
-        if (interaction.isStringSelectMenu()) attempts.push(async () => Boolean(await require('../commands/dashboard.ts').handleDashboardSelect?.(interaction)));
     } else if (id.startsWith('suggestion')) {
         if (interaction.isButton()) attempts.push(async () => Boolean(await require('../commands/suggestions.ts').handleSuggestionButton?.(interaction)));
     } else if (id.includes('paid') || id.includes('advert')) {
