@@ -30,6 +30,7 @@ jobs:
           PORT: '10000'
           NODE_ENV: production
           ENABLE_PRIVILEGED_INTENTS: 'false'
+          BOT_TOKEN: 'ci-placeholder-token'
         run: |
           node index.js > startup.log 2>&1 &
           PID=$!
@@ -53,3 +54,6 @@ jobs:
 
       - name: Strict TypeScript check
         run: npm run typecheck
+
+      - name: Full command smoke tests
+        run: npm test
