@@ -33,6 +33,14 @@ const client = new Client({
 globalThis.__discordClient = client;
 globalThis.__indexOwnsStableInteractionBridge = true;
 
+function interactionRateLimited() {
+  return Number(globalThis.__discordInteractionRateLimitedUntil || 0) > Date.now();
+}
+
+function interactionRateLimitSeconds() {
+  return Math.max(0, Math.ceil((Number(globalThis.__discordInteractionRateLimitedUntil || 0) - Date.now()) / 1000));
+}
+
 const port = Number(process.env.PORT || process.env.WEBHOOK_PORT || 10000);
 const server = http.createServer((req, res) => {
   if (req.url === '/' || req.url === '/health') {
@@ -41,6 +49,7 @@ const server = http.createServer((req, res) => {
       discordReady: client.isReady(),
       uptimeSeconds: Math.floor(process.uptime()),
       interactionListeners: client.listenerCount(Events.InteractionCreate),
+      interactionRateLimitedSeconds: interactionRateLimitSeconds(),
     });
     res.writeHead(200, {
       'Content-Type': 'application/json; charset=utf-8',
@@ -75,9 +84,6 @@ client.on('shardReconnecting', shardId => {
   console.warn(`[DiscordGateway] Shard ${shardId} reconnecting.`);
 });
 
-// This is intentionally below discord.js's normal event conversion layer.
-// If Discord dispatches an interaction packet, this line proves it reached
-// this exact Render process even if a later command/router module is broken.
 client.on('raw', packet => {
   if (packet?.t !== 'INTERACTION_CREATE') return;
   const name = packet?.d?.data?.name || 'component';
@@ -101,6 +107,11 @@ function errorMeta(error) {
 async function directRecoveryReply(interaction) {
   const name = interaction.commandName;
   if (name !== 'cmds' && name !== 'help') return false;
+
+  if (interactionRateLimited()) {
+    console.warn(`[InteractionBridge] /${name} received while Discord interaction REST is rate-limited for ~${interactionRateLimitSeconds()}s; no duplicate callback sent.`);
+    return true;
+  }
 
   try {
     await interaction.reply({
@@ -136,14 +147,18 @@ client.on(Events.InteractionCreate, async interaction => {
     await stableRouter(interaction);
 
     if (interaction.isRepliable?.() && !interaction.replied && !interaction.deferred) {
-      try {
-        await interaction.reply({
-          content: 'That interaction did not produce a response. The command router is online, but that specific handler needs repair.',
-          flags: MessageFlags.Ephemeral,
-        });
-        console.warn(`[InteractionBridge] Fallback reply used for ${name}.`);
-      } catch (error) {
-        console.error(`[InteractionBridge] FALLBACK ACK FAILED ${name}: ${errorMeta(error)}`);
+      if (interactionRateLimited()) {
+        console.warn(`[InteractionBridge] Fallback acknowledgement suppressed for ${name}; Discord interaction REST is rate-limited for ~${interactionRateLimitSeconds()}s.`);
+      } else {
+        try {
+          await interaction.reply({
+            content: 'That interaction did not produce a response. The command router is online, but that specific handler needs repair.',
+            flags: MessageFlags.Ephemeral,
+          });
+          console.warn(`[InteractionBridge] Fallback reply used for ${name}.`);
+        } catch (error) {
+          console.error(`[InteractionBridge] FALLBACK ACK FAILED ${name}: ${errorMeta(error)}`);
+        }
       }
     }
 
@@ -154,6 +169,12 @@ client.on(Events.InteractionCreate, async interaction => {
   } catch (error) {
     console.error(`[InteractionBridge] ROUTER ERROR ${name}:`, error?.stack || error?.message || String(error));
     if (!interaction.isRepliable?.()) return;
+
+    if (interactionRateLimited()) {
+      console.warn(`[InteractionBridge] Error acknowledgement suppressed for ${name}; Discord interaction REST is rate-limited for ~${interactionRateLimitSeconds()}s.`);
+      return;
+    }
+
     try {
       if (interaction.deferred) {
         await interaction.editReply({ content: 'The command handler failed, but the bot is online.' });
@@ -175,8 +196,6 @@ client.once(Events.ClientReady, async readyClient => {
   console.log(`[Discord] READY as ${readyClient.user.tag} (${readyClient.user.id})`);
   console.log(`[InteractionBridge] READY listener count=${readyClient.listenerCount(Events.InteractionCreate)}.`);
 
-  // Load normal feature startup after the core slash-command listener is live.
-  // Any failure here is isolated from command delivery.
   try {
     const { onReady } = require('./src/events/ready.ts');
     void onReady(readyClient)
