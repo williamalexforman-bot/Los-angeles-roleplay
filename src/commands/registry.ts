@@ -27,7 +27,6 @@ import { paidAdCommands } from './paidAds';
 import { advancedInstantPostCommand } from './advancedPaidAds';
 import { accountInfoCommands } from './accountInfo';
 import { suggestionCommands } from './suggestions';
-import { dashboardCommand } from './dashboard';
 
 export interface CommandDefinition {
     data: {
@@ -67,7 +66,6 @@ const rawCommandDefinitions: CommandDefinition[] = [
     ...sessionCommands,
     ...ticketCommands,
     applicationsPanelCommand,
-    dashboardCommand,
     roleCommand,
     marketplacePanelCommand,
     ...erlcUtilityCommands,
