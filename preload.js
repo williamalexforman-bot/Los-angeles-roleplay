@@ -6,16 +6,97 @@ process.env.ENABLE_PRIVILEGED_INTENTS = 'false';
 process.env.VOICE_MODERATION_ENABLED = 'false';
 console.warn('[DiscordSafeMode] Privileged intents and voice moderation are OFF during gateway recovery.');
 
-// Render shared egress has been receiving HTTP 429 responses from Discord's
-// authenticated GET /gateway/bot endpoint. discord.js asks that REST route for
-// gateway metadata before opening its WebSocket. Intercept that one route at
-// the REST layer and provide the documented gateway locally.
+function errorText(error) {
+  return error instanceof Error ? (error.stack || error.message) : String(error);
+}
+
+function isInteractionRoute(routeText) {
+  return routeText.startsWith('/interactions/') || routeText.startsWith('/webhooks/');
+}
+
+function appendQuery(url, query) {
+  if (!query) return url;
+  try {
+    if (query instanceof URLSearchParams) {
+      const text = query.toString();
+      return text ? `${url}?${text}` : url;
+    }
+    if (typeof query === 'object') {
+      const params = new URLSearchParams();
+      for (const [key, value] of Object.entries(query)) {
+        if (value === undefined || value === null) continue;
+        params.set(key, String(value));
+      }
+      const text = params.toString();
+      return text ? `${url}?${text}` : url;
+    }
+  } catch {
+    // Ignore malformed optional query data and use the route as-is.
+  }
+  return url;
+}
+
+async function directDiscordRequest(method, route, options = {}) {
+  const routeText = String(route || '');
+  let url = `https://discord.com/api/v10${routeText}`;
+  url = appendQuery(url, options.query);
+
+  const init = {
+    method,
+    headers: {
+      'User-Agent': 'DiscordBot (LARP-Recovery, 1.0)',
+    },
+    signal: AbortSignal.timeout(12_000),
+  };
+
+  const files = Array.isArray(options.files) ? options.files : [];
+  if (files.length) {
+    const form = new FormData();
+    form.append('payload_json', JSON.stringify(options.body ?? {}));
+    files.forEach((file, index) => {
+      const data = file?.data ?? file?.file ?? Buffer.alloc(0);
+      const type = file?.contentType || file?.content_type || 'application/octet-stream';
+      const name = file?.name || `file${index}`;
+      const blob = data instanceof Blob ? data : new Blob([data], { type });
+      form.append(`files[${index}]`, blob, name);
+    });
+    init.body = form;
+  } else if (options.body !== undefined) {
+    init.headers['Content-Type'] = 'application/json';
+    init.body = JSON.stringify(options.body);
+  }
+
+  const response = await fetch(url, init);
+  const responseText = await response.text();
+
+  if (!response.ok) {
+    const retryAfter = response.headers.get('retry-after') || response.headers.get('x-ratelimit-reset-after') || 'none';
+    const safeBody = responseText.slice(0, 300).replace(/\s+/g, ' ');
+    const error = new Error(`Direct Discord ${method} failed HTTP ${response.status} retryAfter=${retryAfter} body=${safeBody}`);
+    error.status = response.status;
+    throw error;
+  }
+
+  if (!responseText) return undefined;
+  try {
+    return JSON.parse(responseText);
+  } catch {
+    return responseText;
+  }
+}
+
+// Render shared egress has been receiving Discord/Cloudflare REST rate limits.
+// Keep gateway discovery off /gateway/bot and route interaction callbacks
+// directly instead of through discord.js's REST queue/global-rate-limit state.
 try {
   const { REST } = require('discord.js');
-  const patchKey = Symbol.for('larp.gatewayBotRestBypass');
+  const patchKey = Symbol.for('larp.discordRestRecoveryBypass');
 
   if (!REST.prototype[patchKey]) {
     const originalGet = REST.prototype.get;
+    const originalPost = REST.prototype.post;
+    const originalPatch = REST.prototype.patch;
+    const originalDelete = REST.prototype.delete;
 
     Object.defineProperty(REST.prototype, patchKey, {
       value: true,
@@ -39,13 +120,44 @@ try {
           },
         });
       }
+      if (isInteractionRoute(routeText)) {
+        return directDiscordRequest('GET', routeText, options);
+      }
       return originalGet.call(this, route, options);
     };
 
+    REST.prototype.post = function larpRestPost(route, options) {
+      const routeText = String(route || '');
+      if (isInteractionRoute(routeText)) {
+        console.log('[InteractionTransport] Direct POST interaction callback route used.');
+        return directDiscordRequest('POST', routeText, options);
+      }
+      return originalPost.call(this, route, options);
+    };
+
+    REST.prototype.patch = function larpRestPatch(route, options) {
+      const routeText = String(route || '');
+      if (isInteractionRoute(routeText)) {
+        console.log('[InteractionTransport] Direct PATCH interaction response route used.');
+        return directDiscordRequest('PATCH', routeText, options);
+      }
+      return originalPatch.call(this, route, options);
+    };
+
+    REST.prototype.delete = function larpRestDelete(route, options) {
+      const routeText = String(route || '');
+      if (isInteractionRoute(routeText)) {
+        console.log('[InteractionTransport] Direct DELETE interaction response route used.');
+        return directDiscordRequest('DELETE', routeText, options);
+      }
+      return originalDelete.call(this, route, options);
+    };
+
     console.log('[DiscordGatewayBypass] REST gateway-discovery bypass installed.');
+    console.log('[InteractionTransport] Direct interaction REST transport installed.');
   }
 } catch (error) {
-  console.error('[DiscordGatewayBypass] Could not install REST bypass:', error instanceof Error ? error.stack || error.message : String(error));
+  console.error('[DiscordRecovery] Could not install REST recovery bypass:', errorText(error));
 }
 
 // Do not swallow process-level failures during command recovery. If a truly
@@ -88,7 +200,7 @@ async function sendRenderKeepAlive() {
   } catch (error) {
     lastRenderKeepAliveAt = Date.now();
     lastRenderKeepAliveOk = false;
-    console.warn(`[KeepAlive] Render self-ping failed: ${error instanceof Error ? error.message : String(error)}`);
+    console.warn(`[KeepAlive] Render self-ping failed: ${errorText(error)}`);
   }
 }
 
