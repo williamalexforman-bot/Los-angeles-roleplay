@@ -30,23 +30,32 @@ export const sayCommand = {
         ),
 
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
         const message = interaction.options.getString('message', true);
         const selectedChannel = interaction.options.getChannel('channel');
-        const target = selectedChannel
-            ? await interaction.client.channels.fetch(selectedChannel.id).catch(() => null)
-            : interaction.channel;
+        const target = selectedChannel || interaction.channel;
+
         if (!target?.isSendable()) {
             markSlashCommandFailed(interaction, new Error('The selected /say destination is not sendable.'));
-            await interaction.editReply('Select a text channel where I can send messages.');
+            await interaction.reply({
+                content: 'Select a text channel where I can send messages.',
+                flags: MessageFlags.Ephemeral,
+            });
             return;
         }
 
-        await target.send({
-            content: message,
-            allowedMentions: { parse: [] },
+        await interaction.reply({
+            content: `✅ Sending your message in ${target}.`,
+            flags: MessageFlags.Ephemeral,
         });
-        await interaction.editReply(`Message sent successfully in ${target}.`);
+
+        try {
+            await target.send({
+                content: message,
+                allowedMentions: { parse: [] },
+            });
+        } catch (error) {
+            markSlashCommandFailed(interaction, error instanceof Error ? error : new Error(String(error)));
+            throw error;
+        }
     },
 };
