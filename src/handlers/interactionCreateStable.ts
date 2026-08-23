@@ -45,6 +45,16 @@ async function runCriticalTickets(interaction: Interaction): Promise<boolean> {
     if (!isTicketInteraction(interaction)) return false;
 
     try {
+        try {
+            const blacklist = require('./ticketBlacklist.ts') as {
+                handleTicketBlacklist?: (i: Interaction) => Promise<boolean>;
+            };
+            if (typeof blacklist.handleTicketBlacklist === 'function'
+                && await blacklist.handleTicketBlacklist(interaction)) return true;
+        } catch (error) {
+            logger.warn(`[StableRouter] Ticket blacklist check failed open: ${error instanceof Error ? error.message : String(error)}`);
+        }
+
         const tickets = require('../commands/tickets.ts') as {
             ticketCommands?: Array<{ data: { name: string }; execute: (i: ChatInputCommandInteraction) => Promise<unknown> }>;
             handleTicketButton?: (i: any) => Promise<boolean>;
