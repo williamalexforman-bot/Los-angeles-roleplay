@@ -181,19 +181,7 @@ console.log(`[InteractionBridge] Single native command listener installed. liste
 client.once(Events.ClientReady, async readyClient => {
   console.log(`[Discord] READY as ${readyClient.user.tag} (${readyClient.user.id})`);
   console.log(`[InteractionBridge] READY listener count=${readyClient.listenerCount(Events.InteractionCreate)}.`);
-
-  // One authenticated REST read proves whether Render can reach Discord's REST
-  // API independently of slash-command code. This runs once per process only.
-  setTimeout(() => {
-    void readyClient.rest.get('/users/@me')
-      .then(result => {
-        const id = result && typeof result === 'object' ? result.id : undefined;
-        console.log(`[DiscordRESTCanary] OK authenticated Discord REST is reachable${id ? ` as ${id}` : ''}.`);
-      })
-      .catch(error => {
-        console.error(`[DiscordRESTCanary] FAILED ${restErrorMeta(error)}`);
-      });
-  }, 2_000).unref?.();
+  console.log('[DiscordREST] Passive logging only; startup canary disabled so READY does not make an extra REST request.');
 
   try {
     const { onReady } = require('./src/events/ready.ts');
