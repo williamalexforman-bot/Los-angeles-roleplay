@@ -7,6 +7,7 @@ import { registerRaidProtection } from './raidProtection';
 import { registerInfractionAppealExpiry } from './infractionAppealExpiry';
 import { registerLoaLifecycleEnhancements } from './loaLifecycleEnhancements';
 import { registerLegacyLoaActiveMigration } from './loaActiveMigration';
+import { registerLoaCalendarRequest } from './loaCalendarRequest';
 
 const COMMAND_PREWARM_DELAY_MS = 1_000;
 let commandPrewarmTimer: ReturnType<typeof setTimeout> | null = null;
@@ -145,8 +146,9 @@ export const onReady = async (client: Client): Promise<void> => {
 
     try {
         registerLoaLifecycleEnhancements(client);
+        registerLoaCalendarRequest();
         registerLegacyLoaActiveMigration(client);
-        logger.info('[LOA] Enhanced active/log lifecycle and active-LOA migration enabled.');
+        logger.info('[LOA] Enhanced lifecycle, calendar request picker, and active-LOA migration enabled.');
     } catch (error) {
         logger.warn(`[LOA] Failed to register enhanced lifecycle: ${error instanceof Error ? error.message : String(error)}`);
     }
