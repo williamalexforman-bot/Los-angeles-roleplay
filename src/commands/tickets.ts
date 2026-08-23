@@ -301,12 +301,6 @@ async function createTicket(interaction: ModalSubmitInteraction, type: TicketTyp
         return;
     }
 
-    const duplicate = guild.channels.cache.find(channel => decodeMetadata('topic' in channel ? channel.topic : null)?.ownerId === interaction.user.id);
-    if (duplicate) {
-        await interaction.editReply(`You already have an open ticket: <#${duplicate.id}>`);
-        return;
-    }
-
     const category = TICKET_CATEGORIES[type];
     const metadata: TicketMetadata = {
         ownerId: interaction.user.id,
@@ -316,7 +310,7 @@ async function createTicket(interaction: ModalSubmitInteraction, type: TicketTyp
     let channel: TextChannel | null = null;
     try {
         channel = await guild.channels.create({
-            name: `${type}-${safeChannelName(interaction.user.username)}-${interaction.user.id.slice(-4)}`.slice(0, 100),
+            name: `${type}-${safeChannelName(interaction.user.username)}-${Date.now().toString().slice(-6)}`.slice(0, 100),
             type: ChannelType.GuildText,
             parent: category.parentId,
             topic: encodeMetadata(metadata),
