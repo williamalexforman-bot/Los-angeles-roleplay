@@ -9,9 +9,7 @@ console.warn('[DiscordSafeMode] Privileged intents and voice moderation are OFF 
 // Render shared egress has been receiving HTTP 429 responses from Discord's
 // authenticated GET /gateway/bot endpoint. discord.js asks that REST route for
 // gateway metadata before opening its WebSocket. Intercept that one route at
-// the REST layer and provide the documented gateway locally. This is more
-// reliable than patching Client#login/WebSocket internals because every
-// discord.js REST instance goes through REST.prototype.get.
+// the REST layer and provide the documented gateway locally.
 try {
   const { REST } = require('discord.js');
   const patchKey = Symbol.for('larp.gatewayBotRestBypass');
@@ -50,19 +48,13 @@ try {
   console.error('[DiscordGatewayBypass] Could not install REST bypass:', error instanceof Error ? error.stack || error.message : String(error));
 }
 
-process.on('unhandledRejection', reason => {
-  const message = reason instanceof Error ? (reason.stack || reason.message) : String(reason);
-  console.error('[Runtime] Unhandled promise rejection contained:', message);
-});
-
-process.on('uncaughtException', error => {
-  const message = error instanceof Error ? (error.stack || error.message) : String(error);
-  console.error('[Runtime] Uncaught exception contained:', message);
-});
-
+// Do not swallow process-level failures during command recovery. If a truly
+// fatal exception escapes every local try/catch, let Node exit so Render can
+// restart into a clean process instead of keeping a half-broken bot alive.
 process.on('warning', warning => {
   console.warn('[Runtime] Node warning:', warning?.stack || warning?.message || String(warning));
 });
+console.log('[Runtime] Native Node crash behavior restored; fatal errors can restart cleanly.');
 
 console.log('[InteractionBridge] Preload listener surgery disabled; index.js owns the stable router.');
 
@@ -116,6 +108,5 @@ setInterval(() => {
 }, RUNTIME_HEARTBEAT_INTERVAL_MS);
 
 console.log('[DiscordWatchdog] Destructive reconnect loop disabled.');
-console.log('[Runtime] Emergency crash containment active.');
 console.log('[KeepAlive] Render self-keepalive scheduled every 8 minutes.');
 console.log('[RuntimeHeartbeat] Runtime heartbeat scheduled every 60 seconds.');
