@@ -20,11 +20,16 @@ function scheduleCommandPrewarm(): void {
         try {
             const registry = require('../commands/registry.ts') as {
                 commandHandlers?: Map<string, unknown>;
+                commandDefinitions?: Array<{
+                    data?: { name?: string; toJSON?: () => unknown };
+                    execute?: unknown;
+                }>;
                 duplicateCommandNames?: string[];
                 duplicateCommandSources?: Record<string, string[]>;
             };
             const count = registry.commandHandlers instanceof Map ? registry.commandHandlers.size : 0;
             const duplicateNames = Array.isArray(registry.duplicateCommandNames) ? registry.duplicateCommandNames : [];
+            const definitions = Array.isArray(registry.commandDefinitions) ? registry.commandDefinitions : [];
             logger.info(`[SlashCommands] Warmed ${count} canonical command handlers in ${Date.now() - startedAt}ms.`);
 
             if (duplicateNames.length) {
@@ -34,6 +39,34 @@ function scheduleCommandPrewarm(): void {
                 }
             } else {
                 logger.info('[SlashCommands] Duplicate audit passed: every active slash-command name is unique.');
+            }
+
+            const failures: string[] = [];
+            const checkedNames: string[] = [];
+            for (const definition of definitions) {
+                const name = definition?.data?.name || '<unnamed>';
+                checkedNames.push(name);
+                if (typeof definition.execute !== 'function') {
+                    failures.push(`/${name}: execute handler is not a function`);
+                    continue;
+                }
+                if (typeof definition.data?.toJSON !== 'function') {
+                    failures.push(`/${name}: slash-command schema has no toJSON()`);
+                    continue;
+                }
+                try {
+                    const json = definition.data.toJSON() as { name?: string };
+                    if (!json || json.name !== name) failures.push(`/${name}: schema name mismatch`);
+                } catch (error) {
+                    failures.push(`/${name}: schema serialization failed (${error instanceof Error ? error.message : String(error)})`);
+                }
+                if (!registry.commandHandlers?.has(name)) failures.push(`/${name}: missing from commandHandlers map`);
+            }
+
+            if (failures.length) {
+                logger.error(`[SlashCommands] FULL COMMAND AUDIT FAILED (${failures.length} issue(s)): ${failures.join(' | ')}`);
+            } else {
+                logger.info(`[SlashCommands] FULL COMMAND AUDIT PASSED: ${checkedNames.length} commands have valid schemas and callable handlers.`);
             }
         } catch (error) {
             logger.error(`[SlashCommands] Command warmup failed: ${error instanceof Error ? error.stack || error.message : String(error)}`);
