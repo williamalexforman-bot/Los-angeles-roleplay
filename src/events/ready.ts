@@ -1,16 +1,12 @@
 import type { Client } from 'discord.js';
 import { connectDatabase } from '../database/connection';
 import { logger } from '../utils/logger';
-import { startAdvancedPaidAdScheduler } from '../commands/advancedPaidAds';
 import { loadProhibitedWordOverrides } from '../commands/prohibitedWords';
-import { registerTicketAiTriage } from './ticketAiTriage';
 import { registerTicketPriority } from './ticketPriority';
 import { registerRaidProtection } from './raidProtection';
 
 const COMMAND_PREWARM_DELAY_MS = 1_000;
-const PAID_AD_STARTUP_DELAY_MS = 5 * 60_000;
 let commandPrewarmTimer: ReturnType<typeof setTimeout> | null = null;
-let paidAdStartupTimer: ReturnType<typeof setTimeout> | null = null;
 
 function scheduleCommandPrewarm(): void {
     if (commandPrewarmTimer) clearTimeout(commandPrewarmTimer);
@@ -75,30 +71,8 @@ function scheduleCommandPrewarm(): void {
     commandPrewarmTimer.unref?.();
 }
 
-function schedulePaidAds(client: Client): void {
-    if (paidAdStartupTimer) clearTimeout(paidAdStartupTimer);
-    paidAdStartupTimer = setTimeout(() => {
-        paidAdStartupTimer = null;
-        try {
-            startAdvancedPaidAdScheduler(client);
-            logger.info('[PaidAds] Advanced paid-ad scheduler started.');
-        } catch (error) {
-            logger.warn(`[PaidAds] Scheduler failed to start without affecting commands: ${error instanceof Error ? error.message : String(error)}`);
-        }
-    }, PAID_AD_STARTUP_DELAY_MS);
-    paidAdStartupTimer.unref?.();
-    logger.info('[PaidAds] Scheduler will start 5 minutes after READY so slash commands get priority.');
-}
-
 export const onReady = async (client: Client): Promise<void> => {
     logger.info(`Logged in as ${client.user?.tag}.`);
-
-    try {
-        registerTicketAiTriage(client);
-        logger.info('[Tickets] Pre-claim AI triage enabled.');
-    } catch (error) {
-        logger.warn(`[Tickets] AI triage failed to register: ${error instanceof Error ? error.message : String(error)}`);
-    }
 
     try {
         registerTicketPriority(client);
@@ -114,11 +88,8 @@ export const onReady = async (client: Client): Promise<void> => {
         logger.warn(`[Raid Protection] Failed to register: ${error instanceof Error ? error.message : String(error)}`);
     }
 
-    schedulePaidAds(client);
     scheduleCommandPrewarm();
 
-    // Slash commands are intentionally not re-uploaded during startup. Existing
-    // Discord registrations remain untouched so startup does not add REST load.
     logger.info('[SlashCommands] Startup command re-upload is off; runtime handlers are loaded locally.');
 
     void connectDatabase().then(async available => {
