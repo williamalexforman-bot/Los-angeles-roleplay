@@ -23,8 +23,6 @@ import { roleCommand } from './role';
 import { marketplacePanelCommand } from './marketplace';
 import { erlcUtilityCommands } from './erlcUtilities';
 import { dockConfigCommand } from './dockConfig';
-import { paidAdCommands } from './paidAds';
-import { advancedInstantPostCommand } from './advancedPaidAds';
 import { accountInfoCommands } from './accountInfo';
 import { suggestionCommands } from './suggestions';
 
@@ -49,7 +47,6 @@ const retainedMiscCommands = miscCommands.filter(command =>
     && command.data.name !== 'training-result',
 );
 const retainedStaffManagementCommands = staffManagementCommands.filter(command => command.data.name !== 'promotion');
-const retainedPaidAdCommands = paidAdCommands.filter(command => command.data.name !== 'instant-post');
 
 const sourcedDefinitions: SourcedCommandDefinition[] = [];
 function addCommands(source: string, commands: CommandDefinition | readonly CommandDefinition[]): void {
@@ -80,8 +77,6 @@ addCommands('role', roleCommand);
 addCommands('marketplace', marketplacePanelCommand);
 addCommands('erlcUtilities', erlcUtilityCommands);
 addCommands('dockConfig', dockConfigCommand);
-addCommands('paidAds', retainedPaidAdCommands);
-addCommands('advancedPaidAds', advancedInstantPostCommand);
 addCommands('accountInfo', accountInfoCommands);
 addCommands('suggestions', suggestionCommands);
 addCommands('cmds', { data: cmdsCommandData, execute: executeCmds as (interaction: ChatInputCommandInteraction) => Promise<unknown> });
@@ -98,8 +93,6 @@ for (const { source, command } of sourcedDefinitions) {
         const sources = duplicateSources.get(name) || [sourceByName.get(name) || 'unknown'];
         sources.push(source);
         duplicateSources.set(name, sources);
-        // FIRST HANDLER WINS. A later duplicate is never allowed to silently
-        // replace a command that was already loaded successfully.
         continue;
     }
 
