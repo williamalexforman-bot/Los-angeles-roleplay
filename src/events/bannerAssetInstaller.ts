@@ -1,129 +1,81 @@
-import { existsSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, readFileSync, statSync, writeFileSync } from 'fs';
 import { resolve } from 'path';
-import sharp from 'sharp';
 import { logger } from '../utils/logger';
 
-type BannerInstall = {
-    sourceKeys: string[];
-    targets: string[];
+type EncodedFallback = {
+    source: string;
+    target: string;
     label: string;
-    width?: number;
-    preserveOriginal?: boolean;
 };
 
 const ASSETS_ROOT = resolve(__dirname, '..', '..', 'assets');
-const PACK_PATHS = [
-    resolve(ASSETS_ROOT, 'brand-banner-pack-v3', 'part-000.txt'),
-    resolve(ASSETS_ROOT, 'brand-banner-pack', 'part-000.txt'),
+
+// The old consolidated JSON banner packs were truncated in Git and could not
+// be parsed on Render. Banner installation now uses only real standalone files
+// plus the few complete .b64 fallbacks that already exist in the repository.
+const ENCODED_FALLBACKS: readonly EncodedFallback[] = [
+    { source: 'dashboard-banner.b64', target: 'dashboard-banner.webp', label: 'Dashboard' },
+    { source: 'partnership-banner.b64', target: 'partnership-banner.webp', label: 'Partnership' },
+    { source: 'brand-banners/underbanner.webp.b64', target: 'underbanner.webp', label: 'Underbanner' },
 ];
 
-// Components V2 media galleries are rendered very wide on desktop. Large
-// persistent panels get a high-resolution runtime copy. Transactional staff
-// cards such as infractions/promotions keep the original optimized bytes so
-// their attachments stay small and reliable when Discord creates the case.
-const WIDE_BANNER_WIDTH = 1920;
-const UNDERBANNER_WIDTH = 1920;
+const REQUIRED_ARTWORK = [
+    ['underbanner.webp', 'Underbanner'],
+    ['infraction-banner.png', 'Infractions'],
+    ['promotion-banner.png', 'Promotions'],
+    ['partnership-banner.webp', 'Partnership'],
+    ['assistance-banner.png', 'Assistance / Tickets'],
+    ['suggestion-banner.webp', 'Suggestions'],
+    ['dashboard-banner.webp', 'Dashboard'],
+    ['rules-banner.webp', 'Rules'],
+    ['applications-banner.png', 'Applications'],
+    ['training-results-banner.webp', 'Training Results'],
+    ['training-request-banner.webp', 'Training Request'],
+    ['paid-ad-banner.webp', 'Paid Advertisement'],
+    ['staff-feedback-banner.webp', 'Staff Feedback'],
+] as const;
 
-const FULL_BANNER_MAPPINGS: BannerInstall[] = [
-    { sourceKeys: ['underbanner.webp'], targets: ['underbanner.webp'], label: 'Underbanner', width: UNDERBANNER_WIDTH },
-    { sourceKeys: ['infractions-banner.webp', 'infraction-banner.webp'], targets: ['infraction-banner.png'], label: 'Infractions', preserveOriginal: true },
-    { sourceKeys: ['promotions-banner.webp', 'promotion-banner.webp'], targets: ['promotion-banner.png'], label: 'Promotions', preserveOriginal: true },
-    { sourceKeys: ['partnership-banner.webp'], targets: ['partnership-banner.webp'], label: 'Partnership' },
-    { sourceKeys: ['assistance-banner.webp', 'assistance-banner.png'], targets: ['assistance-banner.png'], label: 'Assistance' },
-    { sourceKeys: ['suggestion-banner.webp', 'suggestions-banner.webp'], targets: ['suggestion-banner.webp'], label: 'Suggestions' },
-    { sourceKeys: ['dashboard-banner.webp'], targets: ['dashboard-banner.webp'], label: 'Dashboard' },
-    { sourceKeys: ['rules-banner.webp'], targets: ['rules-banner.webp'], label: 'Rules' },
-    { sourceKeys: ['applications-banner.webp', 'applications-banner.png'], targets: ['applications-banner.png'], label: 'Applications' },
-    { sourceKeys: ['training-results-banner.webp', 'training-result-banner.webp'], targets: ['training-results-banner.webp'], label: 'Training Results' },
-    { sourceKeys: ['training-request-banner.webp'], targets: ['training-request-banner.webp'], label: 'Training Request' },
-    { sourceKeys: ['paid-ad-banner.webp', 'paidad-banner.webp'], targets: ['paid-ad-banner.webp'], label: 'Paid Advertisement' },
-    { sourceKeys: ['staff-feedback-banner.webp'], targets: ['staff-feedback-banner.webp'], label: 'Staff Feedback' },
-];
-
-function loadBannerPack(): Record<string, string> {
-    for (const packPath of PACK_PATHS) {
-        try {
-            if (!existsSync(packPath)) continue;
-            const parsed = JSON.parse(readFileSync(packPath, 'utf8')) as Record<string, string>;
-            if (parsed && typeof parsed === 'object' && Object.keys(parsed).length) return parsed;
-        } catch (error) {
-            logger.warn(`[Banners] Could not parse ${packPath}: ${error instanceof Error ? error.message : String(error)}`);
-        }
-    }
-    return {};
-}
-
-function expandedKeys(keys: readonly string[]): string[] {
-    const aliases = new Set<string>();
-    for (const key of keys) {
-        aliases.add(key);
-        if (key.endsWith('.webp')) aliases.add(key.replace('.webp', '.png'));
-        if (key.endsWith('.png')) aliases.add(key.replace('.png', '.webp'));
-    }
-    return [...aliases];
-}
-
-async function renderForTarget(source: Buffer, target: string, width: number): Promise<Buffer> {
-    let pipeline = sharp(source)
-        .resize({
-            width,
-            fit: 'inside',
-            withoutEnlargement: false,
-            kernel: sharp.kernel.lanczos3,
-        })
-        .sharpen({ sigma: 0.65, m1: 0.7, m2: 1.2 });
-
-    if (target.toLowerCase().endsWith('.png')) {
-        pipeline = pipeline.png({ compressionLevel: 9, adaptiveFiltering: true });
-    } else {
-        pipeline = pipeline.webp({ quality: 100, nearLossless: true, smartSubsample: true });
-    }
-    return pipeline.toBuffer();
-}
-
-async function installFromPack(pack: Record<string, string>, mapping: BannerInstall): Promise<boolean> {
-    const aliases = expandedKeys(mapping.sourceKeys);
-    const sourceName = aliases.find(name => typeof pack[name] === 'string' && pack[name].trim());
-    if (!sourceName) {
-        logger.warn(`[Banners] ${mapping.label} source is missing from banner pack (${aliases.join(', ')}).`);
+function isUsable(filePath: string): boolean {
+    try {
+        const stats = statSync(filePath);
+        return stats.isFile() && stats.size > 0;
+    } catch {
         return false;
     }
+}
+
+function restoreEncodedFallback(asset: EncodedFallback): boolean {
+    const targetPath = resolve(ASSETS_ROOT, asset.target);
+    if (isUsable(targetPath)) return true;
+
+    const sourcePath = resolve(ASSETS_ROOT, asset.source);
+    if (!existsSync(sourcePath)) return false;
 
     try {
-        const sourceBytes = Buffer.from(pack[sourceName].trim(), 'base64');
-        if (!sourceBytes.length) throw new Error('decoded file is empty');
-
-        if (mapping.preserveOriginal) {
-            for (const target of mapping.targets) {
-                writeFileSync(resolve(ASSETS_ROOT, target), sourceBytes);
-                logger.info(`[Banners] Installed lightweight ${mapping.label} artwork (${target}, ${sourceBytes.length.toLocaleString()} bytes).`);
-            }
-            return true;
-        }
-
-        const metadata = await sharp(sourceBytes).metadata();
-        const outputWidth = Math.max(mapping.width || WIDE_BANNER_WIDTH, metadata.width || 0);
-
-        for (const target of mapping.targets) {
-            const rendered = await renderForTarget(sourceBytes, target, outputWidth);
-            writeFileSync(resolve(ASSETS_ROOT, target), rendered);
-            logger.info(`[Banners] Rendered ${mapping.label} ${metadata.width || '?'}x${metadata.height || '?'} -> ${outputWidth}px wide (${target}, ${rendered.length.toLocaleString()} bytes).`);
-        }
+        const encoded = readFileSync(sourcePath, 'utf8').replace(/\s+/g, '');
+        if (!encoded) return false;
+        const bytes = Buffer.from(encoded, 'base64');
+        if (!bytes.length) return false;
+        writeFileSync(targetPath, bytes);
+        logger.info(`[Banners] Restored ${asset.label} from standalone encoded source (${asset.target}, ${bytes.length.toLocaleString()} bytes).`);
         return true;
     } catch (error) {
-        logger.warn(`[Banners] Failed to install ${mapping.label}: ${error instanceof Error ? error.message : String(error)}`);
+        logger.warn(`[Banners] Could not restore ${asset.label}: ${error instanceof Error ? error.message : String(error)}`);
         return false;
     }
 }
 
 export async function installBatchOneBannerAssets(): Promise<void> {
-    const pack = loadBannerPack();
-    if (!Object.keys(pack).length) {
-        logger.warn('[Banners] Full banner pack was not available; existing runtime artwork will be kept.');
+    for (const asset of ENCODED_FALLBACKS) restoreEncodedFallback(asset);
+
+    const missing = REQUIRED_ARTWORK
+        .filter(([filename]) => !isUsable(resolve(ASSETS_ROOT, filename)))
+        .map(([, label]) => label);
+
+    if (missing.length) {
+        logger.warn(`[Banners] Missing exact standalone upper banner artwork: ${missing.join(', ')}. The bot will keep running; those optional top banners must be re-added as real asset files.`);
         return;
     }
 
-    const results = await Promise.all(FULL_BANNER_MAPPINGS.map(mapping => installFromPack(pack, mapping)));
-    const installed = results.filter(Boolean).length;
-    logger.info(`[Banners] High-resolution banner install complete (${installed}/${FULL_BANNER_MAPPINGS.length}).`);
+    logger.info('[Banners] All standalone banner assets verified. Legacy truncated JSON banner packs are no longer used.');
 }
