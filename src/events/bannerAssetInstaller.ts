@@ -3,50 +3,79 @@ import { resolve } from 'path';
 import { logger } from '../utils/logger';
 
 type BannerInstall = {
-    source: string;
-    target: string;
+    sourceKey: string;
+    targets: string[];
     label: string;
 };
 
 const ASSETS_ROOT = resolve(__dirname, '..', '..', 'assets');
-const BRAND_ROOT = resolve(ASSETS_ROOT, 'brand-banners');
-
-const BANNER_INSTALLS: BannerInstall[] = [
-    { source: resolve(BRAND_ROOT, 'infraction.webp.b64'), target: resolve(ASSETS_ROOT, 'infraction-banner.png'), label: 'Infraction' },
-    { source: resolve(BRAND_ROOT, 'promotion.webp.b64'), target: resolve(ASSETS_ROOT, 'promotion-banner.png'), label: 'Promotion' },
-    { source: resolve(BRAND_ROOT, 'partnership.webp.b64'), target: resolve(ASSETS_ROOT, 'partnership-banner.webp'), label: 'Partnership' },
-    { source: resolve(BRAND_ROOT, 'assistance.webp.b64'), target: resolve(ASSETS_ROOT, 'assistance-banner.png'), label: 'Assistance' },
-    { source: resolve(BRAND_ROOT, 'suggestion.webp.b64'), target: resolve(ASSETS_ROOT, 'suggestion-banner.webp'), label: 'Suggestion' },
-    { source: resolve(BRAND_ROOT, 'dashboard.webp.b64'), target: resolve(ASSETS_ROOT, 'dashboard-banner.webp'), label: 'Dashboard' },
-    { source: resolve(BRAND_ROOT, 'rules.webp.b64'), target: resolve(ASSETS_ROOT, 'rules-banner.webp'), label: 'Rules' },
-    { source: resolve(BRAND_ROOT, 'applications.webp.b64'), target: resolve(ASSETS_ROOT, 'applications-banner.png'), label: 'Applications' },
-    { source: resolve(BRAND_ROOT, 'training-results.webp.b64'), target: resolve(ASSETS_ROOT, 'training-results-banner.webp'), label: 'Training Results' },
-    { source: resolve(BRAND_ROOT, 'training-request.webp.b64'), target: resolve(ASSETS_ROOT, 'training-request-banner.webp'), label: 'Training Request' },
-    { source: resolve(BRAND_ROOT, 'paid-ad.webp.b64'), target: resolve(ASSETS_ROOT, 'paid-ad-banner.webp'), label: 'Paid Ad' },
-    { source: resolve(BRAND_ROOT, 'staff-feedback.webp.b64'), target: resolve(ASSETS_ROOT, 'staff-feedback-banner.webp'), label: 'Staff Feedback' },
-    { source: resolve(BRAND_ROOT, 'underbanner.webp.b64'), target: resolve(ASSETS_ROOT, 'underbanner.webp'), label: 'Underbanner' },
+const PACK_PATHS = [
+    resolve(ASSETS_ROOT, 'brand-banner-pack-v3', 'part-000.txt'),
+    resolve(ASSETS_ROOT, 'brand-banner-pack', 'part-000.txt'),
 ];
 
-function installBanner({ source, target, label }: BannerInstall): boolean {
-    try {
-        if (!existsSync(source)) {
-            logger.warn(`[Banners] ${label} source is missing: ${source}`);
-            return false;
+const FULL_BANNER_MAPPINGS: BannerInstall[] = [
+    { sourceKey: 'underbanner.webp', targets: ['underbanner.webp'], label: 'Underbanner' },
+    { sourceKey: 'infractions-banner.webp', targets: ['infraction-banner.png'], label: 'Infractions' },
+    { sourceKey: 'promotions-banner.webp', targets: ['promotion-banner.png'], label: 'Promotions' },
+    { sourceKey: 'partnership-banner.webp', targets: ['partnership-banner.webp'], label: 'Partnership' },
+    { sourceKey: 'assistance-banner.webp', targets: ['assistance-banner.png'], label: 'Assistance' },
+    { sourceKey: 'suggestion-banner.webp', targets: ['suggestion-banner.webp'], label: 'Suggestions' },
+    { sourceKey: 'dashboard-banner.webp', targets: ['dashboard-banner.webp'], label: 'Dashboard' },
+    { sourceKey: 'rules-banner.webp', targets: ['rules-banner.webp'], label: 'Rules' },
+    { sourceKey: 'applications-banner.webp', targets: ['applications-banner.png'], label: 'Applications' },
+    { sourceKey: 'training-results-banner.webp', targets: ['training-results-banner.webp'], label: 'Training Results' },
+    { sourceKey: 'training-request-banner.webp', targets: ['training-request-banner.webp'], label: 'Training Request' },
+    { sourceKey: 'paid-ad-banner.webp', targets: ['paid-ad-banner.webp'], label: 'Paid Advertisement' },
+    { sourceKey: 'staff-feedback-banner.webp', targets: ['staff-feedback-banner.webp'], label: 'Staff Feedback' },
+];
+
+function loadBannerPack(): Record<string, string> {
+    for (const packPath of PACK_PATHS) {
+        try {
+            if (!existsSync(packPath)) continue;
+            const parsed = JSON.parse(readFileSync(packPath, 'utf8')) as Record<string, string>;
+            if (parsed && typeof parsed === 'object' && Object.keys(parsed).length) return parsed;
+        } catch (error) {
+            logger.warn(`[Banners] Could not parse ${packPath}: ${error instanceof Error ? error.message : String(error)}`);
         }
-        const encoded = readFileSync(source, 'utf8').trim();
-        if (!encoded) return false;
-        const bytes = Buffer.from(encoded, 'base64');
-        if (!bytes.length) return false;
-        writeFileSync(target, bytes);
-        logger.info(`[Banners] Installed ${label} artwork (${bytes.length.toLocaleString()} bytes).`);
+    }
+    return {};
+}
+
+function sourceAliases(sourceKey: string): string[] {
+    const aliases = new Set<string>([sourceKey]);
+    if (sourceKey.includes('infractions')) aliases.add(sourceKey.replace('infractions', 'infraction'));
+    if (sourceKey.includes('promotions')) aliases.add(sourceKey.replace('promotions', 'promotion'));
+    if (sourceKey.includes('suggestion')) aliases.add(sourceKey.replace('suggestion', 'suggestions'));
+    if (sourceKey.endsWith('.webp')) aliases.add(sourceKey.replace('.webp', '.png'));
+    return [...aliases];
+}
+
+function installFromPack(pack: Record<string, string>, mapping: BannerInstall): boolean {
+    const sourceName = sourceAliases(mapping.sourceKey).find(name => typeof pack[name] === 'string' && pack[name].trim());
+    if (!sourceName) {
+        logger.warn(`[Banners] ${mapping.label} source is missing from banner pack (${sourceAliases(mapping.sourceKey).join(', ')}).`);
+        return false;
+    }
+    try {
+        const bytes = Buffer.from(pack[sourceName].trim(), 'base64');
+        if (!bytes.length) throw new Error('decoded file is empty');
+        for (const target of mapping.targets) writeFileSync(resolve(ASSETS_ROOT, target), bytes);
+        logger.info(`[Banners] Installed ${mapping.label} artwork (${bytes.length.toLocaleString()} bytes).`);
         return true;
     } catch (error) {
-        logger.warn(`[Banners] Failed to install ${label}: ${error instanceof Error ? error.message : String(error)}`);
+        logger.warn(`[Banners] Failed to install ${mapping.label}: ${error instanceof Error ? error.message : String(error)}`);
         return false;
     }
 }
 
 export function installBatchOneBannerAssets(): void {
-    const installed = BANNER_INSTALLS.filter(installBanner).length;
-    logger.info(`[Banners] Full asset install complete (${installed}/${BANNER_INSTALLS.length}).`);
+    const pack = loadBannerPack();
+    if (!Object.keys(pack).length) {
+        logger.warn('[Banners] Full banner pack was not available; existing runtime artwork will be kept.');
+        return;
+    }
+    const installed = FULL_BANNER_MAPPINGS.filter(mapping => installFromPack(pack, mapping)).length;
+    logger.info(`[Banners] Full banner install complete (${installed}/${FULL_BANNER_MAPPINGS.length}).`);
 }
