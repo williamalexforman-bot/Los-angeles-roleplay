@@ -9,6 +9,7 @@ import { registerLoaLifecycleEnhancements } from './loaLifecycleEnhancements';
 import { registerLegacyLoaActiveMigration } from './loaActiveMigration';
 import { registerLoaCalendarRequest } from './loaCalendarRequest';
 import { registerLoaApprovalGuard } from './loaApprovalGuard';
+import { installBatchOneBannerAssets } from './bannerAssetInstaller';
 
 const COMMAND_PREWARM_DELAY_MS = 1_000;
 let commandPrewarmTimer: ReturnType<typeof setTimeout> | null = null;
@@ -117,6 +118,12 @@ function scheduleCommandPrewarm(): void {
 
 export const onReady = async (client: Client): Promise<void> => {
     logger.info(`Logged in as ${client.user?.tag}.`);
+
+    try {
+        installBatchOneBannerAssets();
+    } catch (error) {
+        logger.warn(`[Banners] Batch 1 install failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
 
     try {
         registerMemberCountPresence(client);
