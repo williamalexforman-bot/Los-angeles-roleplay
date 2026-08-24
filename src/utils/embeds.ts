@@ -124,12 +124,31 @@ function sessionBanner(name: string): MediaGalleryBuilder {
     return new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(`attachment://${name}`));
 }
 
+function inferredFeatureBanner(embed: EmbedBuilder): { name: string; path: string } | null {
+    const title = (embed.toJSON().title || '').toLowerCase();
+    const filename = title.includes('training result')
+        ? 'training-results-banner.webp'
+        : title.includes('staff feedback')
+            ? 'staff-feedback-banner.webp'
+            : null;
+    if (!filename) return null;
+    const resolvedPath = path.resolve(process.cwd(), 'assets', filename);
+    return assetExists(resolvedPath) ? { name: filename, path: resolvedPath } : null;
+}
+
+function resolvedLegacyBanner(embed: EmbedBuilder, options: LegacyEmbedV2Options): { name?: string; path?: string } {
+    if (options.topBannerName && options.topBannerPath) return { name: options.topBannerName, path: options.topBannerPath };
+    const inferred = inferredFeatureBanner(embed);
+    return inferred ? inferred : {};
+}
+
 export function legacyEmbedToV2Panel(embed: EmbedBuilder, options: LegacyEmbedV2Options = {}): ContainerBuilder {
     const data = embed.toJSON();
     const panel = new ContainerBuilder().setAccentColor(data.color ?? SESSION_ACCENT_COLOR);
+    const banner = resolvedLegacyBanner(embed, options);
 
-    if (options.topBannerName) {
-        panel.addMediaGalleryComponents(sessionBanner(options.topBannerName));
+    if (banner.name) {
+        panel.addMediaGalleryComponents(sessionBanner(banner.name));
         panel.addSeparatorComponents(panelSeparator());
     }
 
@@ -167,8 +186,9 @@ export function legacyEmbedToV2Panel(embed: EmbedBuilder, options: LegacyEmbedV2
 
 export function legacyEmbedToV2Message(embed: EmbedBuilder, options: LegacyEmbedV2Options = {}) {
     const files = [...(options.files || [])];
-    if (options.topBannerName && options.topBannerPath && assetExists(options.topBannerPath)) {
-        files.push(new AttachmentBuilder(options.topBannerPath, { name: options.topBannerName }));
+    const banner = resolvedLegacyBanner(embed, options);
+    if (banner.name && banner.path && assetExists(banner.path)) {
+        files.push(new AttachmentBuilder(banner.path, { name: banner.name }));
     }
     files.push(createUnderbannerAttachment());
     return {
