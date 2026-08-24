@@ -68,6 +68,15 @@ function marketplaceAttachments(): AttachmentBuilder[] {
     ];
 }
 
+export function buildMarketplacePanelRefreshPayload() {
+    return {
+        components: [buildMarketplacePanel()],
+        files: marketplaceAttachments(),
+        flags: MessageFlags.IsComponentsV2 as MessageFlags.IsComponentsV2,
+        allowedMentions: { parse: [] as [] },
+    };
+}
+
 async function canPostMarketplace(interaction: ChatInputCommandInteraction): Promise<boolean> {
     if (!interaction.guild) return false;
     const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
@@ -85,7 +94,7 @@ export const marketplacePanelCommand = {
         const channel = await interaction.client.channels.fetch(MARKETPLACE_CHANNEL_ID).catch(() => null);
         if (!channel?.isSendable()) { await interaction.editReply(`I could not access <#${MARKETPLACE_CHANNEL_ID}>. Make sure I can View Channel and Send Messages there.`); return; }
         try {
-            await channel.send({ components: [buildMarketplacePanel()], files: marketplaceAttachments(), flags: MessageFlags.IsComponentsV2, allowedMentions: { parse: [] } });
+            await channel.send(buildMarketplacePanelRefreshPayload());
             await interaction.editReply(`✅ Marketplace V2 panel posted in <#${MARKETPLACE_CHANNEL_ID}>.`);
         } catch (error) {
             logger.error(`[Marketplace] Failed to post panel: ${error instanceof Error ? error.message : 'Unknown error'}`);

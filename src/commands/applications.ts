@@ -358,6 +358,15 @@ function buildApplicationsPanel(guild: Guild | null): ContainerBuilder {
         .addMediaGalleryComponents(media(UNDERBANNER_NAME));
 }
 
+export function buildApplicationsPanelRefreshPayload(guild: Guild | null = null) {
+    return {
+        components: [buildApplicationsPanel(guild)],
+        files: artwork(),
+        flags: MessageFlags.IsComponentsV2 as MessageFlags.IsComponentsV2,
+        allowedMentions: { parse: [] as [] },
+    };
+}
+
 const GUIDELINES_COPY = [
     '## 📌 Application Guidelines',
     '**All guidelines must be read and followed.**',
@@ -930,12 +939,7 @@ export const applicationsPanelCommand = {
             await interaction.editReply('This channel cannot receive the application panel.');
             return;
         }
-        await interaction.channel.send({
-            components: [buildApplicationsPanel(interaction.guild)],
-            files: artwork(),
-            flags: MessageFlags.IsComponentsV2,
-            allowedMentions: { parse: [] },
-        });
+        await interaction.channel.send(buildApplicationsPanelRefreshPayload(interaction.guild));
         await interaction.editReply('✅ The V2 Applications panel has been posted.');
     },
 };

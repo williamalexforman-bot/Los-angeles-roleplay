@@ -44,6 +44,7 @@ import {
     type ServerSecurityPolicy,
 } from '../src/events/serverSecurity';
 import { interactionCreate } from '../src/handlers/interactionCreate';
+import { refreshPersistentPanels } from '../src/events/persistentPanelRefresh';
 import { sanitizedCommandOptions } from '../src/utils/commandAudit';
 import { fetchErlcServer, type ErlcServerSnapshot } from '../src/services/erlcService';
 import { ERLC_COMMAND_ENDPOINT } from '../src/services/erlcCommandService';
@@ -371,6 +372,45 @@ for (const required of [
         'paid-ad-banner.png',
         'underbanner.png',
     ]);
+
+    const persistentSpecs = [
+        ['1526049604712529971', 'dashboard:menu', 'dashboard-banner.png'],
+        ['1526034504953892925', 'ticket:create-select', 'assistance-banner.png'],
+        ['1526035041593856182', 'applications:type', 'applications-banner.png'],
+        ['1526035127606706196', 'marketplace:claim', 'paid-ad-banner.png'],
+    ] as const;
+    const persistentPanelEdits = new Map<string, any>();
+    const persistentChannels = new Map(persistentSpecs.map(([channelId, marker]) => [
+        channelId,
+        {
+            isTextBased: () => true,
+            guild: null,
+            messages: {
+                fetch: async () => new Collection([[
+                    `old-panel-${channelId}`,
+                    {
+                        author: { id: 'persistent-banner-bot' },
+                        components: [{ toJSON: () => ({ type: 17, components: [{ custom_id: marker }] }) }],
+                        edit: async (payload: any) => { persistentPanelEdits.set(channelId, payload); },
+                    },
+                ]]),
+            },
+        },
+    ]));
+    await refreshPersistentPanels({
+        user: { id: 'persistent-banner-bot' },
+        channels: { fetch: async (channelId: string) => persistentChannels.get(channelId) || null },
+    } as never);
+    assert.equal(persistentPanelEdits.size, 4, 'startup must rebuild every persistent branded panel');
+    for (const [channelId, , bannerName] of persistentSpecs) {
+        const refreshed = persistentPanelEdits.get(channelId);
+        assert.deepEqual(refreshed.attachments, [], `${bannerName} refresh must clear old Discord attachments`);
+        assert.deepEqual(refreshed.files.map((file: { name: string }) => file.name), [bannerName, 'underbanner.png']);
+        const panel = refreshed.components[0].toJSON();
+        const media = panel.components.filter((component: { type: number }) => component.type === 12);
+        assert.equal(media[0]?.items?.[0]?.media?.url, `attachment://${bannerName}`);
+        assert.equal(media.at(-1)?.items?.[0]?.media?.url, 'attachment://underbanner.png');
+    }
 
     const movieSchema = commandNamed('movie-feedback').data.toJSON() as {
         options: Array<{ name: string; required?: boolean; min_value?: number; max_value?: number }>;
