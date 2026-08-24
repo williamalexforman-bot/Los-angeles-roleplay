@@ -109,7 +109,10 @@ export const onReady = async (client: Client): Promise<void> => {
     logger.info(`Logged in as ${client.user?.tag}.`);
 
     try {
-        installBatchOneBannerAssets();
+        // Finish rendering the 1920px high-quality copies before any persistent
+        // Discord message is refreshed, otherwise the refresh can reattach the
+        // old low-resolution file while Sharp is still processing it.
+        await installBatchOneBannerAssets();
     } catch (error) {
         logger.warn(`[Banners] Full banner install failed: ${error instanceof Error ? error.message : String(error)}`);
     }
