@@ -8,6 +8,7 @@ type BannerInstall = {
     targets: string[];
     label: string;
     width?: number;
+    preserveOriginal?: boolean;
 };
 
 const ASSETS_ROOT = resolve(__dirname, '..', '..', 'assets');
@@ -16,17 +17,17 @@ const PACK_PATHS = [
     resolve(ASSETS_ROOT, 'brand-banner-pack', 'part-000.txt'),
 ];
 
-// Components V2 media galleries are rendered very wide on desktop. The source
-// artwork in the consolidated pack is WebP, so writing those bytes straight to
-// disk lets Discord upscale/compress them again and can make text look soft.
-// We render a high-resolution runtime copy first instead.
+// Components V2 media galleries are rendered very wide on desktop. Large
+// persistent panels get a high-resolution runtime copy. Transactional staff
+// cards such as infractions/promotions keep the original optimized bytes so
+// their attachments stay small and reliable when Discord creates the case.
 const WIDE_BANNER_WIDTH = 1920;
 const UNDERBANNER_WIDTH = 1920;
 
 const FULL_BANNER_MAPPINGS: BannerInstall[] = [
     { sourceKeys: ['underbanner.webp'], targets: ['underbanner.webp'], label: 'Underbanner', width: UNDERBANNER_WIDTH },
-    { sourceKeys: ['infractions-banner.webp', 'infraction-banner.webp'], targets: ['infraction-banner.png'], label: 'Infractions' },
-    { sourceKeys: ['promotions-banner.webp', 'promotion-banner.webp'], targets: ['promotion-banner.png'], label: 'Promotions' },
+    { sourceKeys: ['infractions-banner.webp', 'infraction-banner.webp'], targets: ['infraction-banner.png'], label: 'Infractions', preserveOriginal: true },
+    { sourceKeys: ['promotions-banner.webp', 'promotion-banner.webp'], targets: ['promotion-banner.png'], label: 'Promotions', preserveOriginal: true },
     { sourceKeys: ['partnership-banner.webp'], targets: ['partnership-banner.webp'], label: 'Partnership' },
     { sourceKeys: ['assistance-banner.webp', 'assistance-banner.png'], targets: ['assistance-banner.png'], label: 'Assistance' },
     { sourceKeys: ['suggestion-banner.webp', 'suggestions-banner.webp'], targets: ['suggestion-banner.webp'], label: 'Suggestions' },
@@ -70,12 +71,10 @@ async function renderForTarget(source: Buffer, target: string, width: number): P
             withoutEnlargement: false,
             kernel: sharp.kernel.lanczos3,
         })
-        // Light sharpening specifically helps small lettering survive Discord's
-        // own display resampling without introducing harsh halos.
         .sharpen({ sigma: 0.65, m1: 0.7, m2: 1.2 });
 
     if (target.toLowerCase().endsWith('.png')) {
-        pipeline = pipeline.png({ compressionLevel: 6, adaptiveFiltering: true });
+        pipeline = pipeline.png({ compressionLevel: 9, adaptiveFiltering: true });
     } else {
         pipeline = pipeline.webp({ quality: 100, nearLossless: true, smartSubsample: true });
     }
@@ -93,6 +92,15 @@ async function installFromPack(pack: Record<string, string>, mapping: BannerInst
     try {
         const sourceBytes = Buffer.from(pack[sourceName].trim(), 'base64');
         if (!sourceBytes.length) throw new Error('decoded file is empty');
+
+        if (mapping.preserveOriginal) {
+            for (const target of mapping.targets) {
+                writeFileSync(resolve(ASSETS_ROOT, target), sourceBytes);
+                logger.info(`[Banners] Installed lightweight ${mapping.label} artwork (${target}, ${sourceBytes.length.toLocaleString()} bytes).`);
+            }
+            return true;
+        }
+
         const metadata = await sharp(sourceBytes).metadata();
         const outputWidth = Math.max(mapping.width || WIDE_BANNER_WIDTH, metadata.width || 0);
 
