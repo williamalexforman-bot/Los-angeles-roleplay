@@ -10,6 +10,7 @@ import { registerLegacyLoaActiveMigration } from './loaActiveMigration';
 import { registerLoaCalendarRequest } from './loaCalendarRequest';
 import { registerLoaApprovalGuard } from './loaApprovalGuard';
 import { installBatchOneBannerAssets } from './bannerAssetInstaller';
+import { refreshPersistentPanelBanners } from './persistentBannerRefresh';
 
 const COMMAND_PREWARM_DELAY_MS = 1_000;
 let commandPrewarmTimer: ReturnType<typeof setTimeout> | null = null;
@@ -42,13 +43,8 @@ function updateMemberCountPresence(client: Client): void {
 
 function registerMemberCountPresence(client: Client): void {
     updateMemberCountPresence(client);
-
-    // Guild create/delete events do not require the privileged GuildMembers intent.
-    // They keep the total correct when the bot joins or leaves a server.
     client.on('guildCreate', () => updateMemberCountPresence(client));
     client.on('guildDelete', () => updateMemberCountPresence(client));
-
-    // Refresh periodically as a harmless fallback while avoiding extra Discord REST requests.
     const presenceRefreshTimer = setInterval(() => updateMemberCountPresence(client), 5 * 60 * 1000);
     presenceRefreshTimer.unref?.();
 }
@@ -122,7 +118,13 @@ export const onReady = async (client: Client): Promise<void> => {
     try {
         installBatchOneBannerAssets();
     } catch (error) {
-        logger.warn(`[Banners] Batch 1 install failed: ${error instanceof Error ? error.message : String(error)}`);
+        logger.warn(`[Banners] Full banner install failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    try {
+        await refreshPersistentPanelBanners(client);
+    } catch (error) {
+        logger.warn(`[Banners] Persistent panel refresh failed: ${error instanceof Error ? error.message : String(error)}`);
     }
 
     try {
