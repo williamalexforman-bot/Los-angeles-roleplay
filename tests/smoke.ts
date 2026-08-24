@@ -45,6 +45,7 @@ import {
 } from '../src/events/serverSecurity';
 import { interactionCreate } from '../src/handlers/interactionCreate';
 import { refreshPersistentPanels } from '../src/events/persistentPanelRefresh';
+import { synchronizeSlashCommands } from '../src/events/ready';
 import { sanitizedCommandOptions } from '../src/utils/commandAudit';
 import { fetchErlcServer, type ErlcServerSnapshot } from '../src/services/erlcService';
 import { ERLC_COMMAND_ENDPOINT } from '../src/services/erlcCommandService';
@@ -69,6 +70,39 @@ async function run(): Promise<void> {
     assert.equal(INFRACTION_AUTHORIZED_ROLE_ID, '1523121675007426692');
     assert.equal(PROMOTION_AUTHORIZED_ROLE_ID, '1523121617079767151');
     assert.equal(TRAINING_RESULTS_AUTHORIZED_ROLE_ID, '1521593407795888330');
+
+    const originalGuildId = process.env.GUILD_ID;
+    const synchronizedGuildPayloads: any[][] = [];
+    const synchronizedGlobalPayloads: any[][] = [];
+    process.env.GUILD_ID = 'slash-sync-guild';
+    try {
+        const synchronizedCount = await synchronizeSlashCommands({
+            guilds: {
+                cache: new Collection([['slash-sync-guild', {
+                    id: 'slash-sync-guild',
+                    commands: { set: async (payload: any[]) => { synchronizedGuildPayloads.push(payload); } },
+                }]]),
+                fetch: async () => { throw new Error('the configured cached guild should be used'); },
+            },
+            application: {
+                commands: { set: async (payload: any[]) => { synchronizedGlobalPayloads.push(payload); } },
+            },
+        } as never);
+        assert.equal(synchronizedCount, commandDefinitions.length);
+    } finally {
+        if (originalGuildId === undefined) delete process.env.GUILD_ID;
+        else process.env.GUILD_ID = originalGuildId;
+    }
+    assert.deepEqual(
+        synchronizedGuildPayloads[0].map(schema => schema.name),
+        commandDefinitions.map(command => command.data.name),
+        'startup synchronization must publish every runtime command handler to Discord',
+    );
+    assert.deepEqual(
+        synchronizedGlobalPayloads,
+        [[]],
+        'startup synchronization must clear stale global commands that cause unavailable-command duplicates',
+    );
 
     const securityPolicy = (): ServerSecurityPolicy => ({
         enabled: true,
@@ -216,6 +250,23 @@ for (const required of [
         assert(command, `missing command implementation for /${name}`);
         return command;
     };
+
+    let commandListPayload: any = null;
+    await commandNamed('cmds').execute({
+        deferReply: async () => undefined,
+        editReply: async (payload: any) => { commandListPayload = payload; },
+    } as never);
+    const commandListText = JSON.stringify(
+        commandListPayload.components.map((component: { toJSON(): unknown }) => component.toJSON()),
+    );
+    for (const command of commandDefinitions) {
+        assert(commandListText.includes(`/${command.data.name}`), `/cmds must list the active /${command.data.name} handler`);
+    }
+    assert.deepEqual(
+        commandListPayload.files.map((file: { name: string }) => file.name),
+        ['los-angeles-banner.png', 'underbanner.png'],
+        '/cmds must attach the current generic banner and underbanner',
+    );
 
     for (const [commandName, roleId] of [
         ['session-start', SESSION_START_AUTHORIZED_ROLE_ID],
@@ -1301,11 +1352,11 @@ for (const required of [
     assert.equal(initialInfractionPanel.type, 17, 'the infraction must be inside one blue-accented container');
     assert.equal(initialInfractionPanel.accent_color, 0x3b82f6, 'the infraction panel must use a blue side rail');
     const initialBanners = initialInfractionPanel.components.filter((component: { type: number }) => component.type === 12);
-    assert.equal(initialBanners[0]?.items?.[0]?.media?.url, 'attachment://infraction-banner.webp');
+    assert.equal(initialBanners[0]?.items?.[0]?.media?.url, 'attachment://los-angeles-banner.png');
     assert.equal(initialBanners[1]?.items?.[0]?.media?.url, 'attachment://underbanner.png');
     assert.deepEqual(
         infractionParentSends[0].files.map((file: { name: string }) => file.name),
-        ['infraction-banner.webp', 'underbanner.png'],
+        ['los-angeles-banner.png', 'underbanner.png'],
         'the case message must attach both infraction artwork files',
     );
     const initialAppealButton = initialInfractionPanel.components
@@ -1338,7 +1389,7 @@ for (const required of [
     assert.equal(infractionDmRows.length, 1, 'the DM emblem must contain only one action row');
     assert.equal(infractionDmRows[0]?.components?.[0]?.custom_id, 'infraction-appeal:start:INF-0001');
     const infractionDmBanners = infractionDmPanel.components.filter((component: { type: number }) => component.type === 12);
-    assert.equal(infractionDmBanners[0]?.items?.[0]?.media?.url, 'attachment://infraction-banner.webp');
+    assert.equal(infractionDmBanners[0]?.items?.[0]?.media?.url, 'attachment://los-angeles-banner.png');
     assert.equal(infractionDmBanners[1]?.items?.[0]?.media?.url, 'attachment://underbanner.png');
     assert.equal(infractionReplies.length, 2, 'infraction must acknowledge immediately and then report final case status');
     assert(String(infractionReplies[0]).includes('Finishing the member notification and case save'));
@@ -1422,7 +1473,7 @@ for (const required of [
     assert.equal(viewInfractionsPayload?.flags, 32_768, '/view-infractions must use Components V2');
     const viewInfractionsPanel = viewInfractionsPayload.components[0].toJSON();
     const viewInfractionBanners = viewInfractionsPanel.components.filter((component: { type: number }) => component.type === 12);
-    assert.equal(viewInfractionBanners[0]?.items?.[0]?.media?.url, 'attachment://infraction-banner.webp');
+    assert.equal(viewInfractionBanners[0]?.items?.[0]?.media?.url, 'attachment://los-angeles-banner.png');
     assert.equal(viewInfractionBanners[1]?.items?.[0]?.media?.url, 'attachment://underbanner.png');
     const viewInfractionText = viewInfractionsPanel.components
         .flatMap((component: { components?: Array<{ content?: string }> }) => component.components || [])
@@ -1437,7 +1488,7 @@ for (const required of [
         ['session-vote', 'session-vote-banner.png'],
         ['session-end', 'session-end-banner.png'],
         ['session-boost', 'session-boost-banner.png'],
-        ['session-full', 'session-full-banner.png'],
+        ['session-full', 'los-angeles-banner.png'],
     ]);
     const erlcSsdRequests: Array<{ url: string; command: string; serverKey: string | null }> = [];
     const originalErlcServerKey = process.env.ERLC_SERVER_KEY;

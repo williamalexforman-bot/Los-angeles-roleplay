@@ -24,7 +24,6 @@ const SESSION_BANNER_NAME_START = 'session-start-banner.png';
 const SESSION_BANNER_NAME_END = 'session-end-banner.png';
 const SESSION_BANNER_NAME_VOTE = 'session-vote-banner.png';
 const SESSION_BANNER_NAME_BOOST = 'session-boost-banner.png';
-const SESSION_BANNER_NAME_FULL = 'session-full-banner.png';
 const SESSION_UNDERBANNER_NAME = 'underbanner.png';
 const GENERIC_BANNER_NAME = 'los-angeles-banner.png';
 
@@ -32,12 +31,9 @@ export const TOP_BANNER_START = `attachment://${SESSION_BANNER_NAME_START}`;
 export const TOP_BANNER_END = `attachment://${SESSION_BANNER_NAME_END}`;
 export const TOP_BANNER_VOTE = `attachment://${SESSION_BANNER_NAME_VOTE}`;
 export const TOP_BANNER_BOOST = `attachment://${SESSION_BANNER_NAME_BOOST}`;
-export const TOP_BANNER_FULL = `attachment://${SESSION_BANNER_NAME_FULL}`;
+export const TOP_BANNER_FULL = `attachment://${GENERIC_BANNER_NAME}`;
 export const BOTTOM_UNDERBANNER = `attachment://${SESSION_UNDERBANNER_NAME}`;
 
-export const SESSION_BACKGROUND_NAME = 'los_angeles_roleplay_4.webp';
-export const SESSION_BACKGROUND_PATH = path.resolve(process.cwd(), 'assets', SESSION_BACKGROUND_NAME);
-export const SESSION_BACKGROUND_URL = `attachment://${SESSION_BACKGROUND_NAME}`;
 export const SESSION_UNDERBANNER_PATH = path.resolve(process.cwd(), 'assets', SESSION_UNDERBANNER_NAME);
 const GENERIC_BANNER_PATH = path.resolve(process.cwd(), 'assets', GENERIC_BANNER_NAME);
 
@@ -50,7 +46,7 @@ export function resolveTopBannerName(emblemType: SessionEmblemType): string {
         case 'end': return SESSION_BANNER_NAME_END;
         case 'vote': return SESSION_BANNER_NAME_VOTE;
         case 'boost': return SESSION_BANNER_NAME_BOOST;
-        case 'full': return SESSION_BANNER_NAME_FULL;
+        case 'full': return GENERIC_BANNER_NAME;
         default: return SESSION_BANNER_NAME_START;
     }
 }
@@ -73,8 +69,6 @@ function assetExists(filePath: string): boolean {
 function resolveSessionBanner(emblemType: SessionEmblemType): { path: string; name: string } {
     const name = resolveTopBannerName(emblemType);
     const resolvedPath = path.resolve(process.cwd(), 'assets', name);
-    if (assetExists(resolvedPath)) return { path: resolvedPath, name };
-    if (assetExists(SESSION_BACKGROUND_PATH)) return { path: SESSION_BACKGROUND_PATH, name: SESSION_BACKGROUND_NAME };
     return { path: resolvedPath, name };
 }
 

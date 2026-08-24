@@ -68,7 +68,7 @@ function hasSessionComponent(nodes: readonly SessionComponentNode[]): boolean {
 function isSessionAnnouncementMessage(message: Message): boolean {
     if (hasSessionComponent(message.components as unknown as SessionComponentNode[])) return true;
     if (message.embeds.some(embed => /^SESSION (START|VOTE|END|BOOST|FULL)$/i.test(embed.title || ''))) return true;
-    return message.attachments.some(attachment => /^session-(start|vote|end|boost|full)(?:-banner|-combo)?\.png$/i.test(attachment.name || ''));
+    return message.attachments.some(attachment => /^(?:session-(?:start|vote|end|boost)-banner|los-angeles-banner)\.png$/i.test(attachment.name || ''));
 }
 
 async function deletePreviousSessionAnnouncements(

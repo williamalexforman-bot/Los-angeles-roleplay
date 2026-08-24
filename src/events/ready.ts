@@ -1,4 +1,4 @@
-import { ActivityType, type Client } from 'discord.js';
+import { ActivityType, type Client, type RESTPostAPIApplicationCommandsJSONBody } from 'discord.js';
 import { connectDatabase } from '../database/connection';
 import { logger } from '../utils/logger';
 import { loadProhibitedWordOverrides } from '../commands/prohibitedWords';
@@ -15,6 +15,50 @@ import { refreshPersistentPanels } from './persistentPanelRefresh';
 
 const COMMAND_PREWARM_DELAY_MS = 1_000;
 let commandPrewarmTimer: ReturnType<typeof setTimeout> | null = null;
+
+type SerializableCommandDefinition = {
+    data?: {
+        name?: string;
+        toJSON?: () => unknown;
+    };
+};
+
+function currentSlashCommandSchemas(): RESTPostAPIApplicationCommandsJSONBody[] {
+    const registry = require('../commands/registry.ts') as {
+        commandDefinitions?: SerializableCommandDefinition[];
+    };
+    const definitions = Array.isArray(registry.commandDefinitions) ? registry.commandDefinitions : [];
+    return definitions.map(definition => {
+        if (typeof definition.data?.toJSON !== 'function') {
+            throw new Error(`/${definition.data?.name || '<unnamed>'} has no serializable slash-command schema.`);
+        }
+        return definition.data.toJSON() as RESTPostAPIApplicationCommandsJSONBody;
+    });
+}
+
+/** Replaces Discord's stale command catalog with exactly the handlers in the runtime registry. */
+export async function synchronizeSlashCommands(client: Client): Promise<number> {
+    const schemas = currentSlashCommandSchemas();
+    const configuredGuildId = process.env.GUILD_ID?.trim();
+    const guild = configuredGuildId
+        ? client.guilds.cache.get(configuredGuildId)
+            || await client.guilds.fetch(configuredGuildId).catch(() => null)
+        : client.guilds.cache.first();
+
+    if (guild) {
+        await guild.commands.set(schemas);
+        // Guild commands update immediately. Remove any old global catalog so
+        // users do not see duplicate or retired commands during propagation.
+        if (client.application) await client.application.commands.set([]);
+        logger.info(`[SlashCommands] Synchronized ${schemas.length} commands to guild ${guild.id} and cleared stale global commands.`);
+        return schemas.length;
+    }
+
+    if (!client.application) throw new Error('Discord application command manager is unavailable.');
+    await client.application.commands.set(schemas);
+    logger.info(`[SlashCommands] Synchronized ${schemas.length} commands globally.`);
+    return schemas.length;
+}
 
 function getTotalMemberCount(client: Client): number {
     return client.guilds.cache.reduce((total, guild) => total + (guild.memberCount || 0), 0);
@@ -124,6 +168,12 @@ export const onReady = async (client: Client): Promise<void> => {
     }
 
     try {
+        await synchronizeSlashCommands(client);
+    } catch (error) {
+        logger.warn(`[SlashCommands] Discord catalog synchronization failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    try {
         registerMemberCountPresence(client);
         logger.info('[Presence] Member-count watching activity enabled.');
     } catch (error) {
@@ -168,7 +218,6 @@ export const onReady = async (client: Client): Promise<void> => {
     }
 
     scheduleCommandPrewarm();
-    logger.info('[SlashCommands] Startup command re-upload is off; runtime handlers are loaded locally.');
 
     void connectDatabase().then(async available => {
         logger.info(`[Database] ${available ? 'Connected.' : 'Unavailable; Discord remains online.'}`);

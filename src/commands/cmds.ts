@@ -1,6 +1,6 @@
 import { ChatInputCommandInteraction, EmbedBuilder, MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { BRAND } from '../config/constants';
-import { createUnderbannerAttachment, legacyEmbedToV2Panel } from '../utils/embeds';
+import { legacyEmbedToV2Message, legacyEmbedToV2Panel } from '../utils/embeds';
 
 interface CommandEntry {
     name: string;
@@ -8,59 +8,48 @@ interface CommandEntry {
     category: string;
 }
 
-const COMMANDS: CommandEntry[] = [
-    { name: '/warn', description: 'Issue a warning to a user with a reason and optional proof', category: 'Moderation' },
-    { name: '/kick', description: 'Kick a user from the server with a reason', category: 'Moderation' },
-    { name: '/ban', description: 'Ban a user from the server with a reason', category: 'Moderation' },
-    { name: '/timeout', description: 'Timeout a user for a specified duration', category: 'Moderation' },
-    { name: '/purge', description: 'Bulk delete messages', category: 'Moderation' },
-    { name: '/lock', description: 'Lock the current channel', category: 'Moderation' },
-    { name: '/unlock', description: 'Unlock the current channel', category: 'Moderation' },
-    { name: '/slowmode', description: 'Set channel slowmode', category: 'Moderation' },
-    { name: '/punish', description: 'Issue a staff punishment with case tracking', category: 'Moderation' },
-    { name: '/punishment', description: 'View or remove punishment records', category: 'Moderation' },
+const CATEGORY_NAMES: Readonly<Record<string, readonly string[]>> = {
+    Moderation: ['warn', 'kick', 'ban', 'timeout', 'purge', 'lock', 'unlock', 'slowmode', 'punish', 'punishment', 'prohibited-word'],
+    Admin: ['admin', 'role', 'say', 'dock-config', 'rename'],
+    'Staff Management': ['application', 'training', 'training-results', 'infraction', 'promotion', 'request-training', 'view-infractions', 'loa'],
+    Community: ['movie-feedback', 'staff-feedback', 'staff-complaint', 'partnership', 'suggest', 'suggestions', 'suggestion-approved', 'suggestion-denied', 'suggestion-maybe'],
+    Sessions: ['session-start', 'session-vote', 'session-end', 'session-boost', 'session-full'],
+    Tickets: ['ticket', 'ticket-panel', 'ticketpanel', 'close', 'closerequest', 'unclaim', 'applications-panel', 'marketplace-panel', 'dashboard'],
+    Game: ['teamswitch', 'recent-in-game-logs', 'in-game-info', 'erlc-command'],
+};
 
-    { name: '/admin', description: 'Administrative role and staff utilities', category: 'Admin' },
-    { name: '/role', description: 'Add roles to members when authorized', category: 'Admin' },
-    { name: '/say', description: 'Make the bot send a message', category: 'Admin' },
-    { name: '/prohibited-word', description: 'Manage prohibited-word moderation entries', category: 'Admin' },
+function commandCategory(name: string): string {
+    for (const [category, names] of Object.entries(CATEGORY_NAMES)) {
+        if (names.includes(name)) return category;
+    }
+    return 'Utility';
+}
 
-    { name: '/infraction', description: 'Manage staff infractions', category: 'Staff Management' },
-    { name: '/promotion', description: 'Manage staff promotions', category: 'Staff Management' },
-    { name: '/training-results', description: 'Publish completed staff training results', category: 'Staff Management' },
-    { name: '/application', description: 'Manage a staff application', category: 'Staff Management' },
-    { name: '/applications-panel', description: 'Post the applications panel', category: 'Staff Management' },
-    { name: '/training', description: 'Manage a training request', category: 'Staff Management' },
-    { name: '/view-user-quota', description: 'Inspect another user’s quota when authorized', category: 'Staff Management' },
-    { name: '/end-weekly-quota-early', description: 'Finalize the current quota week early', category: 'Staff Management' },
-    { name: '/extend-weeks-quota', description: 'Extend the current quota week', category: 'Staff Management' },
+function currentCommands(): CommandEntry[] {
+    // Loaded at execution time to avoid a registry -> /cmds -> registry cycle.
+    const registry = require('./registry.ts') as {
+        commandDefinitions?: Array<{ data?: { name?: string; toJSON?: () => unknown } }>;
+    };
+    const definitions = Array.isArray(registry.commandDefinitions) ? registry.commandDefinitions : [];
+    return definitions.map(definition => {
+        const schema = definition.data?.toJSON?.() as { name?: string; description?: string } | undefined;
+        const name = schema?.name || definition.data?.name || 'unknown';
+        return {
+            name: `/${name}`,
+            description: schema?.description || 'No description provided.',
+            category: commandCategory(name),
+        };
+    }).sort((left, right) => left.name.localeCompare(right.name));
+}
 
-    { name: '/partnership', description: 'Manage partnership requests', category: 'Community' },
-    { name: '/suggestion', description: 'Submit or manage suggestions', category: 'Community' },
-    { name: '/marketplace-panel', description: 'Post the marketplace panel', category: 'Community' },
-
-    { name: '/teamswitch', description: 'Submit an authorized manual ER:LC team-switch report', category: 'Game' },
-
-    { name: '/cmds', description: 'Show this command list', category: 'Utility' },
-    { name: '/roleplay-log', description: 'Log a roleplay session', category: 'Utility' },
-    { name: '/request-training', description: 'Request a training session', category: 'Utility' },
-    { name: '/view-infractions', description: 'View your own infraction history', category: 'Utility' },
-    { name: '/loa', description: 'Manage leave-of-absence requests', category: 'Utility' },
-    { name: '/rename', description: 'Rename a channel when authorized', category: 'Utility' },
-    { name: '/ticket', description: 'Manage support tickets', category: 'Utility' },
-    { name: '/ticket-panel', description: 'Post the ticket panel', category: 'Utility' },
-    { name: '/ticketpanel', description: 'Compatibility alias for the ticket panel', category: 'Utility' },
-    { name: '/close', description: 'Close the current support ticket', category: 'Utility' },
-    { name: '/closerequest', description: 'Request permission to close a support ticket', category: 'Utility' },
-    { name: '/unclaim', description: 'Unclaim the current support ticket', category: 'Utility' },
-];
-
-const CATEGORY_ORDER = ['Moderation', 'Admin', 'Staff Management', 'Community', 'Game', 'Utility'];
+const CATEGORY_ORDER = ['Moderation', 'Admin', 'Staff Management', 'Community', 'Sessions', 'Tickets', 'Game', 'Utility'];
 const CATEGORY_EMOJIS: Record<string, string> = {
     Moderation: '🛡️',
     Admin: '⚙️',
     'Staff Management': '📋',
     Community: '💬',
+    Sessions: '🚨',
+    Tickets: '🎫',
     Game: '🎮',
     Utility: '🔧',
 };
@@ -74,7 +63,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
     try {
         const grouped = new Map<string, CommandEntry[]>();
-        for (const cmd of COMMANDS) {
+        for (const cmd of currentCommands()) {
             const list = grouped.get(cmd.category) || [];
             list.push(cmd);
             grouped.set(cmd.category, list);
@@ -112,9 +101,11 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
         }
         embeds.push(currentEmbed);
 
+        const artwork = legacyEmbedToV2Message(embeds[0]);
+
         await interaction.editReply({
+            ...artwork,
             components: embeds.map(embed => legacyEmbedToV2Panel(embed)),
-            files: [createUnderbannerAttachment()],
             flags: MessageFlags.IsComponentsV2,
         });
     } catch (error) {

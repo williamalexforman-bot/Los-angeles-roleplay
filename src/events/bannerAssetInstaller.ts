@@ -8,7 +8,6 @@ const ASSETS_ROOT = resolve(__dirname, '..', '..', 'assets');
 const REQUIRED_ARTWORK = [
     ['underbanner.png', 'Underbanner', 1118, 40],
     ['los-angeles-banner.png', 'Generic Los Angeles', 1600, 479],
-    ['infraction-banner.webp', 'Infractions'],
     ['promotion-banner.png', 'Promotions', 1600, 479],
     ['partnership-banner.png', 'Partnership', 1600, 479],
     ['assistance-banner.png', 'Assistance / Tickets', 1600, 479],
@@ -24,7 +23,6 @@ const REQUIRED_ARTWORK = [
     ['session-end-banner.png', 'Session End', 1600, 479],
     ['session-vote-banner.png', 'Session Vote', 1600, 479],
     ['session-boost-banner.png', 'Session Boost', 1600, 479],
-    ['session-full-banner.png', 'Session Full'],
 ] as const;
 
 function isUsable(filePath: string): boolean {
