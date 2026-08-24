@@ -1,4 +1,3 @@
-import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import {
     ActionRowBuilder,
@@ -24,8 +23,10 @@ import { logger } from '../utils/logger';
 
 const DASHBOARD_CHANNEL_ID = '1526049604712529971';
 const VERIFY_CHANNEL_ID = '1541110029048881313';
-const DASHBOARD_BANNER_B64_PATH = resolve(__dirname, '..', '..', 'assets', 'dashboard-banner.b64');
 const DASHBOARD_BANNER_NAME = 'dashboard-banner.webp';
+const DASHBOARD_BANNER_PATH = resolve(__dirname, '..', '..', 'assets', DASHBOARD_BANNER_NAME);
+const UNDERBANNER_NAME = 'underbanner.webp';
+const UNDERBANNER_PATH = resolve(__dirname, '..', '..', 'assets', UNDERBANNER_NAME);
 const DISCORD_EMOJI_ID = '1522529390687293460';
 const ROBLOX_EMOJI_ID = '1020834558058442813';
 
@@ -38,15 +39,13 @@ const ROLE_CONFIG = {
 } as const;
 
 type RoleKey = keyof typeof ROLE_CONFIG;
-
 type DashboardPrivateInteraction = ButtonInteraction | StringSelectMenuInteraction;
 
-function dashboardBanner(): Buffer {
-    return Buffer.from(readFileSync(DASHBOARD_BANNER_B64_PATH, 'utf8').trim(), 'base64');
-}
-
-function bannerAttachment(): AttachmentBuilder {
-    return new AttachmentBuilder(dashboardBanner(), { name: DASHBOARD_BANNER_NAME });
+function bannerAttachments(): AttachmentBuilder[] {
+    return [
+        new AttachmentBuilder(DASHBOARD_BANNER_PATH, { name: DASHBOARD_BANNER_NAME }),
+        new AttachmentBuilder(UNDERBANNER_PATH, { name: UNDERBANNER_NAME }),
+    ];
 }
 
 function separator(): SeparatorBuilder {
@@ -54,17 +53,10 @@ function separator(): SeparatorBuilder {
 }
 
 function media(name: string): MediaGalleryBuilder {
-    return new MediaGalleryBuilder().addItems(
-        new MediaGalleryItemBuilder().setURL(`attachment://${name}`),
-    );
+    return new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(`attachment://${name}`));
 }
 
-function dashboardButton(
-    customId: string,
-    label: string,
-    emoji?: string | { id: string; name: string },
-    style: ButtonStyle = ButtonStyle.Secondary,
-): ActionRowBuilder<ButtonBuilder> {
+function dashboardButton(customId: string, label: string, emoji?: string | { id: string; name: string }, style: ButtonStyle = ButtonStyle.Secondary): ActionRowBuilder<ButtonBuilder> {
     const button = new ButtonBuilder().setCustomId(customId).setLabel(label).setStyle(style);
     if (emoji) button.setEmoji(emoji);
     return new ActionRowBuilder<ButtonBuilder>().addComponents(button);
@@ -82,24 +74,9 @@ function dashboardNavigation(): ActionRowBuilder<StringSelectMenuBuilder> {
             .setCustomId('dashboard:menu')
             .setPlaceholder('Select a dashboard section')
             .addOptions(
-                {
-                    label: 'Frequently Asked Questions',
-                    value: 'faq',
-                    emoji: '❔',
-                    description: 'Partnerships, verification, and moderator applications',
-                },
-                {
-                    label: 'Discord Bulletin',
-                    value: 'bulletin',
-                    emoji: '📌',
-                    description: 'Official Los Angeles Roleplay resources',
-                },
-                {
-                    label: 'Regulations',
-                    value: 'regulations',
-                    emoji: '📖',
-                    description: 'Discord and voice channel regulations',
-                },
+                { label: 'Frequently Asked Questions', value: 'faq', emoji: '❔', description: 'Partnerships, verification, and moderator applications' },
+                { label: 'Discord Bulletin', value: 'bulletin', emoji: '📌', description: 'Official Los Angeles Roleplay resources' },
+                { label: 'Regulations', value: 'regulations', emoji: '📖', description: 'Discord and voice channel regulations' },
             ),
     );
 }
@@ -137,11 +114,7 @@ const DASHBOARD_TEXT = [
     '',
     '# <:3lines:1531485214952652941>Reaction Roles',
     '> **Los Angeles Roleplay** offers you few reaction roles. If you would like to add or remove your reaction role, press on one of the buttons below. If you fo not have the role, press on the button and it will add it. If you already have a reaction role, press on the button and it will remove it.',
-    '- 📢  `-` Announcement Ping',
-    '- 🎮  `-` Session Ping',
-    '- 📆  `-` Event Ping',
-    '- 🖥  `-` Content Ping',
-    '- 🎉  `-` Giveaway Ping',
+    '- 📢  `-` Announcement Ping', '- 🎮  `-` Session Ping', '- 📆  `-` Event Ping', '- 🖥  `-` Content Ping', '- 🎉  `-` Giveaway Ping',
     '',
     '# <:link:1531485100368334900>Important Channels',
     '> <#1526034504953892925>  `If you need any help`',
@@ -159,311 +132,70 @@ function mainDashboard(): ContainerBuilder {
         .addTextDisplayComponents(new TextDisplayBuilder().setContent('### 🔔 Notification Roles\nUse the buttons below to add or remove your ping roles.'))
         .addActionRowComponents(roleButtons())
         .addSeparatorComponents(separator())
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent('*Los Angeles Roleplay • Most immersive Los Angeles experience*'));
-}
-
-function faqPanel(): ContainerBuilder {
-    return withDashboardBanner('## Frequently Asked Questions')
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent('*Los Angeles Roleplay • Most immersive Los Angeles experience*'))
         .addSeparatorComponents(separator())
-        .addActionRowComponents(
-            dashboardButton('dashboard:faq:partner', 'How do I partner with LARP?', '❔'),
-            dashboardButton('dashboard:faq:verify', 'How do I verify?', '❔'),
-            dashboardButton('dashboard:faq:moderator', 'How do I become a Moderator?', '❔'),
-        );
+        .addMediaGalleryComponents(media(UNDERBANNER_NAME));
 }
 
-function partnershipPanel(): ContainerBuilder {
-    return new ContainerBuilder()
-        .setAccentColor(BRAND.color)
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent([
-            '## 🤝 Partnership Program',
-            'To partner with **LARP**, use `/partnership request` to open the partnership request form.',
-            '',
-            'Please use a permanent Discord invite and include your complete server advertisement.',
-        ].join('\n')));
-}
+function faqPanel(): ContainerBuilder { return withDashboardBanner('## Frequently Asked Questions').addSeparatorComponents(separator()).addActionRowComponents(dashboardButton('dashboard:faq:partner', 'How do I partner with LARP?', '❔'), dashboardButton('dashboard:faq:verify', 'How do I verify?', '❔'), dashboardButton('dashboard:faq:moderator', 'How do I become a Moderator?', '❔')).addSeparatorComponents(separator()).addMediaGalleryComponents(media(UNDERBANNER_NAME)); }
+function partnershipPanel(): ContainerBuilder { return new ContainerBuilder().setAccentColor(BRAND.color).addTextDisplayComponents(new TextDisplayBuilder().setContent(['## 🤝 Partnership Program','To partner with **LARP**, use `/partnership request` to open the partnership request form.','','Please use a permanent Discord invite and include your complete server advertisement.'].join('\n'))); }
+function verifyPanel(): ContainerBuilder { return withDashboardBanner(['## ✅ How do I verify?',`To verify in our server, head over to <#${VERIFY_CHANNEL_ID}> and follow the verification instructions there.`].join('\n')).addSeparatorComponents(separator()).addMediaGalleryComponents(media(UNDERBANNER_NAME)); }
+function moderatorPanel(): ContainerBuilder { return withDashboardBanner(['## 🛡️ How do I become a Moderator?','To become a moderator in **LARP**, use the application buttons below. Make sure your written responses use proper SPaG and meet the application requirements.','','**DO NOT ASK FOR YOUR APPLICATION TO BE READ.**'].join('\n')).addSeparatorComponents(separator()).addActionRowComponents(dashboardButton('dashboard:apply:discord','Discord Moderator',{ id: DISCORD_EMOJI_ID, name: 'Discord' },ButtonStyle.Primary),dashboardButton('dashboard:apply:ingame','In-Game Moderator',{ id: ROBLOX_EMOJI_ID, name: 'ROBLOX' },ButtonStyle.Primary)).addSeparatorComponents(separator()).addMediaGalleryComponents(media(UNDERBANNER_NAME)); }
+function bulletinPanel(): ContainerBuilder { return withDashboardBanner('## Discord Bulletin').addSeparatorComponents(separator()).addTextDisplayComponents(new TextDisplayBuilder().setContent(['Use the official Los Angeles Roleplay channels below for important server resources.','','• <#1526035041593856182> — Applications','• <#1526046592187105421> — Server Regulations','• <#1526192979218530335> — Departments','• <#1541110029048881313> — Verification','• <#1526034504953892925> — Help / Assistance'].join('\n'))).addSeparatorComponents(separator()).addActionRowComponents(disabledButton('dashboard:disabled:applications','Applications','📝')).addSeparatorComponents(separator()).addMediaGalleryComponents(media(UNDERBANNER_NAME)); }
+function regulationsPanel(): ContainerBuilder { return withDashboardBanner('## Regulations').addSeparatorComponents(separator()).addActionRowComponents(dashboardButton('dashboard:regulations:discord','Discord Regulations',{ id: DISCORD_EMOJI_ID, name: 'Discord' }),dashboardButton('dashboard:regulations:vc','VC Regulations',{ id: ROBLOX_EMOJI_ID, name: 'ROBLOX' })).addSeparatorComponents(separator()).addMediaGalleryComponents(media(UNDERBANNER_NAME)); }
 
-function verifyPanel(): ContainerBuilder {
-    return withDashboardBanner([
-        '## ✅ How do I verify?',
-        `To verify in our server, head over to <#${VERIFY_CHANNEL_ID}> and follow the verification instructions there.`,
-    ].join('\n'));
-}
-
-function moderatorPanel(): ContainerBuilder {
-    return withDashboardBanner([
-        '## 🛡️ How do I become a Moderator?',
-        'To become a moderator in **LARP**, use the application buttons below. Make sure your written responses use proper SPaG and meet the application requirements.',
-        '',
-        '**DO NOT ASK FOR YOUR APPLICATION TO BE READ.**',
-    ].join('\n'))
-        .addSeparatorComponents(separator())
-        .addActionRowComponents(
-            dashboardButton('dashboard:apply:discord', 'Discord Moderator', { id: DISCORD_EMOJI_ID, name: 'Discord' }, ButtonStyle.Primary),
-            dashboardButton('dashboard:apply:ingame', 'In-Game Moderator', { id: ROBLOX_EMOJI_ID, name: 'ROBLOX' }, ButtonStyle.Primary),
-        );
-}
-
-function bulletinPanel(): ContainerBuilder {
-    return withDashboardBanner('## Discord Bulletin')
-        .addSeparatorComponents(separator())
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent([
-            'Use the official Los Angeles Roleplay channels below for important server resources.',
-            '',
-            '• <#1526035041593856182> — Applications',
-            '• <#1526046592187105421> — Server Regulations',
-            '• <#1526192979218530335> — Departments',
-            '• <#1541110029048881313> — Verification',
-            '• <#1526034504953892925> — Help / Assistance',
-        ].join('\n')))
-        .addSeparatorComponents(separator())
-        .addActionRowComponents(disabledButton('dashboard:disabled:applications', 'Applications', '📝'));
-}
-
-function regulationsPanel(): ContainerBuilder {
-    return withDashboardBanner('## Regulations')
-        .addSeparatorComponents(separator())
-        .addActionRowComponents(
-            dashboardButton('dashboard:regulations:discord', 'Discord Regulations', { id: DISCORD_EMOJI_ID, name: 'Discord' }),
-            dashboardButton('dashboard:regulations:vc', 'VC Regulations', { id: ROBLOX_EMOJI_ID, name: 'ROBLOX' }),
-        );
-}
-
-const DISCORD_GUIDELINES = [
-    '## Discord Guidelines',
-    '## 1. Respect Everyone',
-    '- Treat all members with respect at all times.',
-    '- No harassment, discrimination, hate speech, or disrespecting people.',
-    '- Keep arguments civil.',
-    '## 2. Follow Discord TOS',
-    '- All Discord Terms of Service and Community Guidelines apply.',
-    '## 3. No NSFW or Explicit Content',
-    '- Keep all chats appropriate for a roleplay community.',
-    '## 4. No Spamming or Advertising',
-    '- No spam, excessive emojis, caps, or mic spam.',
-    '- No advertising other servers, services, or social media without staff permission.',
-    '## 5. Use Channels Correctly',
-    '- Use channels only for their intended purpose.',
-    '- Commands must be used only in designated command channels.',
-    '## 6. Staff Interaction',
-    '- Do not argue with staff. If you have an issue, open a ticket respectfully.',
-    '## 7. Account Responsibility',
-    '- You are responsible for your account and actions.',
-    '## 8. Enforcement',
-    '- Rule violations may result in moderation based on severity and repeat offenses.',
-    '## 9. Discord Usernames / Display Names',
-    '- Follow the server naming requirements.',
-    '## 10. Common Sense',
-    '- Use common sense and do not look for loopholes.',
-].join('\n');
-
-const VC_REGULATIONS = [
-    '# Voice Channel Regulations',
-    '## 1. Joining RP VCs',
-    '- Do not join RP voice channels if you are not in-game.',
-    '- Do not join RTOs if you are not currently on that team.',
-    '- Do not join scene VCs you are not a part of or were not invited to join.',
-    '## 2. Use RP VCs for their intended purpose',
-    '- Respect active scenes and keep roleplay channels focused on roleplay.',
-    '## 3. RTO Rules',
-    '- RTO means Radio Traffic Only.',
-    '- Keep transmissions realistic, brief, and direct.',
-    '- Do not talk over another unit unless required by the situation.',
-    '## 4. Voice Channels',
-    '- Use RTO, civilian, criminal, scene, business, and traffic-stop channels only for their intended purpose.',
-    '## 5. Remaining in character',
-    '- Remain in character while inside active roleplay voice channels.',
-    '- Move to an appropriate non-RP channel when you need to speak out of character.',
-].join('\n');
+const DISCORD_GUIDELINES = ['## Discord Guidelines','## 1. Respect Everyone','- Treat all members with respect at all times.','- No harassment, discrimination, hate speech, or disrespecting people.','- Keep arguments civil.','## 2. Follow Discord TOS','- All Discord Terms of Service and Community Guidelines apply.','## 3. No NSFW or Explicit Content','- Keep all chats appropriate for a roleplay community.','## 4. No Spamming or Advertising','- No spam, excessive emojis, caps, or mic spam.','- No advertising other servers, services, or social media without staff permission.','## 5. Use Channels Correctly','- Use channels only for their intended purpose.','- Commands must be used only in designated command channels.','## 6. Staff Interaction','- Do not argue with staff. If you have an issue, open a ticket respectfully.','## 7. Account Responsibility','- You are responsible for your account and actions.','## 8. Enforcement','- Rule violations may result in moderation based on severity and repeat offenses.','## 9. Discord Usernames / Display Names','- Follow the server naming requirements.','## 10. Common Sense','- Use common sense and do not look for loopholes.'].join('\n');
+const VC_REGULATIONS = ['# Voice Channel Regulations','## 1. Joining RP VCs','- Do not join RP voice channels if you are not in-game.','- Do not join RTOs if you are not currently on that team.','- Do not join scene VCs you are not a part of or were not invited to join.','## 2. Use RP VCs for their intended purpose','- Respect active scenes and keep roleplay channels focused on roleplay.','## 3. RTO Rules','- RTO means Radio Traffic Only.','- Keep transmissions realistic, brief, and direct.','- Do not talk over another unit unless required by the situation.','## 4. Voice Channels','- Use RTO, civilian, criminal, scene, business, and traffic-stop channels only for their intended purpose.','## 5. Remaining in character','- Remain in character while inside active roleplay voice channels.','- Move to an appropriate non-RP channel when you need to speak out of character.'].join('\n');
 
 function longRulesPanel(title: string, content: string): ContainerBuilder {
-    const chunks: string[] = [];
-    let remaining = content;
-    while (remaining.length > 3_800) {
-        let cut = remaining.lastIndexOf('\n', 3_800);
-        if (cut < 1_500) cut = 3_800;
-        chunks.push(remaining.slice(0, cut));
-        remaining = remaining.slice(cut).replace(/^\n+/, '');
-    }
+    const chunks: string[] = []; let remaining = content;
+    while (remaining.length > 3800) { let cut = remaining.lastIndexOf('\n', 3800); if (cut < 1500) cut = 3800; chunks.push(remaining.slice(0, cut)); remaining = remaining.slice(cut).replace(/^\n+/, ''); }
     if (remaining) chunks.push(remaining);
-
-    const panel = withDashboardBanner(title);
-    for (const chunk of chunks) {
-        panel.addSeparatorComponents(separator());
-        panel.addTextDisplayComponents(new TextDisplayBuilder().setContent(chunk));
-    }
-    return panel;
+    const panel = withDashboardBanner(title); for (const chunk of chunks) { panel.addSeparatorComponents(separator()); panel.addTextDisplayComponents(new TextDisplayBuilder().setContent(chunk)); }
+    return panel.addSeparatorComponents(separator()).addMediaGalleryComponents(media(UNDERBANNER_NAME));
 }
 
 async function privatePanel(interaction: DashboardPrivateInteraction, panel: ContainerBuilder, includeBanner = true): Promise<void> {
-    await interaction.reply({
-        components: [panel],
-        files: includeBanner ? [bannerAttachment()] : [],
-        flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
-        allowedMentions: { parse: [] },
-    });
+    await interaction.reply({ components: [panel], files: includeBanner ? bannerAttachments() : [], flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2, allowedMentions: { parse: [] } });
 }
 
 async function startExistingApplication(interaction: ButtonInteraction, type: 'discord' | 'ingame'): Promise<void> {
-    const applications = require('./applications.ts') as {
-        handleApplicationSelect?: (interaction: unknown) => Promise<boolean>;
-    };
+    const applications = require('./applications.ts') as { handleApplicationSelect?: (interaction: unknown) => Promise<boolean> };
     if (typeof applications.handleApplicationSelect !== 'function') throw new Error('Existing application starter is unavailable.');
-
-    const synthetic = new Proxy(interaction as unknown as Record<PropertyKey, unknown>, {
-        get(target, property, receiver) {
-            if (property === 'customId') return 'applications:type';
-            if (property === 'values') return [type];
-            const value = Reflect.get(target, property, receiver);
-            return typeof value === 'function' ? value.bind(interaction) : value;
-        },
-    });
+    const synthetic = new Proxy(interaction as unknown as Record<PropertyKey, unknown>, { get(target, property, receiver) { if (property === 'customId') return 'applications:type'; if (property === 'values') return [type]; const value = Reflect.get(target, property, receiver); return typeof value === 'function' ? value.bind(interaction) : value; } });
     await applications.handleApplicationSelect(synthetic);
 }
 
 export async function handleDashboardSelect(interaction: StringSelectMenuInteraction): Promise<boolean> {
     if (interaction.customId !== 'dashboard:menu') return false;
-    try {
-        switch (interaction.values[0]) {
-            case 'faq':
-                await privatePanel(interaction, faqPanel());
-                return true;
-            case 'bulletin':
-                await privatePanel(interaction, bulletinPanel());
-                return true;
-            case 'regulations':
-                await privatePanel(interaction, regulationsPanel());
-                return true;
-            default:
-                await interaction.reply({ content: 'That dashboard section is unavailable.', flags: MessageFlags.Ephemeral });
-                return true;
-        }
-    } catch (error) {
-        logger.error(`[Dashboard] Select failed: ${error instanceof Error ? error.stack || error.message : String(error)}`);
-        if (!interaction.deferred && !interaction.replied) {
-            await interaction.reply({ content: 'The dashboard could not open that section right now.', flags: MessageFlags.Ephemeral }).catch(() => undefined);
-        }
-        return true;
-    }
+    try { switch (interaction.values[0]) { case 'faq': await privatePanel(interaction, faqPanel()); return true; case 'bulletin': await privatePanel(interaction, bulletinPanel()); return true; case 'regulations': await privatePanel(interaction, regulationsPanel()); return true; default: await interaction.reply({ content: 'That dashboard section is unavailable.', flags: MessageFlags.Ephemeral }); return true; } } catch (error) { logger.error(`[Dashboard] Select failed: ${error instanceof Error ? error.stack || error.message : String(error)}`); if (!interaction.deferred && !interaction.replied) await interaction.reply({ content: 'The dashboard could not open that section right now.', flags: MessageFlags.Ephemeral }).catch(() => undefined); return true; }
 }
 
 async function toggleRole(interaction: ButtonInteraction, key: RoleKey): Promise<boolean> {
-    if (!interaction.guild) {
-        await interaction.reply({ content: 'This button can only be used inside the server.', flags: MessageFlags.Ephemeral });
-        return true;
-    }
-    const config = ROLE_CONFIG[key];
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
-    const role = interaction.guild.roles.cache.get(config.id) || await interaction.guild.roles.fetch(config.id).catch(() => null);
-    if (!member || !role) {
-        await interaction.editReply('I could not load your account or that ping role.');
-        return true;
-    }
-    try {
-        if (member.roles.cache.has(config.id)) {
-            await member.roles.remove(role, `Dashboard ping role removed by ${interaction.user.tag}`);
-            await interaction.editReply(`${config.emoji} Removed **${config.label}** from you.`);
-        } else {
-            await member.roles.add(role, `Dashboard ping role added by ${interaction.user.tag}`);
-            await interaction.editReply(`${config.emoji} Added **${config.label}** to you.`);
-        }
-    } catch (error) {
-        logger.warn(`[Dashboard] Role toggle failed for ${interaction.user.id} / ${config.id}: ${error instanceof Error ? error.message : String(error)}`);
-        await interaction.editReply('I could not change that role. Make sure my bot role is above the ping roles and has **Manage Roles** permission.');
-    }
+    if (!interaction.guild) { await interaction.reply({ content: 'This button can only be used inside the server.', flags: MessageFlags.Ephemeral }); return true; }
+    const config = ROLE_CONFIG[key]; await interaction.deferReply({ flags: MessageFlags.Ephemeral }); const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null); const role = interaction.guild.roles.cache.get(config.id) || await interaction.guild.roles.fetch(config.id).catch(() => null);
+    if (!member || !role) { await interaction.editReply('I could not load your account or that ping role.'); return true; }
+    try { if (member.roles.cache.has(config.id)) { await member.roles.remove(role, `Dashboard ping role removed by ${interaction.user.tag}`); await interaction.editReply(`${config.emoji} Removed **${config.label}** from you.`); } else { await member.roles.add(role, `Dashboard ping role added by ${interaction.user.tag}`); await interaction.editReply(`${config.emoji} Added **${config.label}** to you.`); } } catch (error) { logger.warn(`[Dashboard] Role toggle failed for ${interaction.user.id} / ${config.id}: ${error instanceof Error ? error.message : String(error)}`); await interaction.editReply('I could not change that role. Make sure my bot role is above the ping roles and has **Manage Roles** permission.'); }
     return true;
 }
 
 export async function handleDashboardButton(interaction: ButtonInteraction): Promise<boolean> {
     if (!interaction.customId.startsWith('dashboard:')) return false;
-
-    if (interaction.customId.startsWith('dashboard:role:')) {
-        const key = interaction.customId.split(':')[2] as RoleKey;
-        if (!ROLE_CONFIG[key]) {
-            await interaction.reply({ content: 'That ping role is not configured.', flags: MessageFlags.Ephemeral });
-            return true;
-        }
-        return toggleRole(interaction, key);
-    }
-
-    if (interaction.customId.startsWith('dashboard:disabled:')) {
-        await interaction.reply({ content: 'This dashboard option is coming soon.', flags: MessageFlags.Ephemeral }).catch(() => undefined);
-        return true;
-    }
-
-    try {
-        switch (interaction.customId) {
-            case 'dashboard:faq':
-                await privatePanel(interaction, faqPanel());
-                return true;
-            case 'dashboard:bulletin':
-                await privatePanel(interaction, bulletinPanel());
-                return true;
-            case 'dashboard:regulations':
-                await privatePanel(interaction, regulationsPanel());
-                return true;
-            case 'dashboard:faq:partner':
-                await privatePanel(interaction, partnershipPanel(), false);
-                return true;
-            case 'dashboard:faq:verify':
-                await privatePanel(interaction, verifyPanel());
-                return true;
-            case 'dashboard:faq:moderator':
-                await privatePanel(interaction, moderatorPanel());
-                return true;
-            case 'dashboard:apply:discord':
-                await startExistingApplication(interaction, 'discord');
-                return true;
-            case 'dashboard:apply:ingame':
-                await startExistingApplication(interaction, 'ingame');
-                return true;
-            case 'dashboard:regulations:discord':
-                await privatePanel(interaction, longRulesPanel('## <:Discord:1522529390687293460> Discord Regulations', DISCORD_GUIDELINES));
-                return true;
-            case 'dashboard:regulations:vc':
-                await privatePanel(interaction, longRulesPanel('## <:ROBLOX:1020834558058442813> VC Regulations', VC_REGULATIONS));
-                return true;
-            default:
-                return false;
-        }
-    } catch (error) {
-        logger.error(`[Dashboard] Button ${interaction.customId} failed: ${error instanceof Error ? error.stack || error.message : String(error)}`);
-        if (!interaction.deferred && !interaction.replied) {
-            await interaction.reply({ content: 'The dashboard could not open that section right now.', flags: MessageFlags.Ephemeral }).catch(() => undefined);
-        }
-        return true;
-    }
+    if (interaction.customId.startsWith('dashboard:role:')) { const key = interaction.customId.split(':')[2] as RoleKey; if (!ROLE_CONFIG[key]) { await interaction.reply({ content: 'That ping role is not configured.', flags: MessageFlags.Ephemeral }); return true; } return toggleRole(interaction, key); }
+    if (interaction.customId.startsWith('dashboard:disabled:')) { await interaction.reply({ content: 'This dashboard option is coming soon.', flags: MessageFlags.Ephemeral }).catch(() => undefined); return true; }
+    try { switch (interaction.customId) { case 'dashboard:faq': await privatePanel(interaction, faqPanel()); return true; case 'dashboard:bulletin': await privatePanel(interaction, bulletinPanel()); return true; case 'dashboard:regulations': await privatePanel(interaction, regulationsPanel()); return true; case 'dashboard:faq:partner': await privatePanel(interaction, partnershipPanel(), false); return true; case 'dashboard:faq:verify': await privatePanel(interaction, verifyPanel()); return true; case 'dashboard:faq:moderator': await privatePanel(interaction, moderatorPanel()); return true; case 'dashboard:apply:discord': await startExistingApplication(interaction, 'discord'); return true; case 'dashboard:apply:ingame': await startExistingApplication(interaction, 'ingame'); return true; case 'dashboard:regulations:discord': await privatePanel(interaction, longRulesPanel('## Discord Regulations', DISCORD_GUIDELINES)); return true; case 'dashboard:regulations:vc': await privatePanel(interaction, longRulesPanel('## VC Regulations', VC_REGULATIONS)); return true; default: return false; } } catch (error) { logger.error(`[Dashboard] Button failed: ${error instanceof Error ? error.stack || error.message : String(error)}`); if (!interaction.deferred && !interaction.replied) await interaction.reply({ content: 'The dashboard could not process that button right now.', flags: MessageFlags.Ephemeral }).catch(() => undefined); return true; }
 }
 
 export const dashboardCommand = {
-    data: new SlashCommandBuilder()
-        .setName('dashboard')
-        .setDescription('Post the Los Angeles Roleplay V2 dashboard')
-        .setDMPermission(false)
-        .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
-
+    data: new SlashCommandBuilder().setName('dashboard').setDescription('Post or refresh the Los Angeles Roleplay dashboard').setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-        try {
-            const channel = await interaction.client.channels.fetch(DASHBOARD_CHANNEL_ID).catch(() => null);
-            if (!channel?.isSendable()) {
-                await interaction.editReply(`The dashboard channel <#${DASHBOARD_CHANNEL_ID}> is unavailable or I cannot send there.`);
-                return;
-            }
-
-            const message = await channel.send({
-                components: [mainDashboard()],
-                files: [bannerAttachment()],
-                flags: MessageFlags.IsComponentsV2,
-                allowedMentions: { parse: [] },
-            });
-
-            await interaction.editReply(`✅ Dashboard posted in <#${DASHBOARD_CHANNEL_ID}>: ${message.url}`);
-            logger.info(`[Dashboard] V2 dashboard posted in ${DASHBOARD_CHANNEL_ID} by ${interaction.user.id}.`);
-        } catch (error) {
-            logger.error(`[Dashboard] Could not post dashboard: ${error instanceof Error ? error.stack || error.message : String(error)}`);
-            await interaction.editReply('I could not post the dashboard. Check my channel permissions and the dashboard banner asset.');
-        }
+        const channel = await interaction.client.channels.fetch(DASHBOARD_CHANNEL_ID).catch(() => null);
+        if (!channel?.isTextBased() || !('messages' in channel) || !channel.isSendable()) { await interaction.editReply(`I could not access <#${DASHBOARD_CHANNEL_ID}>.`); return; }
+        const recent = await channel.messages.fetch({ limit: 50 }).catch(() => null);
+        const existing = recent?.find(message => message.author.id === interaction.client.user?.id && message.components.length > 0);
+        const payload = { components: [mainDashboard()], files: bannerAttachments(), flags: MessageFlags.IsComponentsV2 as MessageFlags.IsComponentsV2, allowedMentions: { parse: [] as [] } };
+        if (existing) { await existing.edit(payload).catch(async () => { await channel.send(payload); }); } else { await channel.send(payload); }
+        await interaction.editReply('✅ Dashboard refreshed with the new banner set.');
     },
 };
