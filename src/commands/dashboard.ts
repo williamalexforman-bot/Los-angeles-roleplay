@@ -186,6 +186,15 @@ export async function handleDashboardButton(interaction: ButtonInteraction): Pro
     try { switch (interaction.customId) { case 'dashboard:faq': await privatePanel(interaction, faqPanel()); return true; case 'dashboard:bulletin': await privatePanel(interaction, bulletinPanel()); return true; case 'dashboard:regulations': await privatePanel(interaction, regulationsPanel()); return true; case 'dashboard:faq:partner': await privatePanel(interaction, partnershipPanel(), false); return true; case 'dashboard:faq:verify': await privatePanel(interaction, verifyPanel()); return true; case 'dashboard:faq:moderator': await privatePanel(interaction, moderatorPanel()); return true; case 'dashboard:apply:discord': await startExistingApplication(interaction, 'discord'); return true; case 'dashboard:apply:ingame': await startExistingApplication(interaction, 'ingame'); return true; case 'dashboard:regulations:discord': await privatePanel(interaction, longRulesPanel('## Discord Regulations', DISCORD_GUIDELINES)); return true; case 'dashboard:regulations:vc': await privatePanel(interaction, longRulesPanel('## VC Regulations', VC_REGULATIONS)); return true; default: return false; } } catch (error) { logger.error(`[Dashboard] Button failed: ${error instanceof Error ? error.stack || error.message : String(error)}`); if (!interaction.deferred && !interaction.replied) await interaction.reply({ content: 'The dashboard could not process that button right now.', flags: MessageFlags.Ephemeral }).catch(() => undefined); return true; }
 }
 
+export function buildDashboardRefreshPayload() {
+    return {
+        components: [mainDashboard()],
+        files: bannerAttachments(),
+        flags: MessageFlags.IsComponentsV2 as MessageFlags.IsComponentsV2,
+        allowedMentions: { parse: [] as [] },
+    };
+}
+
 export const dashboardCommand = {
     data: new SlashCommandBuilder().setName('dashboard').setDescription('Post or refresh the Los Angeles Roleplay dashboard').setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -194,7 +203,7 @@ export const dashboardCommand = {
         if (!channel?.isTextBased() || !('messages' in channel) || !channel.isSendable()) { await interaction.editReply(`I could not access <#${DASHBOARD_CHANNEL_ID}>.`); return; }
         const recent = await channel.messages.fetch({ limit: 50 }).catch(() => null);
         const existing = recent?.find(message => message.author.id === interaction.client.user?.id && message.components.length > 0);
-        const payload = { components: [mainDashboard()], files: bannerAttachments(), flags: MessageFlags.IsComponentsV2 as MessageFlags.IsComponentsV2, allowedMentions: { parse: [] as [] } };
+        const payload = buildDashboardRefreshPayload();
         if (existing) { await existing.edit(payload).catch(async () => { await channel.send(payload); }); } else { await channel.send(payload); }
         await interaction.editReply('✅ Dashboard refreshed with the new banner set.');
     },
