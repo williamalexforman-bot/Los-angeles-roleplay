@@ -20,19 +20,6 @@ import {
 } from 'discord.js';
 import { BRAND } from '../config/constants';
 
-/* -------------------------------------------------------------------------- */
-/*  Image URL constants.                                                      */
-/*                                                                            */
-/*  We use the user's OWN local session banner images, referenced as          */
-/*  attachment:// URLs and attached as files alongside each Components V2     */
-/*  panel. Discord renders each media gallery big and full-width.             */
-/*  No AI-generated graphics are used.                                        */
-/*                                                                            */
-/*  TOP_BANNER_*  -> Wide main header banner for each session type.           */
-/*  BOTTOM_UNDERBANNER -> Thin wide "LOS ANGELES ROLEPLAY" underbanner bar    */
-/*                   (the final media component in the panel).                */
-/* -------------------------------------------------------------------------- */
-
 const SESSION_BANNER_NAME_START = 'session-start-banner.png';
 const SESSION_BANNER_NAME_END = 'session-end-banner.png';
 const SESSION_BANNER_NAME_VOTE = 'session-vote-banner.png';
@@ -55,9 +42,6 @@ export const SESSION_UNDERBANNER_PATH = path.resolve(process.cwd(), 'assets', SE
 export const createUnderbannerAttachment = () =>
     new AttachmentBuilder(SESSION_UNDERBANNER_PATH, { name: SESSION_UNDERBANNER_NAME });
 
-/**
- * Map a session type to its TOP banner image filename.
- */
 export function resolveTopBannerName(emblemType: SessionEmblemType): string {
     switch (emblemType) {
         case 'start': return SESSION_BANNER_NAME_START;
@@ -69,9 +53,6 @@ export function resolveTopBannerName(emblemType: SessionEmblemType): string {
     }
 }
 
-/**
- * Map a session type to its TOP image URL constant (attachment://).
- */
 export function resolveTopBannerUrl(emblemType: SessionEmblemType): string {
     return `attachment://${resolveTopBannerName(emblemType)}`;
 }
@@ -87,32 +68,24 @@ function assetExists(filePath: string): boolean {
     }
 }
 
-/**
- * Resolve the local banner file for a session type.
- * Falls back to the generic background only if the exact banner is missing.
- */
 function resolveSessionBanner(emblemType: SessionEmblemType): { path: string; name: string } {
     const name = resolveTopBannerName(emblemType);
     const resolvedPath = path.resolve(process.cwd(), 'assets', name);
-    if (assetExists(resolvedPath)) {
-        return { path: resolvedPath, name };
-    }
-    if (assetExists(SESSION_BACKGROUND_PATH)) {
-        return { path: SESSION_BACKGROUND_PATH, name: SESSION_BACKGROUND_NAME };
-    }
+    if (assetExists(resolvedPath)) return { path: resolvedPath, name };
+    if (assetExists(SESSION_BACKGROUND_PATH)) return { path: SESSION_BACKGROUND_PATH, name: SESSION_BACKGROUND_NAME };
     return { path: resolvedPath, name };
 }
 
 export const SESSION_FOOTER = 'Los Angeles Roleplay | Realism at its Finest';
-// Matches the blue Components V2 side rail used by the infraction panels.
 export const SESSION_ACCENT_COLOR = 0x3b82f6;
 
 export interface LegacyEmbedV2Options {
-    /** Legacy message content is moved inside the V2 container. */
     content?: string;
     actionRows?: readonly ActionRowBuilder<ButtonBuilder>[];
     files?: readonly AttachmentBuilder[];
     allowedMentions?: MessageMentionOptions;
+    topBannerName?: string;
+    topBannerPath?: string;
 }
 
 export const createEmbed = (title: string, description: string, color: ColorResolvable = BRAND.color) => {
@@ -124,14 +97,8 @@ export const createEmbed = (title: string, description: string, color: ColorReso
         .setTimestamp();
 };
 
-/**
- * A small separator used around the session copy, matching the visual rhythm
- * of the infraction panels.
- */
 function panelSeparator(): SeparatorBuilder {
-    return new SeparatorBuilder()
-        .setDivider(true)
-        .setSpacing(SeparatorSpacingSize.Small);
+    return new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small);
 }
 
 function textChunks(value: string, maxLength = 3_900): string[] {
@@ -150,22 +117,21 @@ function textChunks(value: string, maxLength = 3_900): string[] {
 }
 
 function addV2Text(panel: ContainerBuilder, value: string): void {
-    for (const chunk of textChunks(value)) {
-        panel.addTextDisplayComponents(new TextDisplayBuilder().setContent(chunk));
-    }
+    for (const chunk of textChunks(value)) panel.addTextDisplayComponents(new TextDisplayBuilder().setContent(chunk));
 }
 
-/**
- * Converts a remaining legacy EmbedBuilder into a Components V2 container.
- * Existing native V2 panels do not use this adapter and remain unchanged.
- * With no supplied artwork, only the shared underbanner is rendered.
- */
-export function legacyEmbedToV2Panel(
-    embed: EmbedBuilder,
-    options: LegacyEmbedV2Options = {},
-): ContainerBuilder {
+function sessionBanner(name: string): MediaGalleryBuilder {
+    return new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(`attachment://${name}`));
+}
+
+export function legacyEmbedToV2Panel(embed: EmbedBuilder, options: LegacyEmbedV2Options = {}): ContainerBuilder {
     const data = embed.toJSON();
     const panel = new ContainerBuilder().setAccentColor(data.color ?? SESSION_ACCENT_COLOR);
+
+    if (options.topBannerName) {
+        panel.addMediaGalleryComponents(sessionBanner(options.topBannerName));
+        panel.addSeparatorComponents(panelSeparator());
+    }
 
     if (options.content) addV2Text(panel, options.content);
 
@@ -178,18 +144,12 @@ export function legacyEmbedToV2Panel(
 
     if (data.fields?.length) {
         panel.addSeparatorComponents(panelSeparator());
-        for (const field of data.fields) {
-            addV2Text(panel, `**${field.name}**\n${field.value}`);
-        }
+        for (const field of data.fields) addV2Text(panel, `**${field.name}**\n${field.value}`);
     }
 
     if (data.image?.url) {
         panel.addSeparatorComponents(panelSeparator());
-        panel.addMediaGalleryComponents(
-            new MediaGalleryBuilder().addItems(
-                new MediaGalleryItemBuilder().setURL(data.image.url),
-            ),
-        );
+        panel.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(data.image.url)));
     }
 
     const footerParts: string[] = [];
@@ -202,40 +162,23 @@ export function legacyEmbedToV2Panel(
 
     for (const row of options.actionRows || []) panel.addActionRowComponents(row);
 
-    return panel
-        .addSeparatorComponents(panelSeparator())
-        .addMediaGalleryComponents(sessionBanner(SESSION_UNDERBANNER_NAME));
+    return panel.addSeparatorComponents(panelSeparator()).addMediaGalleryComponents(sessionBanner(SESSION_UNDERBANNER_NAME));
 }
 
-/** Creates a complete send/edit payload for a migrated legacy embed. */
-export function legacyEmbedToV2Message(
-    embed: EmbedBuilder,
-    options: LegacyEmbedV2Options = {},
-) {
+export function legacyEmbedToV2Message(embed: EmbedBuilder, options: LegacyEmbedV2Options = {}) {
+    const files = [...(options.files || [])];
+    if (options.topBannerName && options.topBannerPath && assetExists(options.topBannerPath)) {
+        files.push(new AttachmentBuilder(options.topBannerPath, { name: options.topBannerName }));
+    }
+    files.push(createUnderbannerAttachment());
     return {
         components: [legacyEmbedToV2Panel(embed, options)],
-        files: [...(options.files || []), createUnderbannerAttachment()],
+        files,
         flags: MessageFlags.IsComponentsV2 as MessageFlags.IsComponentsV2,
         allowedMentions: options.allowedMentions || { parse: [] as [] },
     };
 }
 
-/**
- * A media gallery wrapper for either supplied session banner. Keeping both
- * media components in one V2 container guarantees the visual order is:
- * top banner, session text/buttons, then underbanner.
- */
-function sessionBanner(name: string): MediaGalleryBuilder {
-    return new MediaGalleryBuilder().addItems(
-        new MediaGalleryItemBuilder().setURL(`attachment://${name}`),
-    );
-}
-
-/**
- * Builds a session announcement in the same Components V2 treatment as an
- * infraction case. The supplied top banner is first and the underbanner is
- * always the final component, including when the announcement has buttons.
- */
 export function createSessionPanel(
     title: string,
     description: string,
@@ -255,46 +198,24 @@ export function createSessionPanel(
         .addSeparatorComponents(panelSeparator())
         .addSectionComponents(
             new SectionBuilder()
-                .addTextDisplayComponents(
-                    new TextDisplayBuilder().setContent(`## ${title}\n${description}`),
-                )
+                .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${title}\n${description}`))
                 .setButtonAccessory(displayBadge),
         );
 
     for (const row of actionRows) panel.addActionRowComponents(row);
-
-    return panel
-        .addSeparatorComponents(panelSeparator())
-        .addMediaGalleryComponents(sessionBanner(SESSION_UNDERBANNER_NAME));
+    return panel.addSeparatorComponents(panelSeparator()).addMediaGalleryComponents(sessionBanner(SESSION_UNDERBANNER_NAME));
 }
 
-/**
- * Attachments for a session announcement.
- *
- * Attaches the original top banner and bottom underbanner separately. They are
- * used by createSessionPanel() in that exact order.
- */
 export const createSessionAttachments = (emblemType: SessionEmblemType = 'start'): AttachmentBuilder[] => {
     const attachments: AttachmentBuilder[] = [];
-
-    // Attach the type-specific top banner used by the first media gallery.
     const banner = resolveSessionBanner(emblemType);
-    if (assetExists(banner.path)) {
-        attachments.push(new AttachmentBuilder(banner.path, { name: banner.name }));
-    }
-
-    if (assetExists(SESSION_UNDERBANNER_PATH)) {
-        attachments.push(new AttachmentBuilder(SESSION_UNDERBANNER_PATH, { name: SESSION_UNDERBANNER_NAME }));
-    }
-
+    if (assetExists(banner.path)) attachments.push(new AttachmentBuilder(banner.path, { name: banner.name }));
+    if (assetExists(SESSION_UNDERBANNER_PATH)) attachments.push(new AttachmentBuilder(SESSION_UNDERBANNER_PATH, { name: SESSION_UNDERBANNER_NAME }));
     return attachments;
 };
 
 export const createBrandedEmbed = (title?: string, description?: string, color = BRAND.color) => {
-    const embed = new EmbedBuilder()
-        .setColor(color)
-        .setFooter({ text: BRAND.footer })
-        .setTimestamp();
+    const embed = new EmbedBuilder().setColor(color).setFooter({ text: BRAND.footer }).setTimestamp();
     if (title) embed.setTitle(title);
     if (description) embed.setDescription(description);
     return embed;
@@ -304,34 +225,17 @@ export const createLogoAttachment = () => new AttachmentBuilder(BRAND.logoPath, 
 
 export const createSessionAttachment = (emblemType: SessionEmblemType = 'start'): AttachmentBuilder | undefined => {
     const banner = resolveSessionBanner(emblemType);
-    if (assetExists(banner.path)) {
-        return new AttachmentBuilder(banner.path, { name: banner.name });
-    }
+    if (assetExists(banner.path)) return new AttachmentBuilder(banner.path, { name: banner.name });
     return undefined;
 };
 
-export const createErrorEmbed = (errorMessage: string) => {
-    return createEmbed('Error', errorMessage);
-};
-
-export const createSuccessEmbed = (successMessage: string) => {
-    return createEmbed('Success', successMessage);
-};
-
-export const createInfoEmbed = (infoMessage: string) => {
-    return createEmbed('Information', infoMessage);
-};
+export const createErrorEmbed = (errorMessage: string) => createEmbed('Error', errorMessage);
+export const createSuccessEmbed = (successMessage: string) => createEmbed('Success', successMessage);
+export const createInfoEmbed = (infoMessage: string) => createEmbed('Information', infoMessage);
 
 export const sendEmbed = async (interaction: ChatInputCommandInteraction, message: string) => {
     const embed = createEmbed('Bot Update', message);
     const payload = legacyEmbedToV2Message(embed);
-
-    if (interaction.replied || interaction.deferred) {
-        return interaction.followUp(payload);
-    }
-
-    return interaction.reply({
-        ...payload,
-        flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
-    });
+    if (interaction.replied || interaction.deferred) return interaction.followUp(payload);
+    return interaction.reply({ ...payload, flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral });
 };
