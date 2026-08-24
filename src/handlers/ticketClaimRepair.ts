@@ -9,13 +9,14 @@ import {
     type TextChannel,
 } from 'discord.js';
 import { logger } from '../utils/logger';
+import { sendTicketClaimedDm } from '../commands/ticketLifecycleEnhancements';
 
 const TICKET_SUPPORT_ROLE_ID = '1523122697746382868';
 const claimLocks = new Set<string>();
 
 type TicketMetadata = {
     ownerId: string;
-    type: string;
+    type: 'general' | 'internal' | 'management' | 'highrank';
     createdAt: string;
     claimedBy?: string;
     panelMessageId?: string;
@@ -86,18 +87,9 @@ async function dmTicketOwnerClaimed(
     channel: TextChannel,
 ): Promise<void> {
     try {
-        const owner = await interaction.client.users.fetch(metadata.ownerId);
-        await owner.send({
-            content: [
-                '🎫 **Your ticket has been claimed!**',
-                '',
-                `**Claimed by:** ${interaction.user.tag}`,
-                `**Ticket:** #${channel.name}`,
-                '',
-                'A staff member is now handling your ticket. Please continue the conversation in the ticket channel.',
-            ].join('\n'),
-        });
-        logger.info(`[TicketClaimRepair] Sent claim DM to ticket opener ${metadata.ownerId}.`);
+        const sent = await sendTicketClaimedDm(interaction, metadata, channel);
+        if (sent) logger.info(`[TicketClaimRepair] Sent V2 claim DM to ticket opener ${metadata.ownerId}.`);
+        else logger.warn(`[TicketClaimRepair] Discord did not deliver the claim DM to ticket opener ${metadata.ownerId}.`);
     } catch (error) {
         logger.warn(`[TicketClaimRepair] Could not DM ticket opener ${metadata.ownerId}: ${error instanceof Error ? error.message : String(error)}`);
     }

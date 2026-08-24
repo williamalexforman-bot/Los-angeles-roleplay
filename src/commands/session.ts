@@ -15,7 +15,7 @@ import {
 } from '../utils/embeds';
 import { markSlashCommandFailed } from '../utils/commandAudit';
 import { logger } from '../utils/logger';
-import { SESSION_START_AUTHORIZED_ROLE_ID } from '../config/constants';
+import { CHANNEL_IDS, SESSION_START_AUTHORIZED_ROLE_ID } from '../config/constants';
 import { erlcSsdReply, shutdownErlcForSsd } from '../services/erlcSessionShutdown';
 
 /* -------------------------------------------------------------------------- */
@@ -27,9 +27,11 @@ const ERLC_GAME_CODE = 'LARNRPP';
 const MAX_VOTES = 50;
 const SESSION_PING_ROLE_ID = '1521593407749754990';
 const SESSION_PING_MENTION = `<@&${SESSION_PING_ROLE_ID}>`;
-const SESSION_ANNOUNCEMENT_CHANNEL_ID = '1526036392147423404';
+const SESSION_ANNOUNCEMENT_CHANNEL_ID = CHANNEL_IDS.sessionAnnouncements;
 
 async function getSessionAnnouncementChannel(interaction: ChatInputCommandInteraction) {
+    const cached = interaction.guild?.channels?.cache.get(SESSION_ANNOUNCEMENT_CHANNEL_ID);
+    if (cached?.isSendable()) return cached;
     const channel = await interaction.client.channels.fetch(SESSION_ANNOUNCEMENT_CHANNEL_ID).catch(() => null);
     return channel?.isSendable() ? channel : null;
 }
@@ -430,14 +432,14 @@ export async function handleSessionButton(interaction: ButtonInteraction): Promi
             const completed = nextVoteCount >= vote.requiredVotes;
 
             if (vote.usesPanel) {
-                await interaction.editReply({
+                await interaction.message.edit({
                     components: [updatedVotePanel(interaction, vote, nextVoteCount, completed) as never],
-                    flags: MessageFlags.IsComponentsV2,
+                    allowedMentions: { parse: [] },
                 });
             } else {
                 // Compatibility for an announcement posted before the panel
                 // layout was introduced. New announcements always use V2.
-                await interaction.editReply({
+                await interaction.message.edit({
                     components: [new ActionRowBuilder<ButtonBuilder>().addComponents(
                         voteButton(nextVoteCount, vote.requiredVotes, completed),
                     )],

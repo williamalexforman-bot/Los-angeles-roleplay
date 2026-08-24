@@ -12,6 +12,8 @@ const TICKET_COMMANDS = new Set([
     'close',
     'closerequest',
     'unclaim',
+    'add-member',
+    'remove-member',
 ]);
 
 function isRateLimitError(error: unknown): boolean {
@@ -82,7 +84,6 @@ async function runCriticalTickets(interaction: Interaction): Promise<boolean> {
             handleTicketModal?: (i: any) => Promise<boolean>;
             handleTicketSelect?: (i: any) => Promise<boolean>;
         };
-
         if (interaction.isChatInputCommand()) {
             const command = tickets.ticketCommands?.find(entry => entry.data.name === interaction.commandName);
             if (!command) throw new Error(`Ticket command ${interaction.commandName} is unavailable.`);

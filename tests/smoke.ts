@@ -45,6 +45,11 @@ import {
 } from '../src/events/serverSecurity';
 import { interactionCreate } from '../src/handlers/interactionCreate';
 import { handleTicketClaimRepair } from '../src/handlers/ticketClaimRepair';
+import {
+    closeTicketWithLifecycle,
+    handleTicketFeedbackButton,
+    handleTicketFeedbackModal,
+} from '../src/commands/ticketLifecycleEnhancements';
 import { refreshPersistentPanels } from '../src/events/persistentPanelRefresh';
 import { synchronizeSlashCommands } from '../src/events/ready';
 import { sanitizedCommandOptions } from '../src/utils/commandAudit';
@@ -239,7 +244,7 @@ for (const required of [
         'promotion', 'infraction', 'view-infractions', 'session-start', 'session-vote', 'session-end',
         'session-boost', 'session-full', 'prohibited-word', 'say', 'loa',
         'request-training', 'roleplay-log', 'rename', 'ticket', 'ticket-panel', 'ticketpanel', 'close', 'closerequest',
-        'applications-panel', 'unclaim', 'role', 'suggestions',
+        'applications-panel', 'unclaim', 'add-member', 'remove-member', 'role', 'suggestions',
         'suggestion-approved', 'suggestion-denied', 'suggestion-maybe',
     ]) {
         assert(names.includes(required), `missing /${required}`);
@@ -369,6 +374,77 @@ for (const required of [
     assert(suggestionDecisionReplies.some(reply => reply.includes('Approved')));
     assert(suggestionDms.length === 1, 'an in-memory suggestion decision must still notify its author');
     assert(JSON.stringify(suggestionEdit).includes('Approved'));
+
+    const restartSuggestionId = '87654321';
+    const restartPanelJson = JSON.parse(
+        JSON.stringify(suggestionPost.components[0].toJSON())
+            .replaceAll(suggestionId, restartSuggestionId)
+            .replaceAll('suggestion-author', '1489388257925005333'),
+    );
+    let recoveredSuggestionEdit: any = null;
+    const restartSuggestionMessage = {
+        id: 'restart-suggestion-message',
+        channelId: '1538693259621044264',
+        createdTimestamp: Date.now(),
+        components: [{ toJSON: () => restartPanelJson }],
+        attachments: new Collection<string, any>(),
+        edit: async (payload: any) => { recoveredSuggestionEdit = payload; },
+    };
+    const recoveredSuggestionReplies: any[] = [];
+    assert(await handleSuggestionButton({
+        customId: `suggestion:vote:up:${restartSuggestionId}`,
+        guildId: 'suggestion-guild',
+        user: { id: 'restart-voter' },
+        message: restartSuggestionMessage,
+        deferUpdate: async () => undefined,
+        followUp: async (payload: any) => { recoveredSuggestionReplies.push(payload); },
+    } as never));
+    assert.equal(recoveredSuggestionEdit?.flags, MessageFlags.IsComponentsV2,
+        'suggestion voting must recover from the live V2 message after a process restart');
+    assert(recoveredSuggestionReplies.some(reply => String(reply.content).includes('upvote was recorded')));
+
+    const channelRecoveryId = '87654322';
+    const channelRecoveryPanel = JSON.parse(
+        JSON.stringify(suggestionPost.components[0].toJSON())
+            .replaceAll(suggestionId, channelRecoveryId)
+            .replaceAll('suggestion-author', '1489388257925005333'),
+    );
+    let channelRecoveryEdit: any = null;
+    const channelRecoveryMessage: any = {
+        id: 'channel-recovery-message',
+        channelId: '1538693259621044264',
+        createdTimestamp: Date.now(),
+        components: [{ toJSON: () => channelRecoveryPanel }],
+        attachments: new Collection<string, any>(),
+        edit: async (payload: any) => { channelRecoveryEdit = payload; },
+    };
+    const channelRecoveryMessages = new Collection([[channelRecoveryMessage.id, channelRecoveryMessage]]);
+    const channelRecoveryReplies: string[] = [];
+    await commandNamed('suggestion-maybe').execute({
+        guildId: 'suggestion-guild',
+        guild: { ownerId: 'different-owner' },
+        memberPermissions: { has: (permission: bigint) => permission === PermissionFlagsBits.ManageGuild },
+        user: { id: 'suggestion-manager' },
+        options: { getString: () => channelRecoveryId },
+        client: {
+            channels: {
+                fetch: async () => ({
+                    isTextBased: () => true,
+                    messages: {
+                        fetch: async (query: string | { limit: number }) => typeof query === 'string'
+                            ? channelRecoveryMessage
+                            : channelRecoveryMessages,
+                    },
+                }),
+            },
+            users: { fetch: async () => ({ send: async () => undefined }) },
+        },
+        deferReply: async () => undefined,
+        editReply: async (content: string) => { channelRecoveryReplies.push(content); },
+    } as never);
+    assert(channelRecoveryReplies.some(reply => reply.includes('Maybe')),
+        'suggestion decisions must recover a posted suggestion after memory/database state is lost');
+    assert(JSON.stringify(channelRecoveryEdit).includes('Maybe'));
 
     const dashboardPayload = buildDashboardRefreshPayload();
     const dashboardPanel = dashboardPayload.components[0].toJSON();
@@ -1708,14 +1784,15 @@ for (const required of [
             id: 'session-vote-message',
             attachments: new Map(),
             components: [{ toJSON: () => liveSessionVotePanel }],
+            edit: async (payload: any) => { sessionVoteEdit = payload; },
         },
         deferUpdate: async () => { sessionVoteDeferred = true; },
-        editReply: async (payload: any) => { sessionVoteEdit = payload; },
         followUp: async (payload: any) => { sessionVoteReplies.push(payload.content); },
     } as never);
     assert(sessionVoteDeferred, 'vote buttons must acknowledge by deferring an update to the original message');
-    assert.equal(sessionVoteEdit?.flags, 32_768, 'vote updates must preserve the Components V2 message flag');
-    assert.equal(sessionVoteEdit?.attachments, undefined, 'vote updates must not re-upload or clear the original media');
+    assert.equal(sessionVoteEdit?.flags, undefined,
+        'vote updates must retain the existing immutable Components V2 flag instead of trying to rewrite it');
+    assert.equal(sessionVoteEdit?.attachments, undefined, 'vote updates must retain the original media without re-uploading it');
     const editedVotePanel = sessionVoteEdit.components[0];
     assert.equal(
         editedVotePanel.components[0]?.items?.[0]?.media?.url,
@@ -1897,6 +1974,8 @@ for (const required of [
         editReply: async (content: string) => { ticketCreationReplies.push(content); },
     } as never));
     assert.equal(ticketCreateOptions.parent, '1526254341646712883');
+    assert.match(ticketCreateOptions.name, /^gen-i-need-help-with-the-ser-5511$/,
+        'ticket names must be short and use the actual opening reason instead of a timestamp');
     assert.equal(openTicketPayload.flags, 32_768, 'new tickets must open with a V2 Assistance emblem');
     const openTicketPanel = openTicketPayload.components[0].toJSON();
     const openTicketBanners = openTicketPanel.components.filter((component: { type: number }) => component.type === 12);
@@ -1908,6 +1987,38 @@ for (const required of [
         .map((button: { custom_id?: string }) => button.custom_id);
     assert.deepEqual(openTicketButtons, ['ticket:claim', 'ticket:close', 'ticket:close-request']);
     assert(ticketCreationReplies.some(reply => reply.includes('ticket-channel-1')));
+
+    const ticketMemberOverwrites: Array<{ memberId: string; permissions: Record<string, boolean> }> = [];
+    const ticketMemberChannel = {
+        id: 'ticket-member-channel',
+        type: ChannelType.GuildText,
+        topic: createdTicketChannel.topic,
+        permissionOverwrites: {
+            edit: async (memberId: string, permissions: Record<string, boolean>) => {
+                ticketMemberOverwrites.push({ memberId, permissions });
+            },
+        },
+    };
+    const ticketMemberCommand = async (commandName: 'add-member' | 'remove-member') => {
+        const replies: string[] = [];
+        await commandNamed(commandName).execute({
+            channel: ticketMemberChannel,
+            client: { user: { id: 'ticket-bot' } },
+            user: { id: 'ticket-agent', tag: 'TicketAgent#0001' },
+            member: { roles: ['1523122697746382868'] },
+            memberPermissions: { has: () => false },
+            options: { getUser: () => ({ id: 'support-member', username: 'SupportMember' }) },
+            deferReply: async () => undefined,
+            editReply: async (content: string) => { replies.push(content); },
+        } as never);
+        return replies;
+    };
+    assert((await ticketMemberCommand('add-member')).some(reply => reply.includes('Added')));
+    assert.equal(ticketMemberOverwrites[0].permissions.ViewChannel, true);
+    assert((await ticketMemberCommand('remove-member')).some(reply => reply.includes('Removed')));
+    assert.equal(ticketMemberOverwrites[1].permissions.ViewChannel, false,
+        '/remove-member must create a member-specific deny that overrides the support-role allow');
+    assert.equal(ticketMemberOverwrites[1].permissions.SendMessages, false);
 
     const quickClaimOrder: string[] = [];
     let quickClaimTopic = createdTicketChannel.topic;
@@ -1952,6 +2063,48 @@ for (const required of [
     );
     assert(quickClaimComponents.length > 0, 'the fast claim path must update the ticket panel controls');
 
+    let claimedTicketDm: any = null;
+    let dmClaimTopic = ticketCreateOptions.topic;
+    const dmClaimChannel: any = {
+        id: 'ticket-claim-dm-channel',
+        guildId: 'ticket-guild',
+        name: 'gen-server-help-5511',
+        type: ChannelType.GuildText,
+        get topic() { return dmClaimTopic; },
+        fetch: async () => dmClaimChannel,
+        setTopic: async (topic: string) => { dmClaimTopic = topic; },
+    };
+    assert(await handleTicketClaimRepair({
+        customId: 'ticket:claim',
+        channel: dmClaimChannel,
+        guild: {
+            ownerId: 'someone-else',
+            members: { fetch: async () => ({ displayName: 'Ticket User' }) },
+        },
+        user: { id: 'ticket-agent', username: 'TicketAgent', tag: 'TicketAgent#0001' },
+        member: { roles: ['1523122697746382868'] },
+        memberPermissions: { has: () => false },
+        message: openTicketMessage,
+        client: {
+            users: {
+                fetch: async () => ({
+                    username: 'TicketUser',
+                    send: async (payload: any) => { claimedTicketDm = payload; },
+                }),
+            },
+        },
+        deferUpdate: async () => undefined,
+        editReply: async () => undefined,
+        followUp: async () => undefined,
+    } as never));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(claimedTicketDm?.flags, MessageFlags.IsComponentsV2,
+        'claiming a ticket must send the opener a V2 Assistance DM');
+    assert.deepEqual(claimedTicketDm.files.map((file: { name: string }) => file.name), [
+        'assistance-banner.png',
+        'underbanner.png',
+    ]);
+
     let claimedTicketComponents: any[] = [];
     assert(await handleTicketButton({
         customId: 'ticket:claim',
@@ -1986,6 +2139,96 @@ for (const required of [
     assert.equal(restoredClaimButton?.disabled, false);
     assert(unclaimReplies.some(reply => reply.includes('Ticket unclaimed')));
     assert(createdTicketTopic, '/unclaim must persist the cleared claim in the ticket channel topic');
+
+    let closedTicketDm: any = null;
+    let closedTicketDeleted = false;
+    const closeConversation = new Collection<string, any>([[
+        'ticket-human-message',
+        {
+            id: 'ticket-human-message',
+            author: { id: '1489388257925005511', tag: 'TicketUser#0001', username: 'TicketUser', bot: false },
+            cleanContent: 'I need help with the server and support resolved it.',
+            components: [],
+            attachments: new Collection<string, any>(),
+            createdTimestamp: Date.now(),
+            createdAt: new Date(),
+        },
+    ]]);
+    const closeTicketChannel: any = {
+        id: 'ticket-close-channel',
+        guildId: 'ticket-guild',
+        name: 'gen-server-help-5511',
+        type: ChannelType.GuildText,
+        topic: createdTicketTopic,
+        messages: { fetch: async () => closeConversation },
+        delete: async () => { closedTicketDeleted = true; },
+    };
+    const closeReplies: string[] = [];
+    const originalTicketRecapApiKey = process.env.OPENAI_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    await closeTicketWithLifecycle({
+        channel: closeTicketChannel,
+        guild: { members: { fetch: async () => ({ displayName: 'Ticket User' }) } },
+        user: { id: 'ticket-agent', tag: 'TicketAgent#0001' },
+        member: { roles: ['1523122697746382868'] },
+        memberPermissions: { has: () => false },
+        client: {
+            channels: { fetch: async () => null },
+            users: { fetch: async () => ({ username: 'TicketUser', send: async (payload: any) => { closedTicketDm = payload; } }) },
+        },
+        editReply: async (content: string) => { closeReplies.push(content); },
+    } as never, 'Resolved by support.');
+    if (originalTicketRecapApiKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = originalTicketRecapApiKey;
+    assert(closedTicketDeleted, 'closing a ticket must delete it after logs and notifications are prepared');
+    assert.equal(closedTicketDm?.flags, MessageFlags.IsComponentsV2,
+        'ticket close DMs must use a Components V2 emblem');
+    assert.deepEqual(closedTicketDm.files.map((file: { name: string }) => file.name), [
+        'assistance-banner.png',
+        'underbanner.png',
+        'gen-server-help-5511-transcript.txt',
+    ]);
+    const closedTicketJson = JSON.stringify(closedTicketDm.components[0].toJSON());
+    assert(closedTicketJson.includes('attachment://assistance-banner.png'));
+    assert(closedTicketJson.includes('attachment://underbanner.png'));
+    const feedbackStartId = closedTicketJson.match(/ticket-feedback:start:[A-Za-z0-9_-]+/)?.[0];
+    assert(feedbackStartId, 'the close DM must include a working ticket feedback button');
+    assert(closeReplies.some(reply => reply.includes('was sent')));
+
+    let ticketFeedbackModal: any = null;
+    assert(await handleTicketFeedbackButton({
+        customId: feedbackStartId,
+        user: { id: '1489388257925005511' },
+        showModal: async (modal: any) => { ticketFeedbackModal = modal; },
+    } as never));
+    const ticketFeedbackModalId = ticketFeedbackModal.toJSON().custom_id as string;
+    let ticketFeedbackPost: any = null;
+    const ticketFeedbackReplies: string[] = [];
+    assert(await handleTicketFeedbackModal({
+        customId: ticketFeedbackModalId,
+        user: { id: '1489388257925005511' },
+        fields: { getTextInputValue: (name: string) => name === 'rating' ? '10' : 'Fast and helpful support.' },
+        client: {
+            channels: {
+                fetch: async () => ({
+                    isSendable: () => true,
+                    send: async (payload: any) => { ticketFeedbackPost = payload; },
+                }),
+            },
+        },
+        deferReply: async () => undefined,
+        editReply: async (content: string) => { ticketFeedbackReplies.push(content); },
+    } as never));
+    assert.equal(ticketFeedbackPost.flags, MessageFlags.IsComponentsV2,
+        'ticket feedback must post as a Components V2 emblem');
+    assert.deepEqual(ticketFeedbackPost.files.map((file: { name: string }) => file.name), [
+        'staff-feedback-banner.png',
+        'underbanner.png',
+    ]);
+    const ticketFeedbackJson = JSON.stringify(ticketFeedbackPost.components[0].toJSON());
+    assert(ticketFeedbackJson.includes('attachment://staff-feedback-banner.png'));
+    assert(ticketFeedbackJson.includes('attachment://underbanner.png'));
+    assert(ticketFeedbackReplies.some(reply => reply.includes('10/10')));
 
     let applicationsPanelPayload: any = null;
     await commandNamed('applications-panel').execute({

@@ -55,6 +55,8 @@ The bot needs View Channels, Manage Channels, Manage Roles/Permissions where app
 - `/movie-feedback` — publishes the branded Movie / When / Where layout with a 1–10 star display, submitter footer, timestamp, and CSRP logo.
 - `/say` — lets a server administrator or the configured bot-permissions role send an exact plain-text message as the bot in the current or selected text channel; mentions are displayed without notifying users or roles.
 - `/staff-feedback` — structured public staff feedback with private identity auditing for anonymous submissions.
+- `/suggest` and `/suggestions` — publish a persistent V2 suggestion panel; votes and staff decisions recover from the Discord message after a restart.
+- `/add-member` and `/remove-member` — grant or deny a member access to the current managed ticket. A member-specific removal also overrides the support-role channel access.
 - `/partnership request` — posts the branded partnership rules panel; the button opens a server-name, representative, invite-link, and server-ad modal. Completed requests go to the configured partnership review channel with staff-only Approve/Deny controls.
 - `/staff-complaint` — submits a structured 1–5 star complaint about a staff member to the configured private complaint channel.
 - `/training-results` — publishes scored Pass/Fail training results.

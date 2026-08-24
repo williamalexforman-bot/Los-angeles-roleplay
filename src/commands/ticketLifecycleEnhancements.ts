@@ -29,14 +29,16 @@ import { logger } from '../utils/logger';
 import { isDatabaseAvailable } from '../database/connection';
 
 const ASSISTANCE_BANNER_NAME = 'assistance-banner.png';
+const FEEDBACK_BANNER_NAME = 'staff-feedback-banner.png';
 const UNDERBANNER_NAME = 'underbanner.png';
 const ASSISTANCE_BANNER_PATH = resolve(__dirname, '..', '..', 'assets', ASSISTANCE_BANNER_NAME);
+const FEEDBACK_BANNER_PATH = resolve(__dirname, '..', '..', 'assets', FEEDBACK_BANNER_NAME);
 const UNDERBANNER_PATH = resolve(__dirname, '..', '..', 'assets', UNDERBANNER_NAME);
 
 const TICKET_SUPPORT_ROLE_ID = '1523122697746382868';
 const TICKET_LOG_CHANNEL_ID = '1526255112149008524';
 const TICKET_TRANSCRIPT_CHANNEL_ID = '1526255184303493291';
-const TICKET_FEEDBACK_CHANNEL_ID = '1539643545416245329';
+const TICKET_FEEDBACK_CHANNEL_ID = process.env.TICKET_FEEDBACK_CHANNEL_ID || '1539643545416245329';
 
 const TICKET_CATEGORIES = {
     general: 'General Support',
@@ -117,6 +119,13 @@ function separator(): SeparatorBuilder {
 function artwork(): AttachmentBuilder[] {
     return [
         new AttachmentBuilder(ASSISTANCE_BANNER_PATH, { name: ASSISTANCE_BANNER_NAME }),
+        new AttachmentBuilder(UNDERBANNER_PATH, { name: UNDERBANNER_NAME }),
+    ];
+}
+
+function feedbackArtwork(): AttachmentBuilder[] {
+    return [
+        new AttachmentBuilder(FEEDBACK_BANNER_PATH, { name: FEEDBACK_BANNER_NAME }),
         new AttachmentBuilder(UNDERBANNER_PATH, { name: UNDERBANNER_NAME }),
     ];
 }
@@ -237,7 +246,7 @@ async function generateAiRecap(messages: readonly Message[], openedReason: strin
                 ],
                 max_output_tokens: 220,
             }),
-            signal: AbortSignal.timeout(12_000),
+            signal: AbortSignal.timeout(5_000),
         });
         if (!response.ok) {
             logger.warn(`[Tickets] AI recap request returned HTTP ${response.status}; using fallback recap.`);
@@ -302,7 +311,7 @@ function closedPanel(displayName: string, recap: string, closureId: string): Con
 function feedbackLogPanel(context: FeedbackContextRecord, submitterId: string, rating: number, notes: string): ContainerBuilder {
     return new ContainerBuilder()
         .setAccentColor(BRAND.color)
-        .addMediaGalleryComponents(media(ASSISTANCE_BANNER_NAME))
+        .addMediaGalleryComponents(media(FEEDBACK_BANNER_NAME))
         .addSeparatorComponents(separator())
         .addTextDisplayComponents(new TextDisplayBuilder().setContent([
             '## ⭐ Ticket Feedback',
@@ -398,18 +407,21 @@ async function markFeedbackSubmitted(closureId: string): Promise<void> {
     ).exec().catch(() => undefined);
 }
 
-async function sendClaimedDm(interaction: ButtonInteraction, metadata: TicketMetadata, channel: TextChannel): Promise<void> {
+export async function sendTicketClaimedDm(interaction: ButtonInteraction, metadata: TicketMetadata, channel: TextChannel): Promise<boolean> {
     const user = await interaction.client.users.fetch(metadata.ownerId).catch(() => null);
-    if (!user) return;
+    if (!user) return false;
     const member = interaction.guild ? await interaction.guild.members.fetch(metadata.ownerId).catch(() => null) : null;
-    const displayName = member?.displayName || user.globalName || user.username;
+    const displayName = member?.displayName || user.globalName || user.username || 'there';
     const url = `https://discord.com/channels/${channel.guildId}/${channel.id}`;
-    await user.send({
+    return user.send({
         components: [claimedPanel(displayName, url)],
         files: artwork(),
         flags: MessageFlags.IsComponentsV2,
         allowedMentions: { parse: [] },
-    }).catch(error => logger.warn(`[Tickets] Could not send claim DM to ${metadata.ownerId}: ${error instanceof Error ? error.message : 'Unknown error'}`));
+    }).then(() => true).catch(error => {
+        logger.warn(`[Tickets] Could not send claim DM to ${metadata.ownerId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        return false;
+    });
 }
 
 async function writeLegacyCloseLogs(
@@ -445,7 +457,7 @@ async function writeLegacyCloseLogs(
     }
 }
 
-async function enhancedCloseTicket(
+export async function closeTicketWithLifecycle(
     interaction: ButtonInteraction | ChatInputCommandInteraction,
     closeReason: string,
 ): Promise<void> {
@@ -490,10 +502,11 @@ async function enhancedCloseTicket(
     await writeLegacyCloseLogs(interaction, channel, metadata, closeReason, transcript);
 
     const owner = await interaction.client.users.fetch(metadata.ownerId).catch(() => null);
+    let dmSent = false;
     if (owner) {
         const member = interaction.guild ? await interaction.guild.members.fetch(metadata.ownerId).catch(() => null) : null;
-        const displayName = member?.displayName || owner.globalName || owner.username;
-        await owner.send({
+        const displayName = member?.displayName || owner.globalName || owner.username || 'there';
+        dmSent = await owner.send({
             components: [closedPanel(displayName, recap, closureId)],
             files: [
                 ...artwork(),
@@ -501,16 +514,21 @@ async function enhancedCloseTicket(
             ],
             flags: MessageFlags.IsComponentsV2,
             allowedMentions: { parse: [] },
-        }).catch(error => logger.warn(`[Tickets] Could not send close DM to ${metadata.ownerId}: ${error instanceof Error ? error.message : 'Unknown error'}`));
+        }).then(() => true).catch(error => {
+            logger.warn(`[Tickets] Could not send close DM to ${metadata.ownerId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            return false;
+        });
     }
 
-    await interaction.editReply('🔒 Ticket closed. The user was sent the V2 closure recap, feedback button, and transcript.');
+    await interaction.editReply(dmSent
+        ? '🔒 Ticket closed. The user was sent the V2 closure recap, feedback button, and transcript.'
+        : '🔒 Ticket closed and logged, but Discord would not deliver the DM. The member may have server DMs disabled.');
     await channel.delete(`Ticket closed by ${interaction.user.tag}: ${closeReason}`).catch(error => {
         logger.error(`[Tickets] Could not delete ${channel.id}: ${error instanceof Error ? error.message : 'Unknown error'}`);
     });
 }
 
-async function handleFeedbackButton(interaction: ButtonInteraction): Promise<boolean> {
+export async function handleTicketFeedbackButton(interaction: ButtonInteraction): Promise<boolean> {
     const match = interaction.customId.match(/^ticket-feedback:start:([A-Za-z0-9_-]+)$/u);
     if (!match) return false;
     const context = await loadFeedbackContext(match[1]);
@@ -530,7 +548,7 @@ async function handleFeedbackButton(interaction: ButtonInteraction): Promise<boo
     return true;
 }
 
-async function handleFeedbackModal(interaction: ModalSubmitInteraction): Promise<boolean> {
+export async function handleTicketFeedbackModal(interaction: ModalSubmitInteraction): Promise<boolean> {
     const match = interaction.customId.match(/^ticket-feedback:submit:([A-Za-z0-9_-]+)$/u);
     if (!match) return false;
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -569,7 +587,7 @@ async function handleFeedbackModal(interaction: ModalSubmitInteraction): Promise
 
     await feedbackChannel.send({
         components: [feedbackLogPanel(context, interaction.user.id, rating, notes)],
-        files: artwork(),
+        files: feedbackArtwork(),
         flags: MessageFlags.IsComponentsV2,
         allowedMentions: { parse: [] },
     });
@@ -583,7 +601,7 @@ export function installTicketLifecycleEnhancements(ticketModule: TicketModule): 
     const originalModal = ticketModule.handleTicketModal.bind(ticketModule);
 
     ticketModule.handleTicketButton = async (interaction: ButtonInteraction): Promise<boolean> => {
-        if (interaction.customId.startsWith('ticket-feedback:')) return handleFeedbackButton(interaction);
+        if (interaction.customId.startsWith('ticket-feedback:')) return handleTicketFeedbackButton(interaction);
 
         if (interaction.customId === 'ticket:claim') {
             const channel = interaction.channel;
@@ -592,14 +610,14 @@ export function installTicketLifecycleEnhancements(ticketModule: TicketModule): 
             const handled = await originalButton(interaction);
             if (handled && metadata && !wasClaimed && channel?.type === ChannelType.GuildText) {
                 const updated = decodeMetadata(channel.topic);
-                if (updated?.claimedBy === interaction.user.id) await sendClaimedDm(interaction, updated, channel);
+                if (updated?.claimedBy === interaction.user.id) await sendTicketClaimedDm(interaction, updated, channel);
             }
             return handled;
         }
 
         if (interaction.customId === 'ticket:close' || interaction.customId === 'ticket:close-confirm') {
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-            await enhancedCloseTicket(
+            await closeTicketWithLifecycle(
                 interaction,
                 interaction.customId === 'ticket:close-confirm' ? 'Close request accepted.' : 'Closed from the ticket panel.',
             );
@@ -610,7 +628,7 @@ export function installTicketLifecycleEnhancements(ticketModule: TicketModule): 
     };
 
     ticketModule.handleTicketModal = async (interaction: ModalSubmitInteraction): Promise<boolean> => {
-        if (interaction.customId.startsWith('ticket-feedback:')) return handleFeedbackModal(interaction);
+        if (interaction.customId.startsWith('ticket-feedback:')) return handleTicketFeedbackModal(interaction);
         return originalModal(interaction);
     };
 
@@ -618,7 +636,7 @@ export function installTicketLifecycleEnhancements(ticketModule: TicketModule): 
     if (closeCommand) {
         closeCommand.execute = async (interaction: ChatInputCommandInteraction): Promise<void> => {
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-            await enhancedCloseTicket(interaction, 'Closed with /close.');
+            await closeTicketWithLifecycle(interaction, 'Closed with /close.');
         };
     }
 

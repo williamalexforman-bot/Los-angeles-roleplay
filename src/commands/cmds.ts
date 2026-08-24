@@ -14,7 +14,7 @@ const CATEGORY_NAMES: Readonly<Record<string, readonly string[]>> = {
     'Staff Management': ['application', 'training', 'training-results', 'infraction', 'promotion', 'request-training', 'view-infractions', 'loa'],
     Community: ['movie-feedback', 'staff-feedback', 'staff-complaint', 'partnership', 'suggest', 'suggestions', 'suggestion-approved', 'suggestion-denied', 'suggestion-maybe'],
     Sessions: ['session-start', 'session-vote', 'session-end', 'session-boost', 'session-full'],
-    Tickets: ['ticket', 'ticket-panel', 'ticketpanel', 'close', 'closerequest', 'unclaim', 'applications-panel', 'marketplace-panel', 'dashboard'],
+    Tickets: ['ticket', 'ticket-panel', 'ticketpanel', 'close', 'closerequest', 'unclaim', 'add-member', 'remove-member', 'applications-panel', 'marketplace-panel', 'dashboard'],
     Game: ['teamswitch', 'recent-in-game-logs', 'in-game-info', 'erlc-command'],
 };
 

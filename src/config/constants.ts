@@ -27,6 +27,7 @@ export const CHANNEL_IDS = {
     staffComplaints: process.env.STAFF_COMPLAINT_CHANNEL_ID || '1527139806797369504',
     promotions: process.env.PROMOTION_CHANNEL_ID || '1526044978109743255',
     movieFeedback: process.env.MOVIE_FEEDBACK_CHANNEL_ID || '1528933044310904884',
+    suggestions: process.env.SUGGESTION_CHANNEL_ID || '1538693259621044264',
     privateAudit: process.env.PRIVATE_AUDIT_LOG_CHANNEL_ID || process.env.DISCORD_COMMAND_LOG_CHANNEL_ID || '1528917592604020917',
 } as const;
 
