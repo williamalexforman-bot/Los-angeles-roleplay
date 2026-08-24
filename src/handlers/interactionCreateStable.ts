@@ -204,8 +204,8 @@ async function runOptionalComponent(interaction: Interaction): Promise<boolean> 
     } else if (id.startsWith('session')) {
         if (interaction.isButton()) {
             attempts.push(
-                async () => Boolean(await require('../commands/session.ts').handleSessionButton?.(interaction)),
                 async () => Boolean(await require('../commands/sessionEnhancements.ts').handleEnhancedSessionButton?.(interaction)),
+                async () => Boolean(await require('../commands/session.ts').handleSessionButton?.(interaction)),
             );
         }
     } else {

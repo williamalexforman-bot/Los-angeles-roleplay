@@ -15,7 +15,7 @@ import {
     SESSION_ACCENT_COLOR,
 } from '../utils/embeds';
 import { logger } from '../utils/logger';
-import { SESSION_START_AUTHORIZED_ROLE_ID } from '../config/constants';
+import { CHANNEL_IDS, SESSION_START_AUTHORIZED_ROLE_ID } from '../config/constants';
 import { erlcSsdReply, shutdownErlcForSsd } from '../services/erlcSessionShutdown';
 
 const ERLC_JOIN_URL = 'https://erlc.gg/join?code=LARNRPP&placeId=2534724415';
@@ -23,7 +23,7 @@ const ERLC_GAME_CODE = 'LARNRPP';
 const MAX_VOTES = 50;
 const SESSION_PING_ROLE_ID = '1521593407749754990';
 const SESSION_PING_MENTION = `<@&${SESSION_PING_ROLE_ID}>`;
-const SESSION_ANNOUNCEMENT_CHANNEL_ID = '1526036392147423404';
+const SESSION_ANNOUNCEMENT_CHANNEL_ID = CHANNEL_IDS.sessionAnnouncements;
 
 type VoteState = {
     guildId: string;
@@ -36,6 +36,18 @@ type VoteState = {
     createdAt: Date;
     updatedAt: Date;
 };
+
+export interface SessionVoteSnapshot {
+    guildId: string;
+    channelId: string;
+    messageId: string;
+    startedById: string;
+    requiredVotes: number;
+    voters: Array<{ userId: string; username: string; votedAt: Date }>;
+    active: boolean;
+    createdAt: Date;
+    updatedAt: Date;
+}
 
 const memoryVotes = new Map<string, VoteState>();
 const voteLocks = new Map<string, Promise<void>>();
@@ -166,11 +178,21 @@ async function addVoter(
 }
 
 async function latestVote(guildId: string, channelId: string): Promise<VoteState | null> {
+    const cached = [...memoryVotes.values()]
+        .filter(vote => vote.guildId === guildId && vote.channelId === channelId)
+        .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())[0] || null;
+
     if (isDatabaseAvailable()) {
         try {
             const stored = await SessionVoteState.findOne({ guildId, channelId }).sort({ createdAt: -1 }).lean().exec();
             if (stored) {
                 const vote = normalizeVote(stored as unknown as SessionVoteRecord);
+                const cachedIsNewer = cached && (
+                    cached.createdAt.getTime() > vote.createdAt.getTime()
+                    || (cached.messageId === vote.messageId
+                        && cached.updatedAt.getTime() > vote.updatedAt.getTime())
+                );
+                if (cachedIsNewer) return cached;
                 memoryVotes.set(vote.messageId, vote);
                 return vote;
             }
@@ -179,9 +201,16 @@ async function latestVote(guildId: string, channelId: string): Promise<VoteState
         }
     }
 
-    return [...memoryVotes.values()]
-        .filter(vote => vote.guildId === guildId && vote.channelId === channelId)
-        .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())[0] || null;
+    return cached;
+}
+
+export async function getLatestSessionVote(guildId: string): Promise<SessionVoteSnapshot | null> {
+    const vote = await latestVote(guildId, SESSION_ANNOUNCEMENT_CHANNEL_ID);
+    if (!vote) return null;
+    return {
+        ...vote,
+        voters: vote.voters.map(voter => ({ ...voter })),
+    };
 }
 
 async function clearVotes(guildId: string, channelId: string): Promise<void> {
@@ -525,6 +554,11 @@ export async function handleEnhancedSessionButton(interaction: ButtonInteraction
     }
 
     if (!interaction.customId.startsWith('session:vote:cast:')) return false;
+
+    // Votes posted before durable tracking was enabled have no voter record.
+    // Let the legacy handler recover those panels from their visible counter.
+    if (!(await loadVote(interaction.message.id))) return false;
+
     await interaction.deferUpdate();
     const feedback = async (content: string): Promise<void> => {
         await interaction.followUp({ content, flags: MessageFlags.Ephemeral }).catch(() => undefined);
@@ -545,7 +579,6 @@ export async function handleEnhancedSessionButton(interaction: ButtonInteraction
         const vote = result.vote;
         await interaction.editReply({
             components: [updatedVotePanel(interaction, vote) as never],
-            flags: MessageFlags.IsComponentsV2,
         });
         await feedback(
             vote.active

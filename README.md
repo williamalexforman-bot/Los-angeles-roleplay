@@ -63,6 +63,9 @@ The bot needs View Channels, Manage Channels, Manage Roles/Permissions where app
 - `/promotion issue` — uses a Discord server-role selector, publishes a professional promotion notice, and pings the promoted member without pinging the selected role.
 - `/infraction issue` — pings the infracted member, posts the complete case embed and controls in the infraction channel, and attaches a public evidence thread directly beneath that message without automatically adding the command user.
 - `/prohibited-word add|remove|list` — administrator management of the whole-word filter.
+- `/session-vote` and `/session-start` — record SSU voters and notify them when the session starts.
+- `/view loa` — posts the current active LOAs in a Components V2 panel.
+- `/view session vote` — privately shows who voted in the latest SSU.
 
 ## Optional integrations
 

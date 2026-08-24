@@ -23,9 +23,9 @@ export function installInteractionFastRouter(routerModule: InteractionRouterModu
                     if (await handleApplicationButton(interaction)) return;
                 }
                 if (id.startsWith('session:vote:cast')) {
-                    // The original session handler can recover the visible vote
-                    // count directly from the Discord V2 message after a restart,
-                    // so voting remains available even when MongoDB is offline.
+                    if (await handleEnhancedSessionButton(interaction)) return;
+                    // Older vote panels do not have a durable voter record, so
+                    // retain their visible-counter recovery path.
                     if (await handleSessionButton(interaction)) return;
                 }
                 if (id.startsWith('session:')) {

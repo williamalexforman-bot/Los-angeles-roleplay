@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { AuditLogEvent, ChannelType, Collection, MessageFlags, PermissionFlagsBits, TextChannel } from 'discord.js';
 import { commandDefinitions } from '../src/commands/registry';
 import { staffCommands } from '../src/commands/staff';
@@ -65,6 +66,15 @@ import {
 } from '../src/monitors/erlcMonitor';
 
 async function run(): Promise<void> {
+    const deploymentFiles = ['Procfile', 'railway.json', 'render.yaml', 'ecosystem.config.js'];
+    for (const deploymentFile of deploymentFiles) {
+        const deploymentConfig = readFileSync(deploymentFile, 'utf8');
+        assert(!deploymentConfig.includes('dist/index.js'),
+            `${deploymentFile} must not launch the stale dist runtime`);
+        assert(deploymentConfig.includes('index.js'),
+            `${deploymentFile} must launch the canonical root index.js runtime`);
+    }
+
     assert.deepEqual(
         staffCommands.map(command => command.data.name),
         ['application', 'training'],
@@ -242,7 +252,7 @@ async function run(): Promise<void> {
 for (const required of [
         'movie-feedback', 'staff-feedback', 'partnership', 'staff-complaint', 'training-results',
         'promotion', 'infraction', 'view-infractions', 'session-start', 'session-vote', 'session-end',
-        'session-boost', 'session-full', 'prohibited-word', 'say', 'loa',
+        'session-boost', 'session-full', 'prohibited-word', 'say', 'loa', 'view',
         'request-training', 'roleplay-log', 'rename', 'ticket', 'ticket-panel', 'ticketpanel', 'close', 'closerequest',
         'applications-panel', 'unclaim', 'add-member', 'remove-member', 'role', 'suggestions',
         'suggestion-approved', 'suggestion-denied', 'suggestion-maybe',
@@ -256,6 +266,13 @@ for (const required of [
         assert(command, `missing command implementation for /${name}`);
         return command;
     };
+
+    const viewSchema = commandNamed('view').data.toJSON() as any;
+    assert(viewSchema.options.some((option: any) => option.name === 'loa' && option.type === 1),
+        '/view loa must be registered as a direct subcommand');
+    const sessionViewGroup = viewSchema.options.find((option: any) => option.name === 'session' && option.type === 2);
+    assert(sessionViewGroup?.options.some((option: any) => option.name === 'vote' && option.type === 1),
+        '/view session vote must be registered as a grouped subcommand');
 
     let commandListPayload: any = null;
     await commandNamed('cmds').execute({
@@ -1805,6 +1822,136 @@ for (const required of [
         'vote updates must preserve the live Discord CDN underbanner URL',
     );
     assert(sessionVoteReplies.some(reply => reply.includes('1/5')));
+
+    const persistentVoterId = '1489388257925005777';
+    let persistentVotePayload: any = null;
+    let voterPingStartPayload: any = null;
+    const persistentSessionChannel = {
+        id: '1526036392147423404',
+        isTextBased: () => true,
+        isSendable: () => true,
+        messages: { fetch: async () => new Collection<string, any>() },
+        send: async (payload: any) => {
+            const serialized = JSON.stringify(payload.components?.map((component: any) => component.toJSON?.() || component));
+            if (serialized.includes('SESSION VOTE')) {
+                persistentVotePayload = payload;
+                return { id: 'persistent-session-vote-message' };
+            }
+            voterPingStartPayload = payload;
+            return { id: 'voter-ping-session-start-message' };
+        },
+    };
+    await commandNamed('session-vote').execute({
+        commandName: 'session-vote',
+        guildId: 'persistent-session-guild',
+        user: { id: '1489388257925005666', username: 'SessionHost' },
+        options: { getInteger: () => 3 },
+        client: { channels: { fetch: async () => persistentSessionChannel } },
+        deferReply: async () => undefined,
+        editReply: async () => undefined,
+    } as never);
+    assert(persistentVotePayload, 'the live session vote handler must post a durable vote panel');
+    const persistentVotePanel = JSON.parse(JSON.stringify(persistentVotePayload.components[0].toJSON()));
+    replaceVoteMediaUrls(persistentVotePanel);
+    let persistentVoteUpdate: any = null;
+    await interactionCreate({
+        customId: 'session:vote:cast:3',
+        guildId: 'persistent-session-guild',
+        user: { id: persistentVoterId, username: 'PersistentVoter' },
+        message: {
+            id: 'persistent-session-vote-message',
+            components: [{ toJSON: () => persistentVotePanel }],
+        },
+        isButton: () => true,
+        isModalSubmit: () => false,
+        isUserSelectMenu: () => false,
+        isStringSelectMenu: () => false,
+        isChatInputCommand: () => false,
+        isRepliable: () => true,
+        deferUpdate: async () => undefined,
+        editReply: async (payload: any) => { persistentVoteUpdate = payload; },
+        followUp: async () => undefined,
+    } as never);
+    assert(persistentVoteUpdate, 'the durable voter handler must update the V2 vote panel');
+    assert.equal(persistentVoteUpdate.flags, undefined,
+        'durable vote updates must preserve the existing immutable Components V2 flag');
+
+    await commandNamed('session-start').execute({
+        commandName: 'session-start',
+        guildId: 'persistent-session-guild',
+        guild: { members: { fetch: async () => null } },
+        member: { roles: { cache: new Map([[SESSION_START_AUTHORIZED_ROLE_ID, {}]]) } },
+        user: { id: '1489388257925005666', username: 'SessionHost' },
+        client: { channels: { fetch: async () => persistentSessionChannel } },
+        deferReply: async () => undefined,
+        editReply: async () => undefined,
+    } as never);
+    const voterPingStartText = JSON.stringify(voterPingStartPayload.components[0].toJSON());
+    assert(voterPingStartText.includes(`<@${persistentVoterId}>`),
+        'session-start must include every latest SSU voter in its V2 panel');
+    assert(voterPingStartPayload.allowedMentions.users.includes(persistentVoterId),
+        'session-start must allow Discord to actually notify every latest SSU voter');
+
+    let sessionVoteViewDeferred: any = null;
+    let sessionVoteViewPayload: any = null;
+    await commandNamed('view').execute({
+        guildId: 'persistent-session-guild',
+        options: {
+            getSubcommandGroup: () => 'session',
+            getSubcommand: () => 'vote',
+        },
+        deferReply: async (payload: any) => { sessionVoteViewDeferred = payload; },
+        editReply: async (payload: any) => { sessionVoteViewPayload = payload; },
+    } as never);
+    assert.equal(sessionVoteViewDeferred.flags, MessageFlags.Ephemeral,
+        '/view session vote must be private to the command user');
+    assert.equal(sessionVoteViewPayload.flags, MessageFlags.IsComponentsV2,
+        '/view session vote must use a Components V2 panel');
+    assert(JSON.stringify(sessionVoteViewPayload.components[0].toJSON()).includes(`<@${persistentVoterId}>`),
+        '/view session vote must list the recorded SSU voters');
+
+    const activeLoaUserId = '1489388257925005888';
+    const activeLoaStart = Math.floor((Date.now() - 60_000) / 1_000);
+    const activeLoaEnd = Math.floor((Date.now() + 86_400_000) / 1_000);
+    const activeLoaMessage = {
+        components: [{
+            toJSON: () => ({
+                type: 17,
+                components: [
+                    { type: 10, content: `**Member**\n<@${activeLoaUserId}>` },
+                    { type: 10, content: '**Name**\nActive LOA Member' },
+                    { type: 10, content: `**Start Date**\n<t:${activeLoaStart}:F>` },
+                    { type: 10, content: `**End Date**\n<t:${activeLoaEnd}:F>` },
+                    { type: 1, components: [{ custom_id: `loa:active:end-early:${activeLoaUserId}-test` }] },
+                ],
+            }),
+        }],
+    };
+    let loaViewDeferred = false;
+    let loaViewPayload: any = null;
+    await commandNamed('view').execute({
+        guildId: 'persistent-session-guild',
+        options: {
+            getSubcommandGroup: () => null,
+            getSubcommand: () => 'loa',
+        },
+        client: {
+            channels: {
+                fetch: async (channelId: string) => {
+                    assert.equal(channelId, '1541223750832357456');
+                    return { messages: { fetch: async () => new Collection([['active-loa-message', activeLoaMessage]]) } };
+                },
+            },
+        },
+        deferReply: async () => { loaViewDeferred = true; },
+        editReply: async (payload: any) => { loaViewPayload = payload; },
+    } as never);
+    assert(loaViewDeferred, '/view loa must acknowledge before loading active records');
+    assert.equal(loaViewPayload.flags, MessageFlags.IsComponentsV2, '/view loa must post a Components V2 emblem');
+    const loaViewText = JSON.stringify(loaViewPayload.components[0].toJSON());
+    assert(loaViewText.includes('Active Leaves of Absence'));
+    assert(loaViewText.includes(`<@${activeLoaUserId}>`), '/view loa must list active LOA members');
+    assert.deepEqual(loaViewPayload.allowedMentions, { parse: [] }, '/view loa must not ping every listed member');
 
     let ticketPanelPayload: any = null;
     let fetchedTicketPanelChannelId = '';

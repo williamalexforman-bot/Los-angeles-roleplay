@@ -1,7 +1,6 @@
 # Procfile for cloud deployment (Railway, Render, Heroku)
 # This tells the platform how to run your bot
 # 'web' process type ensures HTTP traffic is routed properly on Render
-# Uses pre-compiled JS from dist/ to avoid ts-node OOM crashes
+# index.js installs ts-node in transpile-only mode and is the canonical runtime.
 
-web: node dist/index.js
-
+web: node index.js

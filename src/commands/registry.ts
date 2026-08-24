@@ -27,6 +27,8 @@ import { accountInfoCommands } from './accountInfo';
 import { suggestionCommands } from './suggestions';
 import { dashboardCommand } from './dashboard';
 import { partnershipV2Command } from '../handlers/partnershipV2Command';
+import { handleEnhancedSessionCommand } from './sessionEnhancements';
+import { viewCommand } from './view';
 
 export interface CommandDefinition {
     data: {
@@ -75,7 +77,17 @@ addCommands('requestTraining', requestTrainingCommand);
 addCommands('viewInfractions', viewInfractionsCommand);
 addCommands('loa', loaCommand);
 addCommands('rename', renameCommand);
-addCommands('session', sessionCommands);
+addCommands('session', sessionCommands.map(command => {
+    if (!['session-start', 'session-vote'].includes(command.data.name)) return command;
+    return {
+        data: command.data,
+        async execute(interaction: ChatInputCommandInteraction): Promise<unknown> {
+            if (await handleEnhancedSessionCommand(interaction)) return;
+            return command.execute(interaction);
+        },
+    };
+}));
+addCommands('view', viewCommand);
 addCommands('tickets', ticketCommands);
 addCommands('applications', applicationsPanelCommand);
 addCommands('role', roleCommand);
