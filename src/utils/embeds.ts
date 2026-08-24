@@ -137,7 +137,12 @@ function inferredFeatureBanner(embed: EmbedBuilder): { name: string; path: strin
 }
 
 function resolvedLegacyBanner(embed: EmbedBuilder, options: LegacyEmbedV2Options): { name?: string; path?: string } {
-    if (options.topBannerName && options.topBannerPath) return { name: options.topBannerName, path: options.topBannerPath };
+    // Never place an attachment:// reference in a Components V2 panel unless
+    // the matching file really exists. Previously a missing upper banner could
+    // make an otherwise healthy command fail at Discord's message validation.
+    if (options.topBannerName && options.topBannerPath && assetExists(options.topBannerPath)) {
+        return { name: options.topBannerName, path: options.topBannerPath };
+    }
     const inferred = inferredFeatureBanner(embed);
     return inferred ? inferred : {};
 }
@@ -181,16 +186,19 @@ export function legacyEmbedToV2Panel(embed: EmbedBuilder, options: LegacyEmbedV2
 
     for (const row of options.actionRows || []) panel.addActionRowComponents(row);
 
-    return panel.addSeparatorComponents(panelSeparator()).addMediaGalleryComponents(sessionBanner(SESSION_UNDERBANNER_NAME));
+    if (assetExists(SESSION_UNDERBANNER_PATH)) {
+        panel.addSeparatorComponents(panelSeparator()).addMediaGalleryComponents(sessionBanner(SESSION_UNDERBANNER_NAME));
+    }
+    return panel;
 }
 
 export function legacyEmbedToV2Message(embed: EmbedBuilder, options: LegacyEmbedV2Options = {}) {
     const files = [...(options.files || [])];
     const banner = resolvedLegacyBanner(embed, options);
-    if (banner.name && banner.path && assetExists(banner.path)) {
+    if (banner.name && banner.path) {
         files.push(new AttachmentBuilder(banner.path, { name: banner.name }));
     }
-    files.push(createUnderbannerAttachment());
+    if (assetExists(SESSION_UNDERBANNER_PATH)) files.push(createUnderbannerAttachment());
     return {
         components: [legacyEmbedToV2Panel(embed, options)],
         files,
@@ -223,7 +231,10 @@ export function createSessionPanel(
         );
 
     for (const row of actionRows) panel.addActionRowComponents(row);
-    return panel.addSeparatorComponents(panelSeparator()).addMediaGalleryComponents(sessionBanner(SESSION_UNDERBANNER_NAME));
+    if (assetExists(SESSION_UNDERBANNER_PATH)) {
+        panel.addSeparatorComponents(panelSeparator()).addMediaGalleryComponents(sessionBanner(SESSION_UNDERBANNER_NAME));
+    }
+    return panel;
 }
 
 export const createSessionAttachments = (emblemType: SessionEmblemType = 'start'): AttachmentBuilder[] => {
