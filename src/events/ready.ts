@@ -10,7 +10,7 @@ import { registerLegacyLoaActiveMigration } from './loaActiveMigration';
 import { registerLoaCalendarRequest } from './loaCalendarRequest';
 import { registerLoaApprovalGuard } from './loaApprovalGuard';
 import { installBatchOneBannerAssets } from './bannerAssetInstaller';
-import { refreshPersistentPanelBanners } from './persistentBannerRefresh';
+import { refreshPersistentPanels } from './persistentPanelRefresh';
 
 const COMMAND_PREWARM_DELAY_MS = 1_000;
 let commandPrewarmTimer: ReturnType<typeof setTimeout> | null = null;
@@ -21,19 +21,12 @@ function getTotalMemberCount(client: Client): number {
 
 function updateMemberCountPresence(client: Client): void {
     if (!client.user) return;
-
     const memberCount = getTotalMemberCount(client);
     const label = `${memberCount.toLocaleString()} ${memberCount === 1 ? 'member' : 'members'}`;
-
     try {
         client.user.setPresence({
             status: 'online',
-            activities: [
-                {
-                    name: label,
-                    type: ActivityType.Watching,
-                },
-            ],
+            activities: [{ name: label, type: ActivityType.Watching }],
         });
         logger.info(`[Presence] Watching ${label}.`);
     } catch (error) {
@@ -122,7 +115,7 @@ export const onReady = async (client: Client): Promise<void> => {
     }
 
     try {
-        await refreshPersistentPanelBanners(client);
+        await refreshPersistentPanels(client);
     } catch (error) {
         logger.warn(`[Banners] Persistent panel refresh failed: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -165,13 +158,11 @@ export const onReady = async (client: Client): Promise<void> => {
     }
 
     scheduleCommandPrewarm();
-
     logger.info('[SlashCommands] Startup command re-upload is off; runtime handlers are loaded locally.');
 
     void connectDatabase().then(async available => {
         logger.info(`[Database] ${available ? 'Connected.' : 'Unavailable; Discord remains online.'}`);
         if (!available) return;
-
         try {
             await loadProhibitedWordOverrides([...client.guilds.cache.keys()]);
             logger.info('[MessageModeration] Persistent prohibited-word overrides loaded.');
@@ -179,6 +170,6 @@ export const onReady = async (client: Client): Promise<void> => {
             logger.warn(`[MessageModeration] Could not load prohibited-word overrides: ${error instanceof Error ? error.message : String(error)}`);
         }
     }).catch(error => {
-        logger.warn(`[Database] Connection failed without taking Discord offline: ${error instanceof Error ? error.message : String(error)}`);
+        logger.warn(`[Database] Startup connection attempt failed without taking Discord offline: ${error instanceof Error ? error.message : String(error)}`);
     });
 };
