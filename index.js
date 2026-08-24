@@ -120,25 +120,25 @@ client.on('raw', packet => {
   console.log(`[RawInteraction] INTERACTION_CREATE name=${name} id=${id}.`);
 });
 
-if (messageModerationEnabled) {
-  let handleMessageModeration = null;
-  try {
-    ({ handleMessageModeration } = require('./src/events/messageModeration.ts'));
-    if (typeof handleMessageModeration !== 'function') throw new Error('handleMessageModeration export missing');
-    console.log('[MessageModeration] Prohibited-word and raid-threat handler loaded.');
-  } catch (error) {
-    console.error('[MessageModeration] Handler failed to load:', error?.stack || error?.message || String(error));
-  }
-
-  client.on(Events.MessageCreate, async message => {
-    if (typeof handleMessageModeration !== 'function') return;
-    try {
-      await handleMessageModeration(message);
-    } catch (error) {
-      console.error('[MessageModeration] Message handler failed:', error?.stack || error?.message || String(error));
-    }
-  });
+let routeProductionMessage = null;
+try {
+  const productionRuntime = require('./src/events/productionRuntime.ts');
+  productionRuntime.configureProductionRuntime(client);
+  routeProductionMessage = productionRuntime.routeProductionMessage;
+  if (typeof routeProductionMessage !== 'function') throw new Error('routeProductionMessage export missing');
+  console.log('[Runtime] Application DMs, ban-appeal DMs, punishment DMs, persistence, and message routing loaded.');
+} catch (error) {
+  console.error('[Runtime] Production command wiring failed to load:', error?.stack || error?.message || String(error));
 }
+
+client.on(Events.MessageCreate, async message => {
+  if (typeof routeProductionMessage !== 'function') return;
+  try {
+    await routeProductionMessage(message, messageModerationEnabled);
+  } catch (error) {
+    console.error('[Runtime] Message handler failed:', error?.stack || error?.message || String(error));
+  }
+});
 
 let stableRouter = null;
 try {

@@ -44,6 +44,7 @@ import {
     type ServerSecurityPolicy,
 } from '../src/events/serverSecurity';
 import { interactionCreate } from '../src/handlers/interactionCreate';
+import { handleTicketClaimRepair } from '../src/handlers/ticketClaimRepair';
 import { refreshPersistentPanels } from '../src/events/persistentPanelRefresh';
 import { synchronizeSlashCommands } from '../src/events/ready';
 import { sanitizedCommandOptions } from '../src/utils/commandAudit';
@@ -1907,6 +1908,49 @@ for (const required of [
         .map((button: { custom_id?: string }) => button.custom_id);
     assert.deepEqual(openTicketButtons, ['ticket:claim', 'ticket:close', 'ticket:close-request']);
     assert(ticketCreationReplies.some(reply => reply.includes('ticket-channel-1')));
+
+    const quickClaimOrder: string[] = [];
+    let quickClaimTopic = createdTicketChannel.topic;
+    let quickClaimComponents: any[] = [];
+    const quickClaimChannel: any = {
+        id: 'quick-ticket-channel',
+        type: ChannelType.GuildText,
+        get topic() { return quickClaimTopic; },
+        fetch: async () => { quickClaimOrder.push('fetch-channel'); return quickClaimChannel; },
+        setTopic: async (topic: string) => { quickClaimOrder.push('set-topic'); quickClaimTopic = topic; },
+    };
+    const quickClaimResult = handleTicketClaimRepair({
+        customId: 'ticket:claim',
+        channel: quickClaimChannel,
+        guild: {
+            ownerId: 'someone-else',
+            members: { fetch: async () => { throw new Error('support role in the interaction should avoid a member fetch'); } },
+        },
+        user: { id: 'quick-ticket-agent', username: 'QuickAgent', tag: 'QuickAgent#0001' },
+        member: { roles: ['1523122697746382868'] },
+        memberPermissions: { has: () => false },
+        message: openTicketMessage,
+        client: {
+            users: {
+                fetch: async () => ({ send: async () => new Promise<void>(() => undefined) }),
+            },
+        },
+        deferUpdate: async () => { quickClaimOrder.push('defer-update'); },
+        editReply: async (payload: any) => { quickClaimOrder.push('edit-panel'); quickClaimComponents = payload.components; },
+        followUp: async () => { quickClaimOrder.push('success-follow-up'); },
+    } as never);
+    const quickClaimCompleted = await Promise.race([
+        quickClaimResult.then(() => true),
+        new Promise<boolean>(resolve => setTimeout(() => resolve(false), 250)),
+    ]);
+    assert(quickClaimCompleted, 'ticket claim must not wait for a slow ticket-owner DM');
+    assert.equal(quickClaimOrder[0], 'defer-update', 'ticket claim must acknowledge the button before making REST requests');
+    assert.deepEqual(
+        quickClaimOrder.slice(0, 5),
+        ['defer-update', 'fetch-channel', 'set-topic', 'edit-panel', 'success-follow-up'],
+        'ticket claim must use one state refresh and finish the panel update before optional notifications',
+    );
+    assert(quickClaimComponents.length > 0, 'the fast claim path must update the ticket panel controls');
 
     let claimedTicketComponents: any[] = [];
     assert(await handleTicketButton({

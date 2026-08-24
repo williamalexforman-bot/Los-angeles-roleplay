@@ -6,6 +6,7 @@ import { logger } from '../utils/logger';
 const ASSETS_ROOT = resolve(__dirname, '..', '..', 'assets');
 
 const REQUIRED_ARTWORK = [
+    ['larp-logo.png', 'LARP logo'],
     ['underbanner.png', 'Underbanner', 1118, 40],
     ['los-angeles-banner.png', 'Generic Los Angeles', 1600, 479],
     ['promotion-banner.png', 'Promotions', 1600, 479],

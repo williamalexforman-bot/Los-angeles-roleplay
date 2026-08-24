@@ -37,7 +37,8 @@ async function assertImage(filename, expectedWidth, expectedHeight) {
 async function main() {
   await Promise.all(TOP_BANNERS.map(filename => assertImage(filename, 1600, 479)));
   await assertImage('underbanner.png', 1118, 40);
-  console.log(`[Banner Quality] Passed: ${TOP_BANNERS.length} original 1600x479 banners and the 1118x40 underbanner are intact.`);
+  await assertImage('larp-logo.png', 420, 420);
+  console.log(`[Banner Quality] Passed: ${TOP_BANNERS.length} original 1600x479 banners, the 1118x40 underbanner, and the required logo are intact.`);
 }
 
 main().catch(error => {

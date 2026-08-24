@@ -122,8 +122,12 @@ export async function handleTicketClaimRepair(interaction: ButtonInteraction): P
 
     claimLocks.add(channel.id);
     try {
+        // Stop Discord's button spinner before any permission or channel REST
+        // request. The claim result is reported through follow-ups below.
+        await interaction.deferUpdate();
+
         if (!(await canClaim(interaction))) {
-            await interaction.reply({
+            await interaction.followUp({
                 content: `Only members of <@&${TICKET_SUPPORT_ROLE_ID}> or staff with Manage Channels can claim tickets.`,
                 flags: MessageFlags.Ephemeral,
                 allowedMentions: { parse: [] },
@@ -131,39 +135,20 @@ export async function handleTicketClaimRepair(interaction: ButtonInteraction): P
             return true;
         }
 
-        let metadata = await freshMetadata(channel);
+        const metadata = await freshMetadata(channel);
         if (!metadata) {
-            await interaction.reply({ content: 'This is not a managed ticket.', flags: MessageFlags.Ephemeral });
+            await interaction.followUp({ content: 'This is not a managed ticket.', flags: MessageFlags.Ephemeral });
             return true;
         }
 
         if (metadata.claimedBy) {
-            await interaction.reply({
+            await interaction.followUp({
                 content: metadata.claimedBy === interaction.user.id
                     ? 'You already claimed this ticket.'
                     : `This ticket is already claimed by <@${metadata.claimedBy}>.`,
                 flags: MessageFlags.Ephemeral,
                 allowedMentions: { parse: [] },
             });
-            return true;
-        }
-
-        await interaction.deferUpdate();
-
-        // Re-check after acknowledging so another click that won the race is respected.
-        metadata = await freshMetadata(channel);
-        if (!metadata) {
-            await interaction.followUp({ content: 'This ticket is no longer available to claim.', flags: MessageFlags.Ephemeral }).catch(() => undefined);
-            return true;
-        }
-        if (metadata.claimedBy) {
-            await interaction.followUp({
-                content: metadata.claimedBy === interaction.user.id
-                    ? 'You already claimed this ticket.'
-                    : `This ticket was just claimed by <@${metadata.claimedBy}>.`,
-                flags: MessageFlags.Ephemeral,
-                allowedMentions: { parse: [] },
-            }).catch(() => undefined);
             return true;
         }
 
@@ -189,12 +174,12 @@ export async function handleTicketClaimRepair(interaction: ButtonInteraction): P
             return true;
         }
 
-        await dmTicketOwnerClaimed(interaction, claimedMetadata, channel);
-
         await interaction.followUp({
             content: `✅ Ticket claimed by <@${interaction.user.id}>.`,
             allowedMentions: { parse: [] },
         }).catch(() => undefined);
+        // A slow or disabled DM must never hold the claim interaction open.
+        void dmTicketOwnerClaimed(interaction, claimedMetadata, channel);
         logger.info(`[TicketClaimRepair] ${channel.id} claimed by ${interaction.user.id}.`);
         return true;
     } finally {
