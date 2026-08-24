@@ -3,7 +3,7 @@ import { resolve } from 'path';
 import { logger } from '../utils/logger';
 
 type BannerInstall = {
-    sourceKey: string;
+    sourceKeys: string[];
     targets: string[];
     label: string;
 };
@@ -15,19 +15,19 @@ const PACK_PATHS = [
 ];
 
 const FULL_BANNER_MAPPINGS: BannerInstall[] = [
-    { sourceKey: 'underbanner.webp', targets: ['underbanner.webp'], label: 'Underbanner' },
-    { sourceKey: 'infractions-banner.webp', targets: ['infraction-banner.png'], label: 'Infractions' },
-    { sourceKey: 'promotions-banner.webp', targets: ['promotion-banner.png'], label: 'Promotions' },
-    { sourceKey: 'partnership-banner.webp', targets: ['partnership-banner.webp'], label: 'Partnership' },
-    { sourceKey: 'assistance-banner.webp', targets: ['assistance-banner.png'], label: 'Assistance' },
-    { sourceKey: 'suggestion-banner.webp', targets: ['suggestion-banner.webp'], label: 'Suggestions' },
-    { sourceKey: 'dashboard-banner.webp', targets: ['dashboard-banner.webp'], label: 'Dashboard' },
-    { sourceKey: 'rules-banner.webp', targets: ['rules-banner.webp'], label: 'Rules' },
-    { sourceKey: 'applications-banner.webp', targets: ['applications-banner.png'], label: 'Applications' },
-    { sourceKey: 'training-results-banner.webp', targets: ['training-results-banner.webp'], label: 'Training Results' },
-    { sourceKey: 'training-request-banner.webp', targets: ['training-request-banner.webp'], label: 'Training Request' },
-    { sourceKey: 'paid-ad-banner.webp', targets: ['paid-ad-banner.webp'], label: 'Paid Advertisement' },
-    { sourceKey: 'staff-feedback-banner.webp', targets: ['staff-feedback-banner.webp'], label: 'Staff Feedback' },
+    { sourceKeys: ['underbanner.webp'], targets: ['underbanner.webp'], label: 'Underbanner' },
+    { sourceKeys: ['infractions-banner.webp', 'infraction-banner.webp'], targets: ['infraction-banner.png'], label: 'Infractions' },
+    { sourceKeys: ['promotions-banner.webp', 'promotion-banner.webp'], targets: ['promotion-banner.png'], label: 'Promotions' },
+    { sourceKeys: ['partnership-banner.webp'], targets: ['partnership-banner.webp'], label: 'Partnership' },
+    { sourceKeys: ['assistance-banner.webp', 'assistance-banner.png'], targets: ['assistance-banner.png'], label: 'Assistance' },
+    { sourceKeys: ['suggestion-banner.webp', 'suggestions-banner.webp'], targets: ['suggestion-banner.webp'], label: 'Suggestions' },
+    { sourceKeys: ['dashboard-banner.webp'], targets: ['dashboard-banner.webp'], label: 'Dashboard' },
+    { sourceKeys: ['rules-banner.webp'], targets: ['rules-banner.webp'], label: 'Rules' },
+    { sourceKeys: ['applications-banner.webp', 'applications-banner.png'], targets: ['applications-banner.png'], label: 'Applications' },
+    { sourceKeys: ['training-results-banner.webp', 'training-result-banner.webp'], targets: ['training-results-banner.webp'], label: 'Training Results' },
+    { sourceKeys: ['training-request-banner.webp'], targets: ['training-request-banner.webp'], label: 'Training Request' },
+    { sourceKeys: ['paid-ad-banner.webp', 'paidad-banner.webp'], targets: ['paid-ad-banner.webp'], label: 'Paid Advertisement' },
+    { sourceKeys: ['staff-feedback-banner.webp'], targets: ['staff-feedback-banner.webp'], label: 'Staff Feedback' },
 ];
 
 function loadBannerPack(): Record<string, string> {
@@ -43,26 +43,28 @@ function loadBannerPack(): Record<string, string> {
     return {};
 }
 
-function sourceAliases(sourceKey: string): string[] {
-    const aliases = new Set<string>([sourceKey]);
-    if (sourceKey.includes('infractions')) aliases.add(sourceKey.replace('infractions', 'infraction'));
-    if (sourceKey.includes('promotions')) aliases.add(sourceKey.replace('promotions', 'promotion'));
-    if (sourceKey.includes('suggestion')) aliases.add(sourceKey.replace('suggestion', 'suggestions'));
-    if (sourceKey.endsWith('.webp')) aliases.add(sourceKey.replace('.webp', '.png'));
+function expandedKeys(keys: readonly string[]): string[] {
+    const aliases = new Set<string>();
+    for (const key of keys) {
+        aliases.add(key);
+        if (key.endsWith('.webp')) aliases.add(key.replace('.webp', '.png'));
+        if (key.endsWith('.png')) aliases.add(key.replace('.png', '.webp'));
+    }
     return [...aliases];
 }
 
 function installFromPack(pack: Record<string, string>, mapping: BannerInstall): boolean {
-    const sourceName = sourceAliases(mapping.sourceKey).find(name => typeof pack[name] === 'string' && pack[name].trim());
+    const aliases = expandedKeys(mapping.sourceKeys);
+    const sourceName = aliases.find(name => typeof pack[name] === 'string' && pack[name].trim());
     if (!sourceName) {
-        logger.warn(`[Banners] ${mapping.label} source is missing from banner pack (${sourceAliases(mapping.sourceKey).join(', ')}).`);
+        logger.warn(`[Banners] ${mapping.label} source is missing from banner pack (${aliases.join(', ')}).`);
         return false;
     }
     try {
         const bytes = Buffer.from(pack[sourceName].trim(), 'base64');
         if (!bytes.length) throw new Error('decoded file is empty');
         for (const target of mapping.targets) writeFileSync(resolve(ASSETS_ROOT, target), bytes);
-        logger.info(`[Banners] Installed ${mapping.label} artwork (${bytes.length.toLocaleString()} bytes).`);
+        logger.info(`[Banners] Installed ${mapping.label} artwork from ${sourceName} (${bytes.length.toLocaleString()} bytes).`);
         return true;
     } catch (error) {
         logger.warn(`[Banners] Failed to install ${mapping.label}: ${error instanceof Error ? error.message : String(error)}`);
