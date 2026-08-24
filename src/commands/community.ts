@@ -41,11 +41,11 @@ const PRIVATE_AUDIT_CHANNEL_ID =
     process.env.DISCORD_COMMAND_LOG_CHANNEL_ID ||
     '1528917592604020917';
 const PARTNERSHIP_APPROVAL_CHANNEL_ID = process.env.PARTNERSHIP_APPROVAL_CHANNEL_ID || '1526042350802043022';
-const PARTNERSHIP_HEADER_NAME = 'partnership-banner.webp';
+const PARTNERSHIP_HEADER_NAME = 'partnership-banner.png';
 const PARTNERSHIP_HEADER_PATH = resolve(__dirname, '..', '..', 'assets', PARTNERSHIP_HEADER_NAME);
-const PARTNERSHIP_UNDERBANNER_NAME = 'underbanner.webp';
+const PARTNERSHIP_UNDERBANNER_NAME = 'underbanner.png';
 const PARTNERSHIP_UNDERBANNER_PATH = resolve(__dirname, '..', '..', 'assets', PARTNERSHIP_UNDERBANNER_NAME);
-const STAFF_FEEDBACK_BANNER_NAME = 'staff-feedback-banner.webp';
+const STAFF_FEEDBACK_BANNER_NAME = 'staff-feedback-banner.png';
 const STAFF_FEEDBACK_BANNER_PATH = resolve(__dirname, '..', '..', 'assets', STAFF_FEEDBACK_BANNER_NAME);
 
 function brandedEmbed(title?: string, description?: string, color: ColorResolvable = BRAND_COLOR, includeLogo = true): EmbedBuilder {

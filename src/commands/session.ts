@@ -16,6 +16,7 @@ import {
 import { markSlashCommandFailed } from '../utils/commandAudit';
 import { logger } from '../utils/logger';
 import { SESSION_START_AUTHORIZED_ROLE_ID } from '../config/constants';
+import { erlcSsdReply, shutdownErlcForSsd } from '../services/erlcSessionShutdown';
 
 /* -------------------------------------------------------------------------- */
 /*  Constants                                                                  */
@@ -570,9 +571,23 @@ const sessionEndCommand = {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         try {
+            if (!(await canStartSession(interaction))) {
+                await interaction.editReply(`You need <@&${SESSION_START_AUTHORIZED_ROLE_ID}> to end a session and shut down ER:LC.`);
+                return;
+            }
+            const erlcResult = await shutdownErlcForSsd();
+            if (erlcResult.status === 'failed') {
+                logger.error(`[ERLC SSD] Could not kick all players: ${erlcResult.message}`);
+            } else {
+                logger.info(`[ERLC SSD] ${erlcResult.status === 'kicked' ? 'Kick-all command accepted.' : 'Server was already empty.'}`);
+            }
+
             const channel = await getSessionAnnouncementChannel(interaction);
             if (!channel) {
-                await interaction.editReply(`The session announcement channel <#${SESSION_ANNOUNCEMENT_CHANNEL_ID}> is unavailable.`);
+                await interaction.editReply(
+                    `The session announcement channel <#${SESSION_ANNOUNCEMENT_CHANNEL_ID}> is unavailable.`
+                    + erlcSsdReply(erlcResult),
+                );
                 return;
             }
 
@@ -591,6 +606,7 @@ const sessionEndCommand = {
 
             await interaction.editReply(
                 `✅ Session end announcement has been posted in <#${SESSION_ANNOUNCEMENT_CHANNEL_ID}>.`
+                + erlcSsdReply(erlcResult)
                 + `${cleanup.deleted ? ` Removed **${cleanup.deleted}** earlier session announcement${cleanup.deleted === 1 ? '' : 's'}.` : ''}`
                 + `${cleanup.failed ? ` Warning: **${cleanup.failed}** earlier message${cleanup.failed === 1 ? '' : 's'} could not be removed.` : ''}`,
             );

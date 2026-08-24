@@ -24,7 +24,7 @@ const TOP_BANNERS = {
     vote: 'assets/session-vote-banner.png',
 };
 
-const UNDERBANNER = 'assets/underbanner.webp';
+const UNDERBANNER = 'assets/underbanner.png';
 
 // Warm orange/sunset gradient matching the underbanner style.
 const gradientSvg = (w, h) => Buffer.from(`

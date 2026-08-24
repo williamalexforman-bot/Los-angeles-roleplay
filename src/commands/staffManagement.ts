@@ -44,13 +44,13 @@ const FAIL_COLOR = 0xef4444;
 const BRAND_FOOTER = 'Los Angeles Roleplay | Realism at its Finest';
 const LOGO_NAME = 'larp-logo.png';
 const LOGO_PATH = resolve(__dirname, '..', '..', 'assets', LOGO_NAME);
-export const INFRACTION_BANNER_NAME = 'infraction-banner.png';
-export const INFRACTION_UNDERBANNER_NAME = 'underbanner.webp';
+export const INFRACTION_BANNER_NAME = 'infraction-banner.webp';
+export const INFRACTION_UNDERBANNER_NAME = 'underbanner.png';
 const INFRACTION_BANNER_PATH = resolve(__dirname, '..', '..', 'assets', INFRACTION_BANNER_NAME);
 const INFRACTION_UNDERBANNER_PATH = resolve(__dirname, '..', '..', 'assets', INFRACTION_UNDERBANNER_NAME);
 const PROMOTION_BANNER_NAME = 'promotion-banner.png';
 const PROMOTION_BANNER_PATH = resolve(__dirname, '..', '..', 'assets', PROMOTION_BANNER_NAME);
-const TRAINING_RESULTS_BANNER_NAME = 'training-results-banner.webp';
+const TRAINING_RESULTS_BANNER_NAME = 'training-results-banner.png';
 const TRAINING_RESULTS_BANNER_PATH = resolve(__dirname, '..', '..', 'assets', TRAINING_RESULTS_BANNER_NAME);
 
 const TRAINING_RESULTS_CHANNEL_ID = process.env.TRAINING_RESULTS_CHANNEL_ID || '1526490481398124614';

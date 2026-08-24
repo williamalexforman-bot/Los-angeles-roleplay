@@ -20,9 +20,9 @@ import { logger } from '../utils/logger';
 
 const PARTNERSHIP_APPROVAL_CHANNEL_ID = process.env.PARTNERSHIP_APPROVAL_CHANNEL_ID || '1526042350802043022';
 const PARTNERSHIP_SUPPORT_ROLE_ID = '1523122697746382868';
-const PARTNERSHIP_BANNER_NAME = 'partnership-banner.webp';
+const PARTNERSHIP_BANNER_NAME = 'partnership-banner.png';
 const PARTNERSHIP_BANNER_PATH = resolve(__dirname, '..', '..', 'assets', PARTNERSHIP_BANNER_NAME);
-const UNDERBANNER_NAME = 'underbanner.webp';
+const UNDERBANNER_NAME = 'underbanner.png';
 const UNDERBANNER_PATH = resolve(__dirname, '..', '..', 'assets', UNDERBANNER_NAME);
 
 type RequestData = {

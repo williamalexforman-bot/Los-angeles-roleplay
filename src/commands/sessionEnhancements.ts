@@ -16,6 +16,7 @@ import {
 } from '../utils/embeds';
 import { logger } from '../utils/logger';
 import { SESSION_START_AUTHORIZED_ROLE_ID } from '../config/constants';
+import { erlcSsdReply, shutdownErlcForSsd } from '../services/erlcSessionShutdown';
 
 const ERLC_JOIN_URL = 'https://erlc.gg/join?code=LARNRPP&placeId=2534724415';
 const ERLC_GAME_CODE = 'LARNRPP';
@@ -435,9 +436,23 @@ async function handleSessionStartCommand(interaction: ChatInputCommandInteractio
 
 async function handleSessionEndCommand(interaction: ChatInputCommandInteraction): Promise<void> {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    if (!(await canStartSession(interaction))) {
+        await interaction.editReply(`You need <@&${SESSION_START_AUTHORIZED_ROLE_ID}> to end a session and shut down ER:LC.`);
+        return;
+    }
+    const erlcResult = await shutdownErlcForSsd();
+    if (erlcResult.status === 'failed') {
+        logger.error(`[ERLC SSD] Could not kick all players: ${erlcResult.message}`);
+    } else {
+        logger.info(`[ERLC SSD] ${erlcResult.status === 'kicked' ? 'Kick-all command accepted.' : 'Server was already empty.'}`);
+    }
+
     const channel = await getSessionChannel(interaction);
     if (!channel) {
-        await interaction.editReply(`The session announcement channel <#${SESSION_ANNOUNCEMENT_CHANNEL_ID}> is unavailable.`);
+        await interaction.editReply(
+            `The session announcement channel <#${SESSION_ANNOUNCEMENT_CHANNEL_ID}> is unavailable.`
+            + erlcSsdReply(erlcResult),
+        );
         return;
     }
 
@@ -459,6 +474,7 @@ async function handleSessionEndCommand(interaction: ChatInputCommandInteraction)
 
     await interaction.editReply(
         `✅ Session ended in <#${SESSION_ANNOUNCEMENT_CHANNEL_ID}>. Deleted **${deleted}** message${deleted === 1 ? '' : 's'} so the Session End panel is left by itself.`
+        + erlcSsdReply(erlcResult)
         + (failed ? ` ⚠️ **${failed}** message${failed === 1 ? '' : 's'} could not be deleted; make sure the bot has Manage Messages.` : ''),
     );
 }

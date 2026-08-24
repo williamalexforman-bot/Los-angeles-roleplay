@@ -51,9 +51,9 @@ const EXEMPT_AUTO_INFRACTION_ROLE_ID = '1521593407795888329';
 // QUOTA_MOD_ROLE_ID is configured with the corrected role ID.
 const MOD_ROLE_ID = process.env.QUOTA_MOD_ROLE_ID || '1521593407795888336';
 
-const UNDERBANNER_NAME = 'underbanner.webp';
+const UNDERBANNER_NAME = 'underbanner.png';
 const UNDERBANNER_PATH = resolve(__dirname, '..', '..', 'assets', UNDERBANNER_NAME);
-const INFRACTION_BANNER_NAME = 'infraction-banner.png';
+const INFRACTION_BANNER_NAME = 'infraction-banner.webp';
 const INFRACTION_BANNER_PATH = resolve(__dirname, '..', '..', 'assets', INFRACTION_BANNER_NAME);
 
 const SCHEDULER_INTERVAL_MS = 60_000;

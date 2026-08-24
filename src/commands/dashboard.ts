@@ -23,11 +23,11 @@ import { logger } from '../utils/logger';
 
 const DASHBOARD_CHANNEL_ID = '1526049604712529971';
 const VERIFY_CHANNEL_ID = '1541110029048881313';
-const DASHBOARD_BANNER_NAME = 'dashboard-banner.webp';
+const DASHBOARD_BANNER_NAME = 'dashboard-banner.png';
 const DASHBOARD_BANNER_PATH = resolve(__dirname, '..', '..', 'assets', DASHBOARD_BANNER_NAME);
-const RULES_BANNER_NAME = 'rules-banner.webp';
+const RULES_BANNER_NAME = 'rules-banner.png';
 const RULES_BANNER_PATH = resolve(__dirname, '..', '..', 'assets', RULES_BANNER_NAME);
-const UNDERBANNER_NAME = 'underbanner.webp';
+const UNDERBANNER_NAME = 'underbanner.png';
 const UNDERBANNER_PATH = resolve(__dirname, '..', '..', 'assets', UNDERBANNER_NAME);
 const DISCORD_EMOJI_ID = '1522529390687293460';
 const ROBLOX_EMOJI_ID = '1020834558058442813';

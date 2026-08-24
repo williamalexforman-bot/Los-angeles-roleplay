@@ -51,7 +51,7 @@ function panel(title: string, blocks: readonly string[], color = PANEL_COLOR): C
 }
 
 function panelAttachment(): AttachmentBuilder {
-    return new AttachmentBuilder(SESSION_UNDERBANNER_PATH, { name: 'underbanner.webp' });
+    return new AttachmentBuilder(SESSION_UNDERBANNER_PATH, { name: 'underbanner.png' });
 }
 
 async function editV2(

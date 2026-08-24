@@ -25,7 +25,8 @@ const SESSION_BANNER_NAME_END = 'session-end-banner.png';
 const SESSION_BANNER_NAME_VOTE = 'session-vote-banner.png';
 const SESSION_BANNER_NAME_BOOST = 'session-boost-banner.png';
 const SESSION_BANNER_NAME_FULL = 'session-full-banner.png';
-const SESSION_UNDERBANNER_NAME = 'underbanner.webp';
+const SESSION_UNDERBANNER_NAME = 'underbanner.png';
+const GENERIC_BANNER_NAME = 'los-angeles-banner.png';
 
 export const TOP_BANNER_START = `attachment://${SESSION_BANNER_NAME_START}`;
 export const TOP_BANNER_END = `attachment://${SESSION_BANNER_NAME_END}`;
@@ -38,6 +39,7 @@ export const SESSION_BACKGROUND_NAME = 'los_angeles_roleplay_4.webp';
 export const SESSION_BACKGROUND_PATH = path.resolve(process.cwd(), 'assets', SESSION_BACKGROUND_NAME);
 export const SESSION_BACKGROUND_URL = `attachment://${SESSION_BACKGROUND_NAME}`;
 export const SESSION_UNDERBANNER_PATH = path.resolve(process.cwd(), 'assets', SESSION_UNDERBANNER_NAME);
+const GENERIC_BANNER_PATH = path.resolve(process.cwd(), 'assets', GENERIC_BANNER_NAME);
 
 export const createUnderbannerAttachment = () =>
     new AttachmentBuilder(SESSION_UNDERBANNER_PATH, { name: SESSION_UNDERBANNER_NAME });
@@ -127,9 +129,9 @@ function sessionBanner(name: string): MediaGalleryBuilder {
 function inferredFeatureBanner(embed: EmbedBuilder): { name: string; path: string } | null {
     const title = (embed.toJSON().title || '').toLowerCase();
     const filename = title.includes('training result')
-        ? 'training-results-banner.webp'
+        ? 'training-results-banner.png'
         : title.includes('staff feedback')
-            ? 'staff-feedback-banner.webp'
+            ? 'staff-feedback-banner.png'
             : null;
     if (!filename) return null;
     const resolvedPath = path.resolve(process.cwd(), 'assets', filename);
@@ -144,7 +146,10 @@ function resolvedLegacyBanner(embed: EmbedBuilder, options: LegacyEmbedV2Options
         return { name: options.topBannerName, path: options.topBannerPath };
     }
     const inferred = inferredFeatureBanner(embed);
-    return inferred ? inferred : {};
+    if (inferred) return inferred;
+    return assetExists(GENERIC_BANNER_PATH)
+        ? { name: GENERIC_BANNER_NAME, path: GENERIC_BANNER_PATH }
+        : {};
 }
 
 export function legacyEmbedToV2Panel(embed: EmbedBuilder, options: LegacyEmbedV2Options = {}): ContainerBuilder {

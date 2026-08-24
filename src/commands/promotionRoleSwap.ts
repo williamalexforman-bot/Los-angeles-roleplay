@@ -22,8 +22,9 @@ import { logger } from '../utils/logger';
 const BRAND_COLOR = 0x3b82f6;
 const PROMOTIONS_CHANNEL_ID = '1526044978109743255';
 const PROTECTED_ROLE_ID = '1521593407762464946';
+const COMMUNITY_MEMBER_ROLE_NAME = 'community member';
 const PROMOTION_BANNER_NAME = 'promotion-banner.png';
-const UNDERBANNER_NAME = 'underbanner.webp';
+const UNDERBANNER_NAME = 'underbanner.png';
 const PROMOTION_BANNER_PATH = resolve(__dirname, '..', '..', 'assets', PROMOTION_BANNER_NAME);
 const UNDERBANNER_PATH = resolve(__dirname, '..', '..', 'assets', UNDERBANNER_NAME);
 
@@ -51,6 +52,11 @@ function timestamp(): string {
     return `<t:${Math.floor(Date.now() / 1000)}:F>`;
 }
 
+export function promotionKeepsOldRank(role: { id: string; name?: string }): boolean {
+    return role.id === PROTECTED_ROLE_ID
+        || role.name?.trim().toLowerCase() === COMMUNITY_MEMBER_ROLE_NAME;
+}
+
 function promotionPanel(input: {
     memberId: string;
     oldRankId: string;
@@ -60,6 +66,7 @@ function promotionPanel(input: {
     approvedById: string;
     effectiveDate: string;
     issuedById: string;
+    oldRankRetained: boolean;
     promotionUrl?: string;
 }): ContainerBuilder {
     const badge = new ButtonBuilder()
@@ -73,7 +80,7 @@ function promotionPanel(input: {
         '> The high ranking team at Los Angeles Roleplay has issued a promotion.',
         '',
         `> **Member:** <@${input.memberId}>`,
-        `> **Old Rank Removed:** <@&${input.oldRankId}>`,
+        `> **Old Rank ${input.oldRankRetained ? 'Retained' : 'Removed'}:** <@&${input.oldRankId}>`,
         `> **New Rank Added:** <@&${input.newRoleId}>`,
         `> **Reason:** ${compact(input.reason)}`,
         `> **Approved By:** <@${input.approvedById}>`,
@@ -111,7 +118,7 @@ export const promotionRoleSwapCommand = {
         .addSubcommand(subcommand =>
             subcommand
                 .setName('issue')
-                .setDescription('Issue a promotion and swap the member rank')
+                .setDescription('Issue a promotion and update the member rank')
                 .addUserOption(option => option.setName('member').setDescription('The member being promoted').setRequired(true))
                 .addRoleOption(option => option.setName('old-rank').setDescription('The rank that should be removed').setRequired(true))
                 .addRoleOption(option => option.setName('new-role').setDescription('The new rank that should be added').setRequired(true))
@@ -145,10 +152,7 @@ export const promotionRoleSwapCommand = {
                 await interaction.editReply('The old rank and new rank cannot be the same role.');
                 return;
             }
-            if (oldRank.id === PROTECTED_ROLE_ID) {
-                await interaction.editReply(`Role <@&${PROTECTED_ROLE_ID}> is protected and can never be removed by the promotion command. Choose the member's actual old rank instead.`);
-                return;
-            }
+            const keepOldRank = promotionKeepsOldRank(oldRank);
 
             const target = await interaction.guild.members.fetch(user.id).catch(() => null);
             if (!target) {
@@ -165,43 +169,54 @@ export const promotionRoleSwapCommand = {
                 await interaction.editReply('I could not verify my server role permissions. No roles were changed.');
                 return;
             }
-            if (oldRank.managed || newRank.managed || oldRank.position >= botMember.roles.highest.position || newRank.position >= botMember.roles.highest.position) {
-                await interaction.editReply('I cannot manage the selected old or new rank. Move my bot role above both ranks and make sure neither is an integration-managed role.');
+            const cannotManageNewRank = newRank.managed || newRank.position >= botMember.roles.highest.position;
+            const cannotManageRemovableOldRank = !keepOldRank
+                && (oldRank.managed || oldRank.position >= botMember.roles.highest.position);
+            if (cannotManageNewRank || cannotManageRemovableOldRank) {
+                await interaction.editReply(keepOldRank
+                    ? 'I cannot add the selected new rank. Move my bot role above the new rank and make sure it is not integration-managed. Community Member will remain untouched.'
+                    : 'I cannot manage the selected old or new rank. Move my bot role above both ranks and make sure neither is integration-managed.');
                 return;
             }
 
             // Add the new rank first so the member is never left without a rank.
             const alreadyHadNewRank = target.roles.cache.has(newRank.id);
+            const hadProtectedRole = target.roles.cache.has(PROTECTED_ROLE_ID);
             if (!alreadyHadNewRank) {
                 await target.roles.add(newRank.id, `Promotion issued by ${interaction.user.id}`);
             }
 
-            try {
-                // Hard safety invariant: the protected role is never passed to roles.remove().
-                if (oldRank.id !== PROTECTED_ROLE_ID) {
+            if (!keepOldRank) {
+                try {
                     await target.roles.remove(oldRank.id, `Promoted to ${newRank.name} by ${interaction.user.id}`);
+                } catch (removeError) {
+                    // Roll back only the role this command added. Never disturb pre-existing roles.
+                    if (!alreadyHadNewRank) {
+                        await target.roles.remove(newRank.id, 'Promotion rollback after old-rank removal failed').catch(() => undefined);
+                    }
+                    throw removeError;
                 }
-            } catch (removeError) {
-                // Roll back only the role this command added. Never disturb pre-existing roles.
-                if (!alreadyHadNewRank) {
-                    await target.roles.remove(newRank.id, 'Promotion rollback after old-rank removal failed').catch(() => undefined);
-                }
-                throw removeError;
             }
 
             // Defensive verification after Discord accepts the role edits.
             const refreshed = await interaction.guild.members.fetch(user.id);
-            if (refreshed.roles.cache.has(PROTECTED_ROLE_ID) !== target.roles.cache.has(PROTECTED_ROLE_ID)) {
-                logger.error(`[Promotion] Protected-role invariant changed unexpectedly for ${user.id}.`);
+            if (refreshed.roles.cache.has(PROTECTED_ROLE_ID) !== hadProtectedRole) {
+                throw new Error('The protected Community Member role changed unexpectedly.');
             }
-            if (!refreshed.roles.cache.has(newRank.id) || refreshed.roles.cache.has(oldRank.id)) {
-                throw new Error('Discord did not persist the requested promotion role swap.');
+            if (!refreshed.roles.cache.has(newRank.id)
+                || (keepOldRank && !refreshed.roles.cache.has(oldRank.id))
+                || (!keepOldRank && refreshed.roles.cache.has(oldRank.id))) {
+                throw new Error('Discord did not persist the requested promotion role update.');
             }
+
+            const roleChangeSummary = keepOldRank
+                ? `kept <@&${oldRank.id}> and added <@&${newRank.id}>`
+                : `removed <@&${oldRank.id}> and added <@&${newRank.id}>`;
 
             const destination = await interaction.client.channels.fetch(PROMOTIONS_CHANNEL_ID).catch(() => null);
             if (!destination?.isSendable()) {
                 // Roles already changed successfully, so report that clearly instead of pretending the promotion failed.
-                await interaction.editReply(`✅ Roles updated: removed <@&${oldRank.id}> and added <@&${newRank.id}>. Warning: the promotions channel is unavailable, so I could not publish the announcement.`);
+                await interaction.editReply(`✅ Roles updated: ${roleChangeSummary}. Warning: the promotions channel is unavailable, so I could not publish the announcement.`);
                 return;
             }
 
@@ -214,6 +229,7 @@ export const promotionRoleSwapCommand = {
                 approvedById: approvedBy.id,
                 effectiveDate,
                 issuedById: interaction.user.id,
+                oldRankRetained: keepOldRank,
             };
             const message = await destination.send({
                 components: [promotionPanel(details)],
@@ -231,7 +247,7 @@ export const promotionRoleSwapCommand = {
             }).catch(() => { dmSent = false; });
 
             await interaction.editReply(
-                `✅ Promotion completed for ${user.username}. Removed <@&${oldRank.id}> and added <@&${newRank.id}>.\n${message.url}`
+                `✅ Promotion completed for ${user.username}: ${roleChangeSummary}.\n${message.url}`
                 + (dmSent ? '\nThey were also notified by DM.' : '\nWarning: their DM could not be delivered.'),
             );
         } catch (error) {

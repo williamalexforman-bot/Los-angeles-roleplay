@@ -29,7 +29,7 @@ import { logger } from '../utils/logger';
 import { isDatabaseAvailable } from '../database/connection';
 
 const ASSISTANCE_BANNER_NAME = 'assistance-banner.png';
-const UNDERBANNER_NAME = 'underbanner.webp';
+const UNDERBANNER_NAME = 'underbanner.png';
 const ASSISTANCE_BANNER_PATH = resolve(__dirname, '..', '..', 'assets', ASSISTANCE_BANNER_NAME);
 const UNDERBANNER_PATH = resolve(__dirname, '..', '..', 'assets', UNDERBANNER_NAME);
 

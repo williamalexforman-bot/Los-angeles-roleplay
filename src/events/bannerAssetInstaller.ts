@@ -1,38 +1,30 @@
-import { existsSync, readFileSync, statSync, writeFileSync } from 'fs';
+import { statSync } from 'fs';
 import { resolve } from 'path';
+import sharp from 'sharp';
 import { logger } from '../utils/logger';
-
-type EncodedFallback = {
-    source: string;
-    target: string;
-    label: string;
-};
 
 const ASSETS_ROOT = resolve(__dirname, '..', '..', 'assets');
 
-// The old consolidated JSON banner packs were truncated in Git and could not
-// be parsed on Render. Banner installation now uses only real standalone files
-// plus the few complete .b64 fallbacks that already exist in the repository.
-const ENCODED_FALLBACKS: readonly EncodedFallback[] = [
-    { source: 'dashboard-banner.b64', target: 'dashboard-banner.webp', label: 'Dashboard' },
-    { source: 'partnership-banner.b64', target: 'partnership-banner.webp', label: 'Partnership' },
-    { source: 'brand-banners/underbanner.webp.b64', target: 'underbanner.webp', label: 'Underbanner' },
-];
-
 const REQUIRED_ARTWORK = [
-    ['underbanner.webp', 'Underbanner'],
-    ['infraction-banner.png', 'Infractions'],
-    ['promotion-banner.png', 'Promotions'],
-    ['partnership-banner.webp', 'Partnership'],
-    ['assistance-banner.png', 'Assistance / Tickets'],
-    ['suggestion-banner.webp', 'Suggestions'],
-    ['dashboard-banner.webp', 'Dashboard'],
-    ['rules-banner.webp', 'Rules'],
-    ['applications-banner.png', 'Applications'],
-    ['training-results-banner.webp', 'Training Results'],
-    ['training-request-banner.webp', 'Training Request'],
-    ['paid-ad-banner.webp', 'Paid Advertisement'],
-    ['staff-feedback-banner.webp', 'Staff Feedback'],
+    ['underbanner.png', 'Underbanner', 1118, 40],
+    ['los-angeles-banner.png', 'Generic Los Angeles', 1600, 479],
+    ['infraction-banner.webp', 'Infractions'],
+    ['promotion-banner.png', 'Promotions', 1600, 479],
+    ['partnership-banner.png', 'Partnership', 1600, 479],
+    ['assistance-banner.png', 'Assistance / Tickets', 1600, 479],
+    ['suggestion-banner.png', 'Suggestions', 1600, 479],
+    ['dashboard-banner.png', 'Dashboard', 1600, 479],
+    ['rules-banner.png', 'Rules', 1600, 479],
+    ['applications-banner.png', 'Applications', 1600, 479],
+    ['training-results-banner.png', 'Training Results', 1600, 479],
+    ['training-request-banner.png', 'Training Request', 1600, 479],
+    ['paid-ad-banner.png', 'Paid Advertisement', 1600, 479],
+    ['staff-feedback-banner.png', 'Staff Feedback', 1600, 479],
+    ['session-start-banner.png', 'Session Start', 1600, 479],
+    ['session-end-banner.png', 'Session End', 1600, 479],
+    ['session-vote-banner.png', 'Session Vote', 1600, 479],
+    ['session-boost-banner.png', 'Session Boost', 1600, 479],
+    ['session-full-banner.png', 'Session Full'],
 ] as const;
 
 function isUsable(filePath: string): boolean {
@@ -44,38 +36,30 @@ function isUsable(filePath: string): boolean {
     }
 }
 
-function restoreEncodedFallback(asset: EncodedFallback): boolean {
-    const targetPath = resolve(ASSETS_ROOT, asset.target);
-    if (isUsable(targetPath)) return true;
-
-    const sourcePath = resolve(ASSETS_ROOT, asset.source);
-    if (!existsSync(sourcePath)) return false;
-
-    try {
-        const encoded = readFileSync(sourcePath, 'utf8').replace(/\s+/g, '');
-        if (!encoded) return false;
-        const bytes = Buffer.from(encoded, 'base64');
-        if (!bytes.length) return false;
-        writeFileSync(targetPath, bytes);
-        logger.info(`[Banners] Restored ${asset.label} from standalone encoded source (${asset.target}, ${bytes.length.toLocaleString()} bytes).`);
-        return true;
-    } catch (error) {
-        logger.warn(`[Banners] Could not restore ${asset.label}: ${error instanceof Error ? error.message : String(error)}`);
-        return false;
-    }
-}
-
 export async function installBatchOneBannerAssets(): Promise<void> {
-    for (const asset of ENCODED_FALLBACKS) restoreEncodedFallback(asset);
-
     const missing = REQUIRED_ARTWORK
         .filter(([filename]) => !isUsable(resolve(ASSETS_ROOT, filename)))
         .map(([, label]) => label);
 
     if (missing.length) {
-        logger.warn(`[Banners] Missing exact standalone upper banner artwork: ${missing.join(', ')}. The bot will keep running; those optional top banners must be re-added as real asset files.`);
-        return;
+        throw new Error(`Missing required standalone banner artwork: ${missing.join(', ')}`);
     }
 
-    logger.info('[Banners] All standalone banner assets verified. Legacy truncated JSON banner packs are no longer used.');
+    const lowResolution: string[] = [];
+    for (const [filename, label, expectedWidth, expectedHeight] of REQUIRED_ARTWORK) {
+        if (!expectedWidth || !expectedHeight) continue;
+        const metadata = await sharp(resolve(ASSETS_ROOT, filename)).metadata();
+        if (metadata.format !== 'png'
+            || metadata.width !== expectedWidth
+            || metadata.height !== expectedHeight) {
+            lowResolution.push(
+                `${label} (${metadata.width || '?'}x${metadata.height || '?'} ${metadata.format || 'unknown'})`,
+            );
+        }
+    }
+    if (lowResolution.length) {
+        throw new Error(`Low-resolution or substituted banner artwork detected: ${lowResolution.join(', ')}`);
+    }
+
+    logger.info(`[Banners] Verified ${REQUIRED_ARTWORK.length} standalone assets, including the original high-resolution banner set.`);
 }

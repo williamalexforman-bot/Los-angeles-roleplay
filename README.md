@@ -65,7 +65,7 @@ The bot needs View Channels, Manage Channels, Manage Roles/Permissions where app
 ## Optional integrations
 
 - **Partnership role:** set `PARTNERSHIP_ROLE_ID` so approving a partnership automatically assigns the role. The request and complaint destinations default to `1527122924975165530` and `1527139806797369504` and can be overridden with `PARTNERSHIP_REQUEST_CHANNEL_ID` and `STAFF_COMPLAINT_CHANNEL_ID`.
-- **ER:LC:** set `ERLC_SERVER_KEY`. The monitor uses `GET https://api.erlc.gg/v2/server` with Players, CommandLogs, and JoinLogs enabled, honors rate-limit reset/retry data, and persists processed state in MongoDB.
+- **ER:LC:** set `ERLC_SERVER_KEY`. The monitor uses `GET https://api.erlc.gg/v2/server` with Players, CommandLogs, and JoinLogs enabled, honors rate-limit reset/retry data, and persists processed state in MongoDB. An authorized `/session-end` (SSD) also uses the v2 command endpoint to run `:kick all`; API failures are shown to the staff member so they can run the command manually.
 - **Official ER:LC webhooks:** point the configured event webhook to the public HTTPS route `/erlc-event`. Signed Ed25519 payloads are verified before processing.
 
 ## Validation

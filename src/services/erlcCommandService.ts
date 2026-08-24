@@ -1,4 +1,4 @@
-const ERLC_COMMAND_ENDPOINT = 'https://api.erlc.gg/v1/server/command';
+export const ERLC_COMMAND_ENDPOINT = 'https://api.erlc.gg/v2/server/command';
 const DEFAULT_TIMEOUT_MS = 10_000;
 const MAX_RETRY_WAIT_MS = 8_000;
 

@@ -110,12 +110,11 @@ export const onReady = async (client: Client): Promise<void> => {
     logger.info(`Logged in as ${client.user?.tag}.`);
 
     try {
-        // Finish rendering the 1920px high-quality copies before any persistent
-        // Discord message is refreshed, otherwise the refresh can reattach the
-        // old low-resolution file while Sharp is still processing it.
+        // Verify the exact standalone artwork before refreshing persistent
+        // Discord panels so a missing attachment cannot invalidate a message.
         await installBatchOneBannerAssets();
     } catch (error) {
-        logger.warn(`[Banners] Full banner install failed: ${error instanceof Error ? error.message : String(error)}`);
+        logger.warn(`[Banners] Banner verification failed: ${error instanceof Error ? error.message : String(error)}`);
     }
 
     try {

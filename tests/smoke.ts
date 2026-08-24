@@ -37,6 +37,7 @@ import {
 import { handleLoaButton, handleLoaModal } from '../src/commands/loa';
 import { handleTrainingModal } from '../src/commands/requestTraining';
 import { handleSuggestionButton } from '../src/commands/suggestions';
+import { buildDashboardRefreshPayload, handleDashboardSelect } from '../src/commands/dashboard';
 import {
     handleSecurityAuditEntry,
     resetServerSecurityStateForTests,
@@ -45,6 +46,8 @@ import {
 import { interactionCreate } from '../src/handlers/interactionCreate';
 import { sanitizedCommandOptions } from '../src/utils/commandAudit';
 import { fetchErlcServer, type ErlcServerSnapshot } from '../src/services/erlcService';
+import { ERLC_COMMAND_ENDPOINT } from '../src/services/erlcCommandService';
+import { ERLC_SSD_COMMAND } from '../src/services/erlcSessionShutdown';
 import {
     ErlcMonitor,
     MemoryErlcMonitorStateStore,
@@ -215,6 +218,7 @@ for (const required of [
 
     for (const [commandName, roleId] of [
         ['session-start', SESSION_START_AUTHORIZED_ROLE_ID],
+        ['session-end', SESSION_START_AUTHORIZED_ROLE_ID],
         ['infraction', INFRACTION_AUTHORIZED_ROLE_ID],
         ['promotion', PROMOTION_AUTHORIZED_ROLE_ID],
         ['training-results', TRAINING_RESULTS_AUTHORIZED_ROLE_ID],
@@ -276,6 +280,13 @@ for (const required of [
     } as never);
     assert.equal(suggestionPost?.flags, MessageFlags.IsComponentsV2, 'suggestions must post even when MongoDB is offline');
     const suggestionComponents = suggestionPost.components[0].toJSON().components;
+    const suggestionMedia = suggestionComponents.filter((component: { type: number }) => component.type === 12);
+    assert.equal(suggestionMedia[0]?.items?.[0]?.media?.url, 'attachment://suggestion-banner.png');
+    assert.equal(suggestionMedia[1]?.items?.[0]?.media?.url, 'attachment://underbanner.png');
+    assert.deepEqual(suggestionPost.files.map((file: { name: string }) => file.name), [
+        'suggestion-banner.png',
+        'underbanner.png',
+    ]);
     const suggestionVoteRow = suggestionComponents.find((component: { type: number }) => component.type === 1);
     const suggestionVoteId = suggestionVoteRow.components[0].custom_id as string;
     const suggestionId = suggestionVoteId.split(':').at(-1)!;
@@ -305,6 +316,61 @@ for (const required of [
     assert(suggestionDecisionReplies.some(reply => reply.includes('Approved')));
     assert(suggestionDms.length === 1, 'an in-memory suggestion decision must still notify its author');
     assert(JSON.stringify(suggestionEdit).includes('Approved'));
+
+    const dashboardPayload = buildDashboardRefreshPayload();
+    const dashboardPanel = dashboardPayload.components[0].toJSON();
+    const dashboardMedia = dashboardPanel.components.filter((component: { type: number }) => component.type === 12);
+    assert.equal(dashboardMedia[0]?.items?.[0]?.media?.url, 'attachment://dashboard-banner.png');
+    assert.equal(dashboardMedia[1]?.items?.[0]?.media?.url, 'attachment://underbanner.png');
+    assert.deepEqual(dashboardPayload.files.map(file => file.name), ['dashboard-banner.png', 'underbanner.png']);
+
+    let regulationsPayload: any = null;
+    assert(await handleDashboardSelect({
+        customId: 'dashboard:menu',
+        values: ['regulations'],
+        deferred: false,
+        replied: false,
+        reply: async (payload: any) => { regulationsPayload = payload; },
+    } as never));
+    const regulationsPanel = regulationsPayload.components[0].toJSON();
+    const regulationsMedia = regulationsPanel.components.filter((component: { type: number }) => component.type === 12);
+    assert.equal(regulationsMedia[0]?.items?.[0]?.media?.url, 'attachment://rules-banner.png');
+    assert.equal(regulationsMedia[1]?.items?.[0]?.media?.url, 'attachment://underbanner.png');
+    assert.deepEqual(regulationsPayload.files.map((file: { name: string }) => file.name), [
+        'rules-banner.png',
+        'underbanner.png',
+    ]);
+
+    let marketplacePayload: any = null;
+    await commandNamed('marketplace-panel').execute({
+        guild: {
+            members: {
+                fetch: async () => ({
+                    permissions: { has: () => true },
+                    roles: { cache: new Map() },
+                }),
+            },
+        },
+        user: { id: 'marketplace-admin' },
+        client: {
+            channels: {
+                fetch: async () => ({
+                    isSendable: () => true,
+                    send: async (payload: any) => { marketplacePayload = payload; },
+                }),
+            },
+        },
+        deferReply: async () => undefined,
+        editReply: async () => undefined,
+    } as never);
+    const marketplacePanel = marketplacePayload.components[0].toJSON();
+    const marketplaceMedia = marketplacePanel.components.filter((component: { type: number }) => component.type === 12);
+    assert.equal(marketplaceMedia[0]?.items?.[0]?.media?.url, 'attachment://paid-ad-banner.png');
+    assert.equal(marketplaceMedia[1]?.items?.[0]?.media?.url, 'attachment://underbanner.png');
+    assert.deepEqual(marketplacePayload.files.map((file: { name: string }) => file.name), [
+        'paid-ad-banner.png',
+        'underbanner.png',
+    ]);
 
     const movieSchema = commandNamed('movie-feedback').data.toJSON() as {
         options: Array<{ name: string; required?: boolean; min_value?: number; max_value?: number }>;
@@ -431,21 +497,14 @@ for (const required of [
     const complaintRating = complaintSchema.options.find(option => option.name === 'rating');
     assert(complaintRating?.required && complaintRating.min_value === 1 && complaintRating.max_value === 5);
 
-    let partnershipLauncher: any = null;
+    let directPartnershipModal: any = null;
     await commandNamed('partnership').execute({
-        channel: {
-            isSendable: () => true,
-            send: async (payload: any) => { partnershipLauncher = payload; },
-        },
-        deferReply: async () => undefined,
-        editReply: async () => undefined,
+        channelId: 'partnership-command-channel',
+        user: { id: 'partnership-command-user' },
+        options: { getSubcommand: () => 'request' },
+        showModal: async (modal: any) => { directPartnershipModal = modal; },
     } as never);
-    assert.equal(partnershipLauncher?.flags, 32_768, 'the partnership launcher must use Components V2');
-    assert.equal(partnershipLauncher?.embeds, undefined, 'the partnership launcher must not use a legacy embed');
-    const partnershipLauncherPanel = partnershipLauncher.components[0].toJSON();
-    const partnershipLauncherMedia = partnershipLauncherPanel.components.filter((component: { type: number }) => component.type === 12);
-    assert.equal(partnershipLauncherMedia.length, 1, 'the partnership launcher must not have a top banner');
-    assert.equal(partnershipLauncherMedia[0]?.items?.[0]?.media?.url, 'attachment://underbanner.webp');
+    assert.equal(directPartnershipModal?.toJSON().custom_id, 'partnership:request-modal');
 
     let partnershipModal: any = null;
     const partnershipButtonHandled = await handleCommunityButton({
@@ -495,11 +554,12 @@ for (const required of [
     assert.equal(partnershipSubmission?.embeds, undefined, 'partnership review requests must not use legacy embeds');
     const partnershipRequestPanel = partnershipSubmission.components[0].toJSON();
     const partnershipRequestMedia = partnershipRequestPanel.components.filter((component: { type: number }) => component.type === 12);
-    assert.equal(partnershipRequestMedia.length, 1, 'partnership review requests must not have a top banner');
-    assert.equal(partnershipRequestMedia[0]?.items?.[0]?.media?.url, 'attachment://underbanner.webp');
+    assert.equal(partnershipRequestMedia.length, 2, 'partnership review requests must include the named top banner and underbanner');
+    assert.equal(partnershipRequestMedia[0]?.items?.[0]?.media?.url, 'attachment://partnership-banner.png');
+    assert.equal(partnershipRequestMedia[1]?.items?.[0]?.media?.url, 'attachment://underbanner.png');
     assert(partnershipRequestPanel.components.some((component: { content?: string }) => component.content === fullPartnershipAd),
         'the full submitted advertisement must be retained in its own V2 text component');
-    assert(partnershipReplies.some(reply => reply.includes('submitted for review')));
+    assert(partnershipReplies.some(reply => reply.includes('submitted for staff review')));
 
     let reviewedPartnership: any = null;
     let approvedPartnership: any = null;
@@ -508,7 +568,10 @@ for (const required of [
     const partnershipSourceMessage = {
         components: partnershipSubmission.components,
         embeds: [],
-        attachments: new Collection([['partnership-underbanner', { id: 'partnership-underbanner', name: 'underbanner.webp' }]]),
+        attachments: new Collection([
+            ['partnership-banner', { id: 'partnership-banner', name: 'partnership-banner.png' }],
+            ['partnership-underbanner', { id: 'partnership-underbanner', name: 'underbanner.png' }],
+        ]),
         edit: async (payload: any) => { reviewedPartnership = payload; },
     };
     assert(await handleCommunityButton({
@@ -549,8 +612,9 @@ for (const required of [
     assert(approvedPartnershipPanel.components.some((component: { content?: string }) => component.content === fullPartnershipAd),
         'the approval channel must receive the complete advertisement verbatim');
     const approvedPartnershipMedia = approvedPartnershipPanel.components.filter((component: { type: number }) => component.type === 12);
-    assert.equal(approvedPartnershipMedia.length, 1, 'approved partnership emblems must not have a top banner');
-    assert.equal(approvedPartnershipMedia[0]?.items?.[0]?.media?.url, 'attachment://underbanner.webp');
+    assert.equal(approvedPartnershipMedia.length, 2, 'approved partnership emblems must include the named top banner and underbanner');
+    assert.equal(approvedPartnershipMedia[0]?.items?.[0]?.media?.url, 'attachment://partnership-banner.png');
+    assert.equal(approvedPartnershipMedia[1]?.items?.[0]?.media?.url, 'attachment://underbanner.png');
     assert.equal(assignedPartnershipRoles.length, 1, 'approval must assign the configured partnership role');
     assert(partnershipApprovalReplies.some(reply => reply.includes('approved')));
 
@@ -578,7 +642,8 @@ for (const required of [
     assert.equal(complaintSubmission?.flags, MessageFlags.IsComponentsV2);
     assert.equal(complaintSubmission?.embeds, undefined);
     assert(JSON.stringify(complaintSubmission).includes('📋 Staff Complaint Received'));
-    assert(JSON.stringify(complaintSubmission).includes('attachment://underbanner.webp'));
+    assert(JSON.stringify(complaintSubmission).includes('attachment://los-angeles-banner.png'));
+    assert(JSON.stringify(complaintSubmission).includes('attachment://underbanner.png'));
     assert(complaintReplies.some(reply => reply.includes('submitted securely')));
 
     const trainingSchema = commandNamed('training-results').data.toJSON() as {
@@ -727,6 +792,8 @@ for (const required of [
     assert(moviePublic.includes('🎬 Movie Feedback'));
     assert(moviePublic.includes(`${'⭐'.repeat(8)}\\n**8/10**`));
     assert(moviePublic.includes('Submitted by therealstickyz_35430'));
+    assert(moviePublic.includes('attachment://los-angeles-banner.png'));
+    assert(moviePublic.includes('attachment://underbanner.png'));
     assert(movieAudit.includes('Discord ID') && movieAudit.includes('1489388257925005508'));
 
     const staffFeedbackSends: any[] = [];
@@ -753,7 +820,8 @@ for (const required of [
     assert(staffFeedbackSends.every(payload => payload.flags === MessageFlags.IsComponentsV2));
     assert(staffFeedbackSends.every(payload => payload.embeds === undefined));
     assert(JSON.stringify(staffFeedbackSends[0]).includes('💬 Staff Feedback'));
-    assert(JSON.stringify(staffFeedbackSends[0]).includes('attachment://underbanner.webp'));
+    assert(JSON.stringify(staffFeedbackSends[0]).includes('attachment://staff-feedback-banner.png'));
+    assert(JSON.stringify(staffFeedbackSends[0]).includes('attachment://underbanner.png'));
 
     let trainingRequestPost: any = null;
     await handleTrainingModal({
@@ -776,7 +844,8 @@ for (const required of [
     assert.equal(trainingRequestPost?.flags, MessageFlags.IsComponentsV2);
     assert.equal(trainingRequestPost?.embeds, undefined);
     assert(JSON.stringify(trainingRequestPost).includes('🎓 Training Request'));
-    assert(JSON.stringify(trainingRequestPost).includes('attachment://underbanner.webp'));
+    assert(JSON.stringify(trainingRequestPost).includes('attachment://training-request-banner.png'));
+    assert(JSON.stringify(trainingRequestPost).includes('attachment://underbanner.png'));
 
     const trainingSends: any[] = [];
     const trainingUsers = {
@@ -819,7 +888,8 @@ for (const required of [
     assert.equal(trainingSends[0].embeds, undefined);
     assert.equal(trainingPanel.accent_color, 0x22c55e, 'Pass training results must be green');
     assert(JSON.stringify(trainingPanel).includes('Average') && JSON.stringify(trainingPanel).includes('9.2/10'));
-    assert(JSON.stringify(trainingPanel).includes('attachment://underbanner.webp'));
+    assert(JSON.stringify(trainingPanel).includes('attachment://training-results-banner.png'));
+    assert(JSON.stringify(trainingPanel).includes('attachment://underbanner.png'));
 
     const promotionSends: any[] = [];
     const promotionDms: any[] = [];
@@ -832,8 +902,32 @@ for (const required of [
         send: async (payload: any) => { promotionDms.push(payload); },
     };
     const approvedBy = { id: '1523122912201277590', username: 'Approver' };
-    const oldRankRole = { id: '1523122834161926000', name: 'Staff', toString: () => '<@&1523122834161926000>' };
-    const selectedRole = { id: '1523122834161926238', name: 'Senior Staff', toString: () => '<@&1523122834161926238>' };
+    const communityMemberRole = {
+        id: '1521593407762464946',
+        name: 'Community Member',
+        managed: true,
+        position: 1_000,
+        toString: () => '<@&1521593407762464946>',
+    };
+    const selectedRole = {
+        id: '1523122834161926238',
+        name: 'Senior Staff',
+        managed: false,
+        position: 10,
+        toString: () => '<@&1523122834161926238>',
+    };
+    const promotedRoleCache = new Collection<string, any>([[communityMemberRole.id, communityMemberRole]]);
+    const removedPromotionRoles: string[] = [];
+    const targetPromotionMember = {
+        roles: {
+            cache: promotedRoleCache,
+            add: async (roleId: string) => { promotedRoleCache.set(roleId, selectedRole); },
+            remove: async (roleId: string) => {
+                removedPromotionRoles.push(roleId);
+                promotedRoleCache.delete(roleId);
+            },
+        },
+    };
     const promotionInteraction = {
         deferReply: async () => undefined,
         editReply: async (payload: string) => { promotionReplies.push(payload); },
@@ -845,12 +939,20 @@ for (const required of [
         member: {
             roles: { cache: new Map([[PROMOTION_AUTHORIZED_ROLE_ID, { id: PROMOTION_AUTHORIZED_ROLE_ID }]]) },
         },
+        guild: {
+            members: {
+                me: { roles: { highest: { position: 100 } } },
+                fetch: async (memberId: string) => {
+                    assert.equal(memberId, promotedMember.id);
+                    return targetPromotionMember;
+                },
+            },
+        },
         options: {
             getSubcommand: () => 'issue',
             getUser: (name: string) => name === 'member' ? promotedMember : approvedBy,
-            getRole: (name: string) => name === 'old-rank' ? oldRankRole : selectedRole,
+            getRole: (name: string) => name === 'old-rank' ? communityMemberRole : selectedRole,
             getString: (name: string) => ({
-                'old-rank': 'Staff Member',
                 reason: 'Consistent professionalism and leadership.',
                 'effective-date': 'Immediately',
             } as Record<string, string>)[name] ?? null,
@@ -877,10 +979,10 @@ for (const required of [
     const promotionPanel = promotionSends[0].components[0].toJSON();
     const promotionBanners = promotionPanel.components.filter((component: { type: number }) => component.type === 12);
     assert.equal(promotionBanners[0]?.items?.[0]?.media?.url, 'attachment://promotion-banner.png');
-    assert.equal(promotionBanners[1]?.items?.[0]?.media?.url, 'attachment://underbanner.webp');
+    assert.equal(promotionBanners[1]?.items?.[0]?.media?.url, 'attachment://underbanner.png');
     assert.deepEqual(
         promotionSends[0].files.map((file: { name: string }) => file.name),
-        ['promotion-banner.png', 'underbanner.webp'],
+        ['promotion-banner.png', 'underbanner.png'],
     );
     const promotionText = promotionPanel.components
         .flatMap((component: { components?: Array<{ content?: string }> }) => component.components || [])
@@ -888,10 +990,14 @@ for (const required of [
         .join('\n');
     assert(promotionText.includes(`<@${promotedMember.id}>`), 'promotion post must mention the promoted member');
     assert(promotionText.includes(`<@&${selectedRole.id}>`), 'promotion post must display the selected new role');
+    assert(promotionText.includes('Old Rank Retained'), 'Community Member must be identified as retained');
+    assert(promotedRoleCache.has(communityMemberRole.id), 'promotion must preserve the locked Community Member role');
+    assert(promotedRoleCache.has(selectedRole.id), 'promotion must add the selected new role');
+    assert.deepEqual(removedPromotionRoles, [], 'promotion must not attempt to remove Community Member');
     assert.equal(promotionDms.length, 1, 'the promoted member must receive a DM');
     assert.equal(promotionDms[0].flags, 32_768, 'the promotion DM must retain the V2 artwork panel');
-    assert.equal(promotionReplies.length, 2, 'promotion must acknowledge immediately and then report final DM status');
-    assert(promotionReplies.every(reply => reply.includes('Components V2 promotion')));
+    assert.equal(promotionReplies.length, 1, 'promotion must report the completed role update once');
+    assert(promotionReplies[0].includes('kept') && promotionReplies[0].includes('added'));
     const promotionDmPanel = promotionDms[0].components[0].toJSON();
     const viewPromotionButton = promotionDmPanel.components
         .find((component: { type: number }) => component.type === 1)?.components?.[0];
@@ -1155,11 +1261,11 @@ for (const required of [
     assert.equal(initialInfractionPanel.type, 17, 'the infraction must be inside one blue-accented container');
     assert.equal(initialInfractionPanel.accent_color, 0x3b82f6, 'the infraction panel must use a blue side rail');
     const initialBanners = initialInfractionPanel.components.filter((component: { type: number }) => component.type === 12);
-    assert.equal(initialBanners[0]?.items?.[0]?.media?.url, 'attachment://infraction-banner.png');
-    assert.equal(initialBanners[1]?.items?.[0]?.media?.url, 'attachment://underbanner.webp');
+    assert.equal(initialBanners[0]?.items?.[0]?.media?.url, 'attachment://infraction-banner.webp');
+    assert.equal(initialBanners[1]?.items?.[0]?.media?.url, 'attachment://underbanner.png');
     assert.deepEqual(
         infractionParentSends[0].files.map((file: { name: string }) => file.name),
-        ['infraction-banner.png', 'underbanner.webp'],
+        ['infraction-banner.webp', 'underbanner.png'],
         'the case message must attach both infraction artwork files',
     );
     const initialAppealButton = initialInfractionPanel.components
@@ -1192,8 +1298,8 @@ for (const required of [
     assert.equal(infractionDmRows.length, 1, 'the DM emblem must contain only one action row');
     assert.equal(infractionDmRows[0]?.components?.[0]?.custom_id, 'infraction-appeal:start:INF-0001');
     const infractionDmBanners = infractionDmPanel.components.filter((component: { type: number }) => component.type === 12);
-    assert.equal(infractionDmBanners[0]?.items?.[0]?.media?.url, 'attachment://infraction-banner.png');
-    assert.equal(infractionDmBanners[1]?.items?.[0]?.media?.url, 'attachment://underbanner.webp');
+    assert.equal(infractionDmBanners[0]?.items?.[0]?.media?.url, 'attachment://infraction-banner.webp');
+    assert.equal(infractionDmBanners[1]?.items?.[0]?.media?.url, 'attachment://underbanner.png');
     assert.equal(infractionReplies.length, 2, 'infraction must acknowledge immediately and then report final case status');
     assert(String(infractionReplies[0]).includes('Finishing the member notification and case save'));
     assert(infractionReplies.some(reply => String(reply).includes('INF-0001 has been issued successfully')));
@@ -1276,8 +1382,8 @@ for (const required of [
     assert.equal(viewInfractionsPayload?.flags, 32_768, '/view-infractions must use Components V2');
     const viewInfractionsPanel = viewInfractionsPayload.components[0].toJSON();
     const viewInfractionBanners = viewInfractionsPanel.components.filter((component: { type: number }) => component.type === 12);
-    assert.equal(viewInfractionBanners[0]?.items?.[0]?.media?.url, 'attachment://infraction-banner.png');
-    assert.equal(viewInfractionBanners[1]?.items?.[0]?.media?.url, 'attachment://underbanner.webp');
+    assert.equal(viewInfractionBanners[0]?.items?.[0]?.media?.url, 'attachment://infraction-banner.webp');
+    assert.equal(viewInfractionBanners[1]?.items?.[0]?.media?.url, 'attachment://underbanner.png');
     const viewInfractionText = viewInfractionsPanel.components
         .flatMap((component: { components?: Array<{ content?: string }> }) => component.components || [])
         .map((component: { content?: string }) => component.content || '')
@@ -1293,6 +1399,23 @@ for (const required of [
         ['session-boost', 'session-boost-banner.png'],
         ['session-full', 'session-full-banner.png'],
     ]);
+    const erlcSsdRequests: Array<{ url: string; command: string; serverKey: string | null }> = [];
+    const originalErlcServerKey = process.env.ERLC_SERVER_KEY;
+    const originalFetch = globalThis.fetch;
+    process.env.ERLC_SERVER_KEY = 'ssd-test-server-key';
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+        const headers = new Headers(init?.headers);
+        const body = JSON.parse(String(init?.body || '{}')) as { command?: string };
+        erlcSsdRequests.push({
+            url: String(input),
+            command: body.command || '',
+            serverKey: headers.get('server-key'),
+        });
+        return new Response(JSON.stringify({ message: 'Success' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+        });
+    }) as typeof fetch;
     let deletedSessionMessages = 0;
     let sessionVotePayload: any = null;
     for (const [commandName, bannerName] of sessionBannerNames) {
@@ -1378,10 +1501,10 @@ for (const required of [
             `/${commandName} must render top banner, details/buttons, then underbanner`,
         );
         assert.equal(sessionPanel.components[0]?.items?.[0]?.media?.url, `attachment://${bannerName}`);
-        assert.equal(sessionPanel.components.at(-1)?.items?.[0]?.media?.url, 'attachment://underbanner.webp');
+        assert.equal(sessionPanel.components.at(-1)?.items?.[0]?.media?.url, 'attachment://underbanner.png');
         assert.deepEqual(
             sessionPayload.files.map((file: { name: string }) => file.name),
-            [bannerName, 'underbanner.webp'],
+            [bannerName, 'underbanner.png'],
         );
         const sessionText = sessionPanel.components
             .flatMap((component: { components?: Array<{ content?: string }> }) => component.components || [])
@@ -1398,6 +1521,78 @@ for (const required of [
     }
     assert.equal(deletedSessionMessages, 2, '/session-end must delete every prior bot session announcement only');
 
+    let enhancedSessionEndReply = '';
+    let enhancedSessionEndPayload: any = null;
+    const enhancedSessionChannel = {
+        id: '1526036392147423404',
+        isTextBased: () => true,
+        isSendable: () => true,
+        messages: { fetch: async () => new Collection<string, any>() },
+        send: async (payload: any) => {
+            enhancedSessionEndPayload = payload;
+            return { id: 'enhanced-session-end-message' };
+        },
+    };
+    await interactionCreate({
+        commandName: 'session-end',
+        guildId: 'session-end-guild',
+        guild: { ownerId: 'different-owner', members: { fetch: async () => null } },
+        member: { roles: [SESSION_START_AUTHORIZED_ROLE_ID] },
+        memberPermissions: { has: () => false },
+        user: { id: 'authorized-session-host' },
+        client: {
+            user: { id: 'session-bot' },
+            channels: { fetch: async () => enhancedSessionChannel },
+        },
+        isButton: () => false,
+        isModalSubmit: () => false,
+        isUserSelectMenu: () => false,
+        isStringSelectMenu: () => false,
+        isChatInputCommand: () => true,
+        isRepliable: () => true,
+        deferReply: async () => undefined,
+        editReply: async (payload: any) => { enhancedSessionEndReply = String(payload); },
+        reply: async () => { throw new Error('an authorized SSD must use the enhanced session handler'); },
+    } as never);
+    assert(enhancedSessionEndPayload, 'the live /session-end route must post its Session End panel');
+    assert(enhancedSessionEndReply.includes('every current player was kicked'), 'the live /session-end route must confirm the ER:LC kick-all action');
+
+    let unavailableSessionChannelReply = '';
+    await interactionCreate({
+        commandName: 'session-end',
+        guildId: 'session-end-guild',
+        guild: { ownerId: 'different-owner', members: { fetch: async () => null } },
+        member: { roles: [SESSION_START_AUTHORIZED_ROLE_ID] },
+        memberPermissions: { has: () => false },
+        user: { id: 'authorized-session-host' },
+        client: {
+            user: { id: 'session-bot' },
+            channels: { fetch: async () => null },
+        },
+        isButton: () => false,
+        isModalSubmit: () => false,
+        isUserSelectMenu: () => false,
+        isStringSelectMenu: () => false,
+        isChatInputCommand: () => true,
+        isRepliable: () => true,
+        deferReply: async () => undefined,
+        editReply: async (payload: any) => { unavailableSessionChannelReply = String(payload); },
+        reply: async () => { throw new Error('an authorized SSD must use the enhanced session handler'); },
+    } as never);
+    assert(unavailableSessionChannelReply.includes('unavailable'));
+    assert(unavailableSessionChannelReply.includes('every current player was kicked'),
+        'SSD must still kick all ER:LC players when the Discord announcement channel is unavailable');
+
+    assert.equal(erlcSsdRequests.length, 3, 'each session-end execution must run exactly one ER:LC SSD command');
+    for (const request of erlcSsdRequests) {
+        assert.equal(request.url, ERLC_COMMAND_ENDPOINT, 'SSD must use the current ER:LC v2 command endpoint');
+        assert.equal(request.command, ERLC_SSD_COMMAND, 'SSD must kick every player with :kick all');
+        assert.equal(request.serverKey, 'ssd-test-server-key');
+    }
+    globalThis.fetch = originalFetch;
+    if (originalErlcServerKey === undefined) delete process.env.ERLC_SERVER_KEY;
+    else process.env.ERLC_SERVER_KEY = originalErlcServerKey;
+
     let sessionVoteEdit: any = null;
     const sessionVoteReplies: string[] = [];
     let sessionVoteDeferred = false;
@@ -1405,8 +1600,8 @@ for (const required of [
     const replaceVoteMediaUrls = (node: any): void => {
         if (node.media?.url === 'attachment://session-vote-banner.png') {
             node.media.url = 'https://cdn.discordapp.com/attachments/channel/session-vote-banner.png';
-        } else if (node.media?.url === 'attachment://underbanner.webp') {
-            node.media.url = 'https://cdn.discordapp.com/attachments/channel/underbanner.webp';
+        } else if (node.media?.url === 'attachment://underbanner.png') {
+            node.media.url = 'https://cdn.discordapp.com/attachments/channel/underbanner.png';
         }
         for (const item of node.items || []) replaceVoteMediaUrls(item);
         for (const component of node.components || []) replaceVoteMediaUrls(component);
@@ -1437,7 +1632,7 @@ for (const required of [
     );
     assert.equal(
         editedVotePanel.components.at(-1)?.items?.[0]?.media?.url,
-        'https://cdn.discordapp.com/attachments/channel/underbanner.webp',
+        'https://cdn.discordapp.com/attachments/channel/underbanner.png',
         'vote updates must preserve the live Discord CDN underbanner URL',
     );
     assert(sessionVoteReplies.some(reply => reply.includes('1/5')));
@@ -1446,11 +1641,14 @@ for (const required of [
     let fetchedTicketPanelChannelId = '';
     const ticketPanelConfirmations: string[] = [];
     const ticketPanelDestination = {
+        isTextBased: () => true,
         isSendable: () => true,
+        messages: { fetch: async () => null },
         send: async (payload: any) => { ticketPanelPayload = payload; },
     };
     await commandNamed('ticket-panel').execute({
         client: {
+            user: { id: 'ticket-bot' },
             channels: {
                 fetch: async (channelId: string) => {
                     fetchedTicketPanelChannelId = channelId;
@@ -1466,7 +1664,7 @@ for (const required of [
     const ticketLauncher = ticketPanelPayload.components[0].toJSON();
     const ticketLauncherBanners = ticketLauncher.components.filter((component: { type: number }) => component.type === 12);
     assert.equal(ticketLauncherBanners[0]?.items?.[0]?.media?.url, 'attachment://assistance-banner.png');
-    assert.equal(ticketLauncherBanners[1]?.items?.[0]?.media?.url, 'attachment://underbanner.webp');
+    assert.equal(ticketLauncherBanners[1]?.items?.[0]?.media?.url, 'attachment://underbanner.png');
     const ticketLauncherSelect = ticketLauncher.components
         .find((component: { type: number; components?: Array<{ custom_id?: string }> }) => component.type === 1
             && component.components?.[0]?.custom_id === 'ticket:create-select')
@@ -1504,7 +1702,9 @@ for (const required of [
                     fetch: async (channelId: string) => {
                         assert.equal(channelId, '1526034504953892925');
                         return {
+                            isTextBased: () => true,
                             isSendable: () => true,
+                            messages: { fetch: async () => null },
                             send: async (payload: any) => {
                                 assert.equal(payload.flags, 32_768);
                                 routedTicketPanelNames.push(commandName);
@@ -1564,7 +1764,7 @@ for (const required of [
                 components: payload.components,
                 attachments: new Collection([
                     ['assistance', { id: 'assistance', name: 'assistance-banner.png' }],
-                    ['underbanner', { id: 'underbanner', name: 'underbanner.webp' }],
+                    ['underbanner', { id: 'underbanner', name: 'underbanner.png' }],
                 ]),
                 edit: async (editPayload: any) => {
                     restoredTicketPanel = editPayload;
@@ -1609,7 +1809,7 @@ for (const required of [
     const openTicketPanel = openTicketPayload.components[0].toJSON();
     const openTicketBanners = openTicketPanel.components.filter((component: { type: number }) => component.type === 12);
     assert.equal(openTicketBanners[0]?.items?.[0]?.media?.url, 'attachment://assistance-banner.png');
-    assert.equal(openTicketBanners[1]?.items?.[0]?.media?.url, 'attachment://underbanner.webp');
+    assert.equal(openTicketBanners[1]?.items?.[0]?.media?.url, 'attachment://underbanner.png');
     const openTicketButtons = openTicketPanel.components
         .filter((component: { type: number }) => component.type === 1)
         .flatMap((component: { components?: Array<{ custom_id?: string }> }) => component.components || [])
@@ -1666,7 +1866,7 @@ for (const required of [
     const applicationsPanel = applicationsPanelPayload.components[0].toJSON();
     const applicationsBanners = applicationsPanel.components.filter((component: { type: number }) => component.type === 12);
     assert.equal(applicationsBanners[0]?.items?.[0]?.media?.url, 'attachment://applications-banner.png');
-    assert.equal(applicationsBanners[1]?.items?.[0]?.media?.url, 'attachment://underbanner.webp');
+    assert.equal(applicationsBanners[1]?.items?.[0]?.media?.url, 'attachment://underbanner.png');
     assert.deepEqual(APPLICATION_APPROVAL_ROLE_IDS.ingame, ['1524013351850737835']);
     assert.deepEqual(APPLICATION_APPROVAL_ROLE_IDS.discord, [
         '1530363357423468706',
@@ -1684,7 +1884,7 @@ for (const required of [
     const guidelinesPanel = guidelinesPayload.components[0].toJSON();
     const guidelinesBanners = guidelinesPanel.components.filter((component: { type: number }) => component.type === 12);
     assert.equal(guidelinesBanners[0]?.items?.[0]?.media?.url, 'attachment://applications-banner.png');
-    assert.equal(guidelinesBanners[1]?.items?.[0]?.media?.url, 'attachment://underbanner.webp');
+    assert.equal(guidelinesBanners[1]?.items?.[0]?.media?.url, 'attachment://underbanner.png');
 
     const applicantDms: string[] = [];
     const applicationReviewSends: any[] = [];
@@ -1703,9 +1903,9 @@ for (const required of [
         deferReply: async () => undefined,
         editReply: async (content: string) => { applicationStartReplies.push(content); },
     } as never));
-    assert(applicantDms[0]?.includes('Question 1 of 8'));
+    assert(applicantDms[0]?.includes('Question 1 of 9'));
     assert(applicationStartReplies.some(reply => reply.includes('Check your DMs')));
-    for (let index = 0; index < 8; index += 1) {
+    for (let index = 0; index < 9; index += 1) {
         assert(await handleApplicationDmMessage({
             author: applicant,
             guildId: null,
@@ -1730,7 +1930,7 @@ for (const required of [
     const applicationReviewPanel = applicationReviewSends[0].components[0].toJSON();
     const reviewBanners = applicationReviewPanel.components.filter((component: { type: number }) => component.type === 12);
     assert.equal(reviewBanners[0]?.items?.[0]?.media?.url, 'attachment://applications-banner.png');
-    assert.equal(reviewBanners[1]?.items?.[0]?.media?.url, 'attachment://underbanner.webp');
+    assert.equal(reviewBanners[1]?.items?.[0]?.media?.url, 'attachment://underbanner.png');
     const applicationReviewText = applicationReviewPanel.components
         .map((component: { content?: string }) => component.content || '')
         .join('\n');
@@ -1789,8 +1989,8 @@ for (const required of [
         }
         return dms;
     };
-    const mediaApplicationDms = await completeApplication('media', 7, '1489388257925005888');
-    const banAppealDms = await completeApplication('ban_appeal', 3, '1489388257925005999');
+    const mediaApplicationDms = await completeApplication('media', 8, '1489388257925005888');
+    const banAppealDms = await completeApplication('ban_appeal', 4, '1489388257925005999');
     assert(mediaApplicationDms.at(-1)?.includes('Media Team Application'));
     assert(banAppealDms.at(-1)?.includes('In-Game Ban Appeal'));
     assert.equal(applicationReviewSends.length, 3, 'Discord, Media, and Ban Appeal submissions must all reach review');
@@ -1843,17 +2043,20 @@ for (const required of [
     for (let index = 0; index < 9; index += 1) {
         assert(await handleApplicationDmMessage(longApplicationMessage(`In-game answer ${index + 1}`) as never));
     }
-    assert(longApplicationDms.at(-1)?.includes('Question 10 of 11'));
+    assert(longApplicationDms.at(-1)?.includes('Question 10 of 12'));
     const persistedAtQuestion10 = persistedApplicationSessions.get(longApplicationUser.id);
     assert(persistedAtQuestion10, 'Question 10 progress must be durably saved');
     persistedAtQuestion10.startedAt = Date.now() - 48 * 60 * 60 * 1_000;
     persistedAtQuestion10.lastActivityAt = Date.now();
     clearApplicationSessionCache();
     assert(await handleApplicationDmMessage(longApplicationMessage('In-game answer 10') as never));
-    assert(longApplicationDms.at(-1)?.includes('Question 11 of 11'),
+    assert(longApplicationDms.at(-1)?.includes('Question 11 of 12'),
         'an active long application must continue past Question 10 after a process restart');
     clearApplicationSessionCache();
     assert(await handleApplicationDmMessage(longApplicationMessage('In-game answer 11') as never));
+    assert(longApplicationDms.at(-1)?.includes('Question 12 of 12'));
+    clearApplicationSessionCache();
+    assert(await handleApplicationDmMessage(longApplicationMessage('In-game answer 12') as never));
     assert(longApplicationDms.at(-1)?.includes('DO NOT ASK'));
     assert.equal(persistedApplicationSessions.has(longApplicationUser.id), false,
         'the durable application session must be removed only after successful review submission');
@@ -1864,7 +2067,7 @@ for (const required of [
         id: '1489388257925006166',
         bot: false,
         send: async (content: string) => {
-            if (content.includes('Question 2 of 7') && failQuestionTwoOnce) {
+            if (content.includes('Question 2 of 8') && failQuestionTwoOnce) {
                 failQuestionTwoOnce = false;
                 throw new Error('Temporary Discord DM delivery failure');
             }
@@ -1890,7 +2093,7 @@ for (const required of [
     assert.equal(persistedApplicationSessions.get(interruptedApplicationUser.id)?.promptPending, true,
         'a failed next-question DM must be persisted as pending');
     assert(await handleApplicationDmMessage(interruptedMessage('Please continue my application') as never));
-    assert(interruptedApplicationDms.at(-1)?.includes('Question 2 of 7'),
+    assert(interruptedApplicationDms.at(-1)?.includes('Question 2 of 8'),
         'the next applicant DM must resend a question whose original delivery failed');
     assert.equal(persistedApplicationSessions.get(interruptedApplicationUser.id)?.answers.length, 1,
         'a recovery request must not be consumed as an answer to an unseen question');
@@ -1909,15 +2112,15 @@ for (const required of [
     };
     const legacyHistory = new Collection<string, any>();
     const historyBase = Date.now() - 20 * 60_000;
-    for (let question = 1; question <= 10; question += 1) {
+    for (let question = 1; question <= 11; question += 1) {
         legacyHistory.set(`legacy-prompt-${question}`, {
             id: `legacy-prompt-${question}`,
             author: { id: 'application-bot', bot: true },
-            content: `**Question ${question} of 11**\nPrompt ${question}`,
+            content: `**Question ${question} of 12**\nPrompt ${question}`,
             attachments: new Collection<string, any>(),
             createdTimestamp: historyBase + question * 2_000,
         });
-        if (question < 10) {
+        if (question < 11) {
             legacyHistory.set(`legacy-answer-${question}`, {
                 id: `legacy-answer-${question}`,
                 author: legacyRecoveryUser,
@@ -1928,10 +2131,10 @@ for (const required of [
         }
     }
     assert(await handleApplicationDmMessage({
-        id: 'legacy-current-answer-10',
+        id: 'legacy-current-answer-11',
         author: legacyRecoveryUser,
         guildId: null,
-        content: 'Recovered answer 10',
+        content: 'Recovered answer 11',
         attachments: new Collection<string, any>(),
         channel: { messages: { fetch: async () => legacyHistory } },
         client: {
@@ -1944,8 +2147,8 @@ for (const required of [
             },
         },
     } as never));
-    assert(legacyRecoveryDms.at(-1)?.includes('Question 11 of 11'),
-        'a pre-deployment application must recover from DM history at Question 10');
+    assert(legacyRecoveryDms.at(-1)?.includes('Question 12 of 12'),
+        'a pre-deployment application must recover from DM history at Question 11');
     configureApplicationSessionPersistence(null);
     clearApplicationSessionCache();
 
@@ -2085,13 +2288,16 @@ for (const required of [
     };
     const appealReviewChannel = {
         isThread: () => false,
+        isTextBased: () => true,
         isSendable: () => true,
         send: async (payload: any) => {
             appealReviewPayload = payload;
             return { id: 'appeal-review-message' };
         },
         messages: {
-            fetch: async () => ({ edit: async (payload: any) => { appealReviewEdit = payload; } }),
+            fetch: async (query?: unknown) => typeof query === 'object'
+                ? new Collection<string, any>()
+                : ({ edit: async (payload: any) => { appealReviewEdit = payload; } }),
         },
     };
     const appealClient = {
@@ -2143,7 +2349,7 @@ for (const required of [
     assert.equal(approvedAppealDms.length, 1, 'approved appeals must DM the affected member');
     assert.equal(sourceAppealNotices.length, 1, 'approved appeals must update the source infraction channel');
     assert.equal(sourceAppealNotices[0].flags, MessageFlags.IsComponentsV2);
-    assert(JSON.stringify(sourceAppealNotices[0]).includes('✅ Infraction Appealed'));
+    assert(JSON.stringify(sourceAppealNotices[0]).includes('✅ Infraction Appeal Approved'));
     assert(appealReviewEdit, 'the staff review message must be updated after a decision');
     assert(appealReviewReplies.some(reply => reply.includes('infraction channel was updated')));
     configureInfractionPersistence(null);

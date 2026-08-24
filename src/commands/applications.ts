@@ -29,7 +29,7 @@ import { BRAND } from '../config/constants';
 import { logger } from '../utils/logger';
 
 const APPLICATIONS_BANNER_NAME = 'applications-banner.png';
-const UNDERBANNER_NAME = 'underbanner.webp';
+const UNDERBANNER_NAME = 'underbanner.png';
 const APPLICATIONS_BANNER_PATH = resolve(__dirname, '..', '..', 'assets', APPLICATIONS_BANNER_NAME);
 const UNDERBANNER_PATH = resolve(__dirname, '..', '..', 'assets', UNDERBANNER_NAME);
 const APPLICATION_REVIEW_CHANNEL_ID = '1538352573248176229';

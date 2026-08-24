@@ -22,7 +22,7 @@ import { logger } from '../utils/logger';
 const PROMOTIONS_CHANNEL_ID = '1526044978109743255';
 const PROMOTION_BANNER_NAME = 'promotion-banner.png';
 const PROMOTION_BANNER_PATH = resolve(__dirname, '..', '..', 'assets', PROMOTION_BANNER_NAME);
-const UNDERBANNER_NAME = 'underbanner.webp';
+const UNDERBANNER_NAME = 'underbanner.png';
 const UNDERBANNER_PATH = resolve(__dirname, '..', '..', 'assets', UNDERBANNER_NAME);
 const PANEL_COLOR = 0x247bf1;
 

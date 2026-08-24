@@ -23,8 +23,8 @@ import { markSlashCommandFailed } from '../utils/commandAudit';
 const TRAINING_DEPARTMENT_ROLE_ID = '1524013351850737835';
 const TRAINING_REQUEST_CHANNEL_ID = '1526488294945198150';
 const TRAINING_MANAGEMENT_ROLE_ID = '1521593407795888330';
-const TRAINING_REQUEST_BANNER_NAME = 'training-request-banner.webp';
-const UNDERBANNER_NAME = 'underbanner.webp';
+const TRAINING_REQUEST_BANNER_NAME = 'training-request-banner.png';
+const UNDERBANNER_NAME = 'underbanner.png';
 const TRAINING_REQUEST_BANNER_PATH = resolve(__dirname, '..', '..', 'assets', TRAINING_REQUEST_BANNER_NAME);
 const UNDERBANNER_PATH = resolve(__dirname, '..', '..', 'assets', UNDERBANNER_NAME);
 

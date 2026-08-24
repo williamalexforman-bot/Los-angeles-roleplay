@@ -15,6 +15,7 @@ import {
     TextInputBuilder,
     TextInputStyle,
     type Message,
+    type MessageCreateOptions,
 } from 'discord.js';
 import { BRAND, INFRACTION_AUTHORIZED_ROLE_ID } from '../config/constants';
 import { Infraction, InfractionAppeal, type InfractionAppealRecord } from '../database/models';
@@ -192,7 +193,7 @@ function extractField(text: string, label: string): string {
     const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const patterns = [
         new RegExp(`\\*\\*${escaped}:?\\*\\*\\s*\\n?([^\\n]+)`, 'i'),
-        new RegExp(`>${0,1}\\s*\\*\\*${escaped}:?\\*\\*\\s*([^\\n]+)`, 'i'),
+        new RegExp(`>?\\s*\\*\\*${escaped}:?\\*\\*\\s*([^\\n]+)`, 'i'),
     ];
     for (const pattern of patterns) {
         const value = text.match(pattern)?.[1]?.trim();
@@ -523,7 +524,7 @@ async function postApprovedAppealNotice(
                 `> **Reason:** ${clean(reviewReason, 1_000)}`,
             ].join('\n')),
         );
-    const payload = {
+    const payload: MessageCreateOptions = {
         components: [panel],
         flags: MessageFlags.IsComponentsV2,
         allowedMentions: { parse: [] as [] },

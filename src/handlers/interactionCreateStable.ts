@@ -56,6 +56,12 @@ function isApplicationInteraction(interaction: Interaction): boolean {
     return false;
 }
 
+function interactionLabel(interaction: Interaction): string {
+    if (interaction.isChatInputCommand()) return `/${interaction.commandName}`;
+    if ('customId' in interaction && typeof interaction.customId === 'string') return interaction.customId;
+    return `interaction type ${interaction.type}`;
+}
+
 async function runCriticalTickets(interaction: Interaction): Promise<boolean> {
     if (!isTicketInteraction(interaction)) return false;
 
@@ -104,7 +110,7 @@ async function runCriticalTickets(interaction: Interaction): Promise<boolean> {
             && typeof tickets.handleTicketSelect === 'function'
             && await tickets.handleTicketSelect(interaction)) return true;
 
-        throw new Error(`No ticket handler accepted ${interaction.isChatInputCommand() ? interaction.commandName : interaction.customId}.`);
+        throw new Error(`No ticket handler accepted ${interactionLabel(interaction)}.`);
     } catch (error) {
         logger.error(`[StableRouter] Tickets failed independently: ${error instanceof Error ? error.stack || error.message : String(error)}`);
         if (!isRateLimitError(error)) {
@@ -140,7 +146,7 @@ async function runCriticalApplications(interaction: Interaction): Promise<boolea
             && typeof applications.handleApplicationSelect === 'function'
             && await applications.handleApplicationSelect(interaction)) return true;
 
-        throw new Error(`No application handler accepted ${interaction.customId}.`);
+        throw new Error(`No application handler accepted ${interactionLabel(interaction)}.`);
     } catch (error) {
         logger.error(`[StableRouter] Applications failed independently: ${error instanceof Error ? error.stack || error.message : String(error)}`);
         if (!isRateLimitError(error)) {

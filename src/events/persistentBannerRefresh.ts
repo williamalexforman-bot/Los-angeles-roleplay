@@ -8,14 +8,14 @@ type PersistentPanel = {
     bannerName: string;
 };
 
-const UNDERBANNER_NAME = 'underbanner.webp';
+const UNDERBANNER_NAME = 'underbanner.png';
 const ASSETS_ROOT = resolve(__dirname, '..', '..', 'assets');
 
 const PANELS: readonly PersistentPanel[] = [
-    { channelId: '1526049604712529971', marker: 'Los Angeles Dashboard', bannerName: 'dashboard-banner.webp' },
+    { channelId: '1526049604712529971', marker: 'Los Angeles Dashboard', bannerName: 'dashboard-banner.png' },
     { channelId: '1526034504953892925', marker: 'Los Angeles Roleplay Support', bannerName: 'assistance-banner.png' },
     { channelId: '1526035041593856182', marker: 'Applications', bannerName: 'applications-banner.png' },
-    { channelId: '1526035127606706196', marker: 'Marketplace', bannerName: 'paid-ad-banner.webp' },
+    { channelId: '1526035127606706196', marker: 'Marketplace', bannerName: 'paid-ad-banner.png' },
 ];
 
 type ComponentNode = { content?: unknown; components?: readonly ComponentNode[] };

@@ -27,7 +27,7 @@ function underbanner(): MediaGalleryBuilder {
 }
 
 function attachment(): AttachmentBuilder {
-    return new AttachmentBuilder(SESSION_UNDERBANNER_PATH, { name: 'underbanner.webp' });
+    return new AttachmentBuilder(SESSION_UNDERBANNER_PATH, { name: 'underbanner.png' });
 }
 
 function panel(title: string, blocks: readonly string[], color = PANEL_COLOR): ContainerBuilder {

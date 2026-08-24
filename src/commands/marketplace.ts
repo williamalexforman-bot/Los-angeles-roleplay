@@ -18,7 +18,7 @@ import { BOTTOM_UNDERBANNER, SESSION_UNDERBANNER_PATH } from '../utils/embeds';
 import { logger } from '../utils/logger';
 
 const MARKETPLACE_CHANNEL_ID = '1526035127606706196';
-const MARKETPLACE_BANNER_NAME = 'paid-ad-banner.webp';
+const MARKETPLACE_BANNER_NAME = 'paid-ad-banner.png';
 const MARKETPLACE_BANNER_PATH = path.resolve(process.cwd(), 'assets', MARKETPLACE_BANNER_NAME);
 const MARKETPLACE_BANNER_URL = `attachment://${MARKETPLACE_BANNER_NAME}`;
 const MARKETPLACE_ACCENT_COLOR = 0x3b82f6;
@@ -64,7 +64,7 @@ function buildMarketplacePanel(): ContainerBuilder {
 function marketplaceAttachments(): AttachmentBuilder[] {
     return [
         new AttachmentBuilder(MARKETPLACE_BANNER_PATH, { name: MARKETPLACE_BANNER_NAME }),
-        new AttachmentBuilder(SESSION_UNDERBANNER_PATH, { name: 'underbanner.webp' }),
+        new AttachmentBuilder(SESSION_UNDERBANNER_PATH, { name: 'underbanner.png' }),
     ];
 }
 
