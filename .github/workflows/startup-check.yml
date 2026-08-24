@@ -1,0 +1,59 @@
+name: Startup Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  startup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node 22.22.0
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.22.0
+          cache: npm
+
+      - name: Install exactly from lockfile
+        run: npm ci --include=dev --no-audit --no-fund
+
+      - name: Startup and health check
+        shell: bash
+        env:
+          PORT: '10000'
+          NODE_ENV: production
+          ENABLE_PRIVILEGED_INTENTS: 'false'
+          BOT_TOKEN: 'ci-placeholder-token'
+        run: |
+          node index.js > startup.log 2>&1 &
+          PID=$!
+          trap 'kill $PID 2>/dev/null || true' EXIT
+          for i in {1..20}; do
+            if curl --fail --silent http://127.0.0.1:10000/health >/tmp/health.json; then
+              cat /tmp/health.json
+              cat startup.log
+              exit 0
+            fi
+            if ! kill -0 $PID 2>/dev/null; then
+              echo 'Bot process exited before health check passed.'
+              cat startup.log
+              exit 1
+            fi
+            sleep 1
+          done
+          echo 'Health endpoint never became ready.'
+          cat startup.log
+          exit 1
+
+      - name: Strict TypeScript check
+        run: npm run typecheck
+
+      - name: Full command smoke tests
+        run: npm test

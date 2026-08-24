@@ -5,15 +5,36 @@ import {
     type ApplicationSession,
 } from '../commands/applications';
 
+const APPLICATION_DB_INTERACTION_TIMEOUT_MS = 850;
+
 function requireDatabase(): void {
     if (!isDatabaseAvailable()) throw new Error('MongoDB is unavailable.');
+}
+
+async function withinInteractionBudget<T>(operation: Promise<T>): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    try {
+        return await Promise.race([
+            operation,
+            new Promise<T>((_, reject) => {
+                timer = setTimeout(
+                    () => reject(new Error('Application database request exceeded the Discord interaction budget.')),
+                    APPLICATION_DB_INTERACTION_TIMEOUT_MS,
+                );
+            }),
+        ]);
+    } finally {
+        if (timer) clearTimeout(timer);
+    }
 }
 
 export function configureApplicationSessionDatabaseAdapter(): void {
     configureApplicationSessionPersistence({
         async loadApplicationSession(userId) {
             requireDatabase();
-            const record = await ApplicationSessionModel.findOne({ userId }).lean().exec();
+            const record = await withinInteractionBudget(
+                ApplicationSessionModel.findOne({ userId }).lean().exec(),
+            );
             if (!record) return null;
             return {
                 type: record.type,
@@ -45,7 +66,7 @@ export function configureApplicationSessionDatabaseAdapter(): void {
         },
         async deleteApplicationSession(userId) {
             requireDatabase();
-            await ApplicationSessionModel.deleteOne({ userId }).exec();
+            await withinInteractionBudget(ApplicationSessionModel.deleteOne({ userId }).exec());
         },
     });
 }

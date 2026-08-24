@@ -53,6 +53,85 @@ export function getDiscordBotToken(): string | undefined {
     return process.env.BOT_TOKEN?.trim() || process.env.TOKEN?.trim() || undefined;
 }
 
+function hasValue(name: string): boolean {
+    return Boolean(process.env[name]?.trim());
+}
+
+export interface RuntimeEnvironmentAudit {
+    healthy: boolean;
+    required: Record<string, boolean>;
+    recommended: Record<string, boolean>;
+    optional: Record<string, boolean>;
+    notes: string[];
+}
+
+/**
+ * Returns presence/health information only. It never returns tokens, passwords,
+ * API keys, connection strings, or any other secret value.
+ */
+export function auditRuntimeEnvironment(): RuntimeEnvironmentAudit {
+    const splitMongo = {
+        username: hasValue('MONGODB_USERNAME'),
+        password: hasValue('MONGODB_PASSWORD'),
+        host: hasValue('MONGODB_HOST'),
+    };
+    const splitMongoCount = Object.values(splitMongo).filter(Boolean).length;
+    const mongoSplitComplete = splitMongoCount === 3;
+    const mongoUriPresent = hasValue('MONGODB_URI');
+    const mongoConfigured = mongoSplitComplete || mongoUriPresent;
+    const renderUrlPresent = hasValue('RENDER_EXTERNAL_URL') || hasValue('RENDER_EXTERNAL_HOSTNAME');
+
+    const required = {
+        BOT_TOKEN: Boolean(getDiscordBotToken()),
+        MONGODB: mongoConfigured,
+    };
+
+    const recommended = {
+        GUILD_ID: hasValue('GUILD_ID'),
+        ENABLE_PRIVILEGED_INTENTS: String(process.env.ENABLE_PRIVILEGED_INTENTS || '').toLowerCase() === 'true',
+        RENDER_EXTERNAL_URL: process.env.RENDER === 'true' ? renderUrlPresent : true,
+    };
+
+    const optional = {
+        OPENAI_API_KEY: Boolean(getOpenAiApiKey()),
+        ERLC_SERVER_KEY: hasValue('ERLC_SERVER_KEY'),
+        DOCK_API_KEY: hasValue('DOCK_API_KEY'),
+        BLOXLINK_API_KEY: Boolean(getBloxlinkApiKey()),
+        MELONY_API_KEY: Boolean(getMelonyApiKey()),
+        MELONY_API_URL: Boolean(getMelonyApiUrl()),
+        INGAME_API_URL: Boolean(getInGameApiUrl()),
+    };
+
+    const notes: string[] = [];
+    if (splitMongoCount > 0 && !mongoSplitComplete) {
+        notes.push('MongoDB split credentials are only partially configured; all of MONGODB_USERNAME, MONGODB_PASSWORD, and MONGODB_HOST are required together.');
+    }
+    if (!hasValue('GUILD_ID')) {
+        notes.push('GUILD_ID is not set; the bot can use its connected guild/fallback ID, but explicit configuration is safer.');
+    }
+    if (process.env.RENDER === 'true' && !renderUrlPresent) {
+        notes.push('Render did not expose RENDER_EXTERNAL_URL/RENDER_EXTERNAL_HOSTNAME, so the internal keepalive cannot self-ping.');
+    }
+    if (hasValue('BOT_TOKEN') && hasValue('TOKEN')) {
+        notes.push('Both BOT_TOKEN and legacy TOKEN are set; BOT_TOKEN wins. Removing legacy TOKEN reduces configuration ambiguity.');
+    }
+
+    const healthy = Object.values(required).every(Boolean) && Object.values(recommended).every(Boolean);
+    return { healthy, required, recommended, optional, notes };
+}
+
+/** Print a secrets-safe startup report for Render logs. */
+export function logRuntimeEnvironmentAudit(log: (message: string) => void = console.log): RuntimeEnvironmentAudit {
+    const audit = auditRuntimeEnvironment();
+    const status = (value: boolean) => value ? 'PRESENT' : 'MISSING';
+    log(`[EnvAudit] overall=${audit.healthy ? 'HEALTHY' : 'CHECK_REQUIRED'}`);
+    log(`[EnvAudit] required BOT_TOKEN=${status(audit.required.BOT_TOKEN)} MONGODB=${status(audit.required.MONGODB)}`);
+    log(`[EnvAudit] recommended GUILD_ID=${status(audit.recommended.GUILD_ID)} PRIVILEGED_INTENTS=${status(audit.recommended.ENABLE_PRIVILEGED_INTENTS)} RENDER_URL=${status(audit.recommended.RENDER_EXTERNAL_URL)}`);
+    log(`[EnvAudit] optional OPENAI=${status(audit.optional.OPENAI_API_KEY)} ERLC=${status(audit.optional.ERLC_SERVER_KEY)} DOCK=${status(audit.optional.DOCK_API_KEY)} BLOXLINK=${status(audit.optional.BLOXLINK_API_KEY)} MELONY_KEY=${status(audit.optional.MELONY_API_KEY)} MELONY_URL=${status(audit.optional.MELONY_API_URL)} INGAME_URL=${status(audit.optional.INGAME_API_URL)}`);
+    for (const note of audit.notes) log(`[EnvAudit] NOTE: ${note}`);
+    return audit;
+}
+
 const config = {
     TOKEN: getDiscordBotToken(),
     MONGODB_URI: process.env.MONGODB_URI,
@@ -77,5 +156,10 @@ const config = {
     OPENAI_API_KEY: getOpenAiApiKey(),
     OPENAI_MODEL: getOpenAiModel(),
 };
+
+if (process.env.NODE_ENV === 'production' && process.env.LARP_ENV_AUDIT_LOGGED !== 'true') {
+    process.env.LARP_ENV_AUDIT_LOGGED = 'true';
+    logRuntimeEnvironmentAudit();
+}
 
 export default config;
