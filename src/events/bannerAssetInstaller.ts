@@ -17,6 +17,11 @@ const BATCH_ONE_BANNERS: BannerInstall[] = [
         label: 'Infraction',
     },
     {
+        source: resolve(ASSETS_ROOT, 'new-banners', 'promotion.webp.b64'),
+        target: resolve(ASSETS_ROOT, 'promotion-banner.png'),
+        label: 'Promotion',
+    },
+    {
         source: resolve(ASSETS_ROOT, 'new-banners', 'underbanner.b64'),
         target: resolve(ASSETS_ROOT, 'underbanner.webp'),
         label: 'Underbanner',
