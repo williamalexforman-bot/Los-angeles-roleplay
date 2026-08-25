@@ -4,6 +4,8 @@ import {
     buildMarketplacePanel,
     decodeMarketplaceTicketMetadata,
     encodeMarketplaceTicketMetadata,
+    handleMarketplaceSelect,
+    marketplaceCategoryProducts,
 } from '../src/commands/marketplace';
 import { resolveMelonlyRobloxProfile } from '../src/services/melonlyVerificationService';
 import {
@@ -21,16 +23,56 @@ async function run(): Promise<void> {
         ['paid-ad-here', '1954819787'],
         ['sponsored-everyone', '1955581700'],
         ['priority', '1956096571'],
+        ['small-donation', '1956206563'],
+        ['medium-donation', '1953387997'],
+        ['large-donation', '1955515772'],
+        ['extra-large-donation', '1957626275'],
     ]);
     assert(products.every(product => product.purchaseUrl.includes(`/game-pass/${product.itemId}/`)));
+    assert.deepEqual(
+        marketplaceCategoryProducts('donations').map(product => [product.key, product.price]),
+        [
+            ['small-donation', 100],
+            ['medium-donation', 400],
+            ['large-donation', 800],
+            ['extra-large-donation', 1_200],
+        ],
+    );
+    assert.deepEqual(
+        marketplaceCategoryProducts('paid-ads').map(product => product.key),
+        ['sponsored-here', 'instant-post', 'paid-ad-everyone', 'paid-ad-here', 'sponsored-everyone', 'priority'],
+    );
 
-    const marketplaceJson = buildMarketplacePanel().toJSON() as {
-        components: Array<{ type: number; accessory?: { style?: number; url?: string } }>;
-    };
-    const links = marketplaceJson.components
-        .filter(component => component.type === 9)
-        .map(component => component.accessory?.url);
-    assert.deepEqual(links, products.map(product => product.purchaseUrl));
+    const marketplaceJson = JSON.stringify(buildMarketplacePanel().toJSON());
+    assert(marketplaceJson.includes("Hello! Welcome to Los Angeles Roleplay's Marketplace"));
+    assert(marketplaceJson.includes('marketplace:browse'));
+    assert(marketplaceJson.includes('marketplace:claim'));
+    assert(marketplaceJson.indexOf('marketplace:browse') < marketplaceJson.indexOf('marketplace:claim'),
+        'the claim button should appear below the marketplace dropdown');
+
+    let browseReply: any = null;
+    assert.equal(await handleMarketplaceSelect({
+        customId: 'marketplace:browse',
+        values: ['donations'],
+        reply: async (payload: unknown) => { browseReply = payload; },
+    } as never), true);
+    assert(String(browseReply.content).includes('Donations'));
+    assert.deepEqual(
+        browseReply.components[0].toJSON().components[0].options.map((option: { value: string }) => option.value),
+        ['small-donation', 'medium-donation', 'large-donation', 'extra-large-donation'],
+    );
+
+    let productUpdate: any = null;
+    assert.equal(await handleMarketplaceSelect({
+        customId: 'marketplace:products:donations',
+        values: ['medium-donation'],
+        update: async (payload: unknown) => { productUpdate = payload; },
+    } as never), true);
+    assert(String(productUpdate.content).includes('R$400'));
+    assert.equal(
+        productUpdate.components[1].toJSON().components[0].url,
+        'https://www.roblox.com/game-pass/1953387997/Medium-Donation',
+    );
 
     let ownershipUrl = '';
     const ownership = await robloxUserOwnsConfiguredItem('123456', products[0], async input => {

@@ -58,7 +58,7 @@ The bot needs View Channels, Manage Channels, Manage Roles/Permissions where app
 - `/suggest` and `/suggestions` — publish a persistent V2 suggestion panel; votes and staff decisions recover from the Discord message after a restart.
 - `/add-member` and `/remove-member` — grant or deny a member access to the current managed ticket. A member-specific removal also overrides the support-role channel access.
 - `/partnership request` — posts the branded partnership rules panel; the button opens a server-name, representative, invite-link, and server-ad modal. Completed requests go to the configured partnership review channel with staff-only Approve/Deny controls.
-- `/marketplace-panel` — posts the marketplace with direct Roblox purchase buttons and a claim button. Claims resolve the buyer's Melonly-verified Roblox account, check all six game passes, prevent duplicate use, and open a Management ticket.
+- `/marketplace-panel` — posts the Marketplace V2 welcome panel with donation and paid-ad dropdowns. The claim button checks the buyer's Melonly-verified Roblox inventory, lets them select one of ten game passes, prevents duplicate claims, and opens a Management ticket.
 - `/paid-ad create` — inside the buyer's marketplace ticket, opens the server-name, permanent-invite, and full-ad form and assigns the next durable publishing slot.
 - `/paid-ad priority`, `/paid-ad instant`, and `/paid-ad queue` — consume the matching verified add-on, publish immediately, or show the ticket's waiting ads.
 - `/staff-complaint` — submits a structured 1–5 star complaint about a staff member to the configured private complaint channel.

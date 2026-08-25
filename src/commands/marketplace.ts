@@ -13,10 +13,11 @@ import {
     MediaGalleryItemBuilder,
     MessageFlags,
     PermissionFlagsBits,
-    SectionBuilder,
     SeparatorBuilder,
     SeparatorSpacingSize,
     SlashCommandBuilder,
+    StringSelectMenuBuilder,
+    StringSelectMenuInteraction,
     TextDisplayBuilder,
     type Guild,
     type TextChannel,
@@ -28,6 +29,7 @@ import {
     marketplaceProduct,
     marketplaceProducts,
     ownedMarketplaceProducts,
+    robloxUserOwnsConfiguredItem,
     type MarketplaceProductConfig,
 } from '../services/marketplacePurchaseService';
 import { BOTTOM_UNDERBANNER, SESSION_UNDERBANNER_PATH } from '../utils/embeds';
@@ -61,19 +63,44 @@ function separator(): SeparatorBuilder {
     return new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small);
 }
 
-function purchaseButton(product: MarketplaceProductConfig): ButtonBuilder {
-    return new ButtonBuilder()
-        .setStyle(ButtonStyle.Link)
-        .setURL(product.purchaseUrl)
-        .setLabel(`Buy • R$${product.price.toLocaleString()}`);
+type MarketplaceCategory = 'donations' | 'paid-ads';
+
+export function marketplaceCategoryProducts(category: MarketplaceCategory): MarketplaceProductConfig[] {
+    return marketplaceProducts().filter(product => category === 'donations'
+        ? product.kind === 'donation'
+        : product.kind === 'paid-ad' || product.kind === 'add-on');
 }
 
-function marketplaceItemSection(product: MarketplaceProductConfig): SectionBuilder {
-    return new SectionBuilder()
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(
-            `**${product.label}**\n${product.description}`,
-        ))
-        .setButtonAccessory(purchaseButton(product));
+function categorySelect(): StringSelectMenuBuilder {
+    return new StringSelectMenuBuilder()
+        .setCustomId('marketplace:browse')
+        .setPlaceholder('Choose what you want to buy')
+        .addOptions(
+            {
+                label: 'Donations',
+                value: 'donations',
+                description: 'Small, medium, large, and extra large donations',
+                emoji: '💝',
+            },
+            {
+                label: 'Paid Ads',
+                value: 'paid-ads',
+                description: 'Paid ads, sponsored ads, Instant Post, and Priority',
+                emoji: '📣',
+            },
+        );
+}
+
+function productSelect(category: MarketplaceCategory, selectedKey?: string): StringSelectMenuBuilder {
+    return new StringSelectMenuBuilder()
+        .setCustomId(`marketplace:products:${category}`)
+        .setPlaceholder(category === 'donations' ? 'Choose a donation' : 'Choose a paid-ad product')
+        .addOptions(marketplaceCategoryProducts(category).map(product => ({
+            label: `${product.label} — R$${product.price.toLocaleString()}`,
+            value: product.key,
+            description: product.description.slice(0, 100),
+            default: product.key === selectedKey,
+        })));
 }
 
 export function buildMarketplacePanel(): ContainerBuilder {
@@ -85,15 +112,24 @@ export function buildMarketplacePanel(): ContainerBuilder {
     const panel = new ContainerBuilder()
         .setAccentColor(MARKETPLACE_ACCENT_COLOR)
         .addMediaGalleryComponents(marketplaceGallery(MARKETPLACE_BANNER_URL))
+        .addSeparatorComponents(separator())
         .addTextDisplayComponents(new TextDisplayBuilder().setContent([
-            '## Marketplace',
-            'Purchase an item through its Roblox button, then select **Claim Purchase**. Your Melonly-verified Roblox account and inventory will be checked automatically.',
+            "## Hello! Welcome to Los Angeles Roleplay's Marketplace",
+            'Use the dropdown menu below to browse the items you can buy.',
             '',
-            'All purchases are final. Chargeback fraud may result in a permanent ban.',
+            '### How to claim a purchase',
+            '1. Buy an item through its Roblox purchase button.',
+            '2. Press **Claim Purchase** below the dropdown menu.',
+            '3. Select the purchase you want to claim from your verified inventory.',
+            '4. Obey all marketplace rules and wait for a staff member to handle your claim.',
+            '',
+            'Please claim only purchases you made. Thank you!',
         ].join('\n')));
-    for (const product of marketplaceProducts()) panel.addSectionComponents(marketplaceItemSection(product));
     return panel
+        .addSeparatorComponents(separator())
+        .addActionRowComponents(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(categorySelect()))
         .addActionRowComponents(new ActionRowBuilder<ButtonBuilder>().addComponents(claimButton))
+        .addSeparatorComponents(separator())
         .addMediaGalleryComponents(marketplaceGallery(BOTTOM_UNDERBANNER));
 }
 
@@ -148,6 +184,16 @@ function marketplaceTicketPanel(
     const identity = profile.username
         ? `[@${profile.username}](https://www.roblox.com/users/${profile.robloxId}/profile) (\`${profile.robloxId}\`)`
         : `[Roblox account ${profile.robloxId}](https://www.roblox.com/users/${profile.robloxId}/profile)`;
+    const instructions: string[] = [];
+    if (products.some(product => product.kind === 'paid-ad')) {
+        instructions.push('To submit an advertisement, use `/paid-ad create` in this ticket and choose the paid-ad product you claimed.');
+    }
+    if (products.some(product => product.kind === 'add-on')) {
+        instructions.push('For **Instant Post** or **Priority**, create your ad first, then use the matching `/paid-ad` command with its Ad ID.');
+    }
+    if (products.some(product => product.kind === 'donation')) {
+        instructions.push('Please wait here for a marketplace staff member to review and handle your donation claim.');
+    }
     const details = [
         [...staffRoleIds.map(roleId => `<@&${roleId}>`), `<@${userId}>`].join(' • '),
         '## 🛍️ Marketplace Purchase Claim',
@@ -157,8 +203,7 @@ function marketplaceTicketPanel(
         '### Purchased Items',
         ...products.map(product => `• **${product.label}** — Game Pass \`${product.itemId}\``),
         '',
-        'To submit an advertisement, use `/paid-ad create` in this ticket and choose one of your paid-ad products.',
-        'If you also claimed **Instant Post** or **Priority**, create the ad first and then use the matching `/paid-ad` command.',
+        ...instructions,
     ].join('\n');
 
     return new ContainerBuilder()
@@ -217,7 +262,7 @@ async function createManagementTicket(
         ],
     }));
     const channel = await guild.channels.create({
-        name: `paid-ad-${safeChannelName(profile.username || username)}-${userId.slice(-4)}`.slice(0, 50),
+        name: `marketplace-${safeChannelName(profile.username || username)}-${userId.slice(-4)}`.slice(0, 50),
         type: ChannelType.GuildText,
         parent: MARKETPLACE_MANAGEMENT_CATEGORY_ID,
         topic: encodeMarketplaceTicketMetadata(metadata),
@@ -268,43 +313,60 @@ function isDuplicateKeyError(error: unknown): boolean {
     return Boolean(error && typeof error === 'object' && (error as { code?: unknown }).code === 11000);
 }
 
-async function persistNewClaims(
-    guildId: string,
-    userId: string,
-    profile: MelonlyRobloxProfile,
-    ownedProducts: readonly MarketplaceProductConfig[],
-): Promise<{ claimIds: string[]; products: MarketplaceProductConfig[] }> {
-    const claimIds: string[] = [];
-    const products: MarketplaceProductConfig[] = [];
-    for (const product of ownedProducts) {
-        const claimId = randomUUID();
-        try {
-            await MarketplaceClaim.create({
-                claimId,
-                guildId,
-                discordUserId: userId,
-                robloxUserId: profile.robloxId,
-                robloxUsername: profile.username || undefined,
-                productKey: product.key,
-                itemId: product.itemId,
-                status: 'available',
-                claimedAt: new Date(),
-                createdAt: new Date(),
-                updatedAt: new Date(),
-            });
-            claimIds.push(claimId);
-            products.push(product);
-        } catch (error) {
-            if (!isDuplicateKeyError(error)) {
-                if (claimIds.length) await MarketplaceClaim.deleteMany({ claimId: { $in: claimIds } }).exec();
-                throw error;
-            }
-        }
-    }
-    return { claimIds, products };
+function isMarketplaceCategory(value: string): value is MarketplaceCategory {
+    return value === 'donations' || value === 'paid-ads';
 }
 
-async function claimMarketplacePurchase(interaction: ButtonInteraction): Promise<void> {
+function categoryName(category: MarketplaceCategory): string {
+    return category === 'donations' ? 'Donations' : 'Paid Ads';
+}
+
+async function browseMarketplaceCategory(interaction: StringSelectMenuInteraction): Promise<void> {
+    const category = interaction.values[0];
+    if (!isMarketplaceCategory(category)) {
+        await interaction.reply({ content: 'That marketplace category is not available.', flags: MessageFlags.Ephemeral });
+        return;
+    }
+    await interaction.reply({
+        content: `## ${categoryName(category)}\nChoose a product below to view its price and Roblox purchase link.`,
+        components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(productSelect(category))],
+        flags: MessageFlags.Ephemeral,
+        allowedMentions: { parse: [] },
+    });
+}
+
+async function showMarketplaceProduct(interaction: StringSelectMenuInteraction): Promise<void> {
+    const category = interaction.customId.slice('marketplace:products:'.length);
+    const product = marketplaceProduct(interaction.values[0]);
+    if (!isMarketplaceCategory(category)
+        || !product
+        || !marketplaceCategoryProducts(category).some(candidate => candidate.key === product.key)) {
+        await interaction.update({ content: 'That marketplace product is no longer available.', components: [] });
+        return;
+    }
+    const buyButton = new ButtonBuilder()
+        .setStyle(ButtonStyle.Link)
+        .setURL(product.purchaseUrl)
+        .setLabel(`Buy ${product.label} • R$${product.price.toLocaleString()}`);
+    await interaction.update({
+        content: [
+            `## ${product.label}`,
+            product.description,
+            '',
+            `**Price:** R$${product.price.toLocaleString()}`,
+            'After buying, return to the marketplace panel and press **Claim Purchase**.',
+        ].join('\n'),
+        components: [
+            new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(productSelect(category, product.key)),
+            new ActionRowBuilder<ButtonBuilder>().addComponents(buyButton),
+        ],
+        allowedMentions: { parse: [] },
+    });
+}
+
+const ALREADY_CLAIMED_MESSAGE = 'You have already claimed this. If you feel this is an issue, please open a support ticket.';
+
+async function showMarketplaceClaimChoices(interaction: ButtonInteraction): Promise<void> {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     if (!interaction.guild || !interaction.guildId) {
         await interaction.editReply('Marketplace purchases can only be claimed inside the server.');
@@ -332,62 +394,108 @@ async function claimMarketplacePurchase(interaction: ButtonInteraction): Promise
         return;
     }
 
-    let created: { claimIds: string[]; products: MarketplaceProductConfig[] };
     try {
-        created = await persistNewClaims(
-            interaction.guildId,
-            interaction.user.id,
-            verification.profile,
-            ownership.products,
-        );
-    } catch (error) {
-        logger.error(`[Marketplace] Could not persist claim for ${interaction.user.id}: ${error instanceof Error ? error.stack || error.message : String(error)}`);
-        await interaction.editReply('Your purchase was found, but the secure claim record could not be saved. Nothing was consumed; please try again shortly.');
-        return;
-    }
-    if (!created.claimIds.length) {
         const existingClaims = await MarketplaceClaim.find({
             guildId: interaction.guildId,
-            robloxUserId: verification.profile.robloxId,
             productKey: { $in: ownership.products.map(product => product.key) },
-        }).lean().exec();
-        const existingChannelId = existingClaims.find(claim => claim.ticketChannelId)?.ticketChannelId;
-        const existingChannel = existingChannelId
-            ? await interaction.guild.channels.fetch(existingChannelId).catch(() => null)
-            : null;
-        if (existingChannel) {
-            await interaction.editReply(`Those purchases were already claimed in <#${existingChannel.id}>.`);
-            return;
-        }
+            $or: [
+                { discordUserId: interaction.user.id },
+                { robloxUserId: verification.profile.robloxId },
+            ],
+        }).select({ productKey: 1 }).lean().exec();
+        const claimedKeys = new Set(existingClaims.map(claim => claim.productKey));
+        const claimSelect = new StringSelectMenuBuilder()
+            .setCustomId('marketplace:claim-select')
+            .setPlaceholder('Select the purchase you want to claim')
+            .addOptions(ownership.products.map(product => ({
+                label: `${product.label} — R$${product.price.toLocaleString()}`,
+                value: product.key,
+                description: claimedKeys.has(product.key)
+                    ? 'Already claimed — open a support ticket if this is incorrect'
+                    : 'Verified in your Roblox inventory — ready to claim',
+            })));
+        await interaction.editReply({
+            content: [
+                '## Select a Purchase to Claim',
+                `Roblox inventory checked for ${verification.profile.username ? `**@${verification.profile.username}**` : `ID \`${verification.profile.robloxId}\``}.`,
+                'Choose one purchase below. A marketplace Management ticket will be opened for staff to handle it.',
+            ].join('\n'),
+            components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(claimSelect)],
+            allowedMentions: { parse: [] },
+        });
+    } catch (error) {
+        logger.error(`[Marketplace] Could not prepare claim choices for ${interaction.user.id}: ${error instanceof Error ? error.stack || error.message : String(error)}`);
+        await interaction.editReply('Your purchases were found, but the secure claim list could not be loaded. Nothing was claimed; please try again shortly.');
+    }
+}
 
-        const availableClaims = existingClaims.filter(claim => claim.status === 'available');
-        const availableProducts = availableClaims
-            .map(claim => marketplaceProduct(claim.productKey))
-            .filter((product): product is MarketplaceProductConfig => Boolean(product));
-        if (!availableClaims.length || !availableProducts.length) {
-            await interaction.editReply('Those purchases were already claimed and used. Contact Management if you need help with a completed claim.');
+async function claimSelectedMarketplacePurchase(interaction: StringSelectMenuInteraction): Promise<void> {
+    await interaction.deferUpdate();
+    if (!interaction.guild || !interaction.guildId) {
+        await interaction.editReply({ content: 'Marketplace purchases can only be claimed inside the server.', components: [] });
+        return;
+    }
+    if (!isDatabaseAvailable()) {
+        await interaction.editReply({ content: 'Purchase claims are temporarily unavailable while secure storage reconnects. Nothing was claimed; please try again shortly.', components: [] });
+        return;
+    }
+    const product = marketplaceProduct(interaction.values[0]);
+    if (!product) {
+        await interaction.editReply({ content: 'That marketplace purchase is no longer available.', components: [] });
+        return;
+    }
+    const verification = await resolveMelonlyRobloxProfile(interaction.user.id);
+    if (!verification.ok) {
+        await interaction.editReply({ content: `${verification.message} Verify with Melonly, then try **Claim Purchase** again.`, components: [] });
+        return;
+    }
+    const ownership = await robloxUserOwnsConfiguredItem(verification.profile.robloxId, product);
+    if (!ownership.ok) {
+        logger.warn(`[Marketplace] Roblox ownership check failed for ${interaction.user.id} and ${product.key}: ${ownership.message}`);
+        await interaction.editReply({ content: 'Roblox could not verify that purchase right now. Nothing was claimed; please try again shortly.', components: [] });
+        return;
+    }
+    if (!ownership.owned) {
+        await interaction.editReply({ content: `I could not find **${product.label}** in your verified Roblox inventory.`, components: [] });
+        return;
+    }
+
+    const existingClaim = await MarketplaceClaim.findOne({
+        guildId: interaction.guildId,
+        productKey: product.key,
+        $or: [
+            { discordUserId: interaction.user.id },
+            { robloxUserId: verification.profile.robloxId },
+        ],
+    }).lean().exec();
+    if (existingClaim) {
+        await interaction.editReply({ content: ALREADY_CLAIMED_MESSAGE, components: [] });
+        return;
+    }
+
+    const claimId = randomUUID();
+    const now = new Date();
+    try {
+        await MarketplaceClaim.create({
+            claimId,
+            guildId: interaction.guildId,
+            discordUserId: interaction.user.id,
+            robloxUserId: verification.profile.robloxId,
+            robloxUsername: verification.profile.username || undefined,
+            productKey: product.key,
+            itemId: product.itemId,
+            status: 'available',
+            claimedAt: now,
+            createdAt: now,
+            updatedAt: now,
+        });
+    } catch (error) {
+        if (isDuplicateKeyError(error)) {
+            await interaction.editReply({ content: ALREADY_CLAIMED_MESSAGE, components: [] });
             return;
         }
-        let reopened: TextChannel | null = null;
-        try {
-            reopened = await createManagementTicket(
-                interaction.guild,
-                interaction.user.id,
-                interaction.user.username,
-                verification.profile,
-                availableProducts,
-                availableClaims.map(claim => claim.claimId),
-            );
-            await MarketplaceClaim.updateMany(
-                { claimId: { $in: availableClaims.map(claim => claim.claimId) } },
-                { $set: { ticketChannelId: reopened.id, updatedAt: new Date() } },
-            ).exec();
-            await interaction.editReply(`✅ Your unused purchases were already verified, so I reopened their Management ticket: <#${reopened.id}>`);
-        } catch (error) {
-            if (reopened) await reopened.delete('Marketplace claim reopen failed.').catch(() => undefined);
-            logger.error(`[Marketplace] Could not reopen claim ticket for ${interaction.user.id}: ${error instanceof Error ? error.stack || error.message : String(error)}`);
-            await interaction.editReply('Your purchases are verified, but I could not reopen the Management ticket. Check my category permissions and try again.');
-        }
+        logger.error(`[Marketplace] Could not persist ${product.key} claim for ${interaction.user.id}: ${error instanceof Error ? error.stack || error.message : String(error)}`);
+        await interaction.editReply({ content: 'Your purchase was found, but the secure claim record could not be saved. Nothing was claimed; please try again shortly.', components: [] });
         return;
     }
 
@@ -398,26 +506,42 @@ async function claimMarketplacePurchase(interaction: ButtonInteraction): Promise
             interaction.user.id,
             interaction.user.username,
             verification.profile,
-            created.products,
-            created.claimIds,
+            [product],
+            [claimId],
         );
-        await MarketplaceClaim.updateMany(
-            { claimId: { $in: created.claimIds } },
+        await MarketplaceClaim.updateOne(
+            { claimId },
             { $set: { ticketChannelId: channel.id, updatedAt: new Date() } },
         ).exec();
-        await interaction.editReply(`✅ Purchase verified. Your Management ticket is ready: <#${channel.id}>`);
+        await interaction.editReply({ content: `✅ **${product.label}** was verified. Your Management ticket is ready: <#${channel.id}>`, components: [] });
     } catch (error) {
         if (channel) await channel.delete('Marketplace claim setup failed.').catch(() => undefined);
-        await MarketplaceClaim.deleteMany({ claimId: { $in: created.claimIds } }).exec().catch(() => undefined);
+        await MarketplaceClaim.deleteOne({ claimId }).exec().catch(() => undefined);
         logger.error(`[Marketplace] Could not create claim ticket for ${interaction.user.id}: ${error instanceof Error ? error.stack || error.message : String(error)}`);
-        await interaction.editReply('Your purchase was verified, but I could not create the Management ticket. Nothing was consumed; check my category permissions and try again.');
+        await interaction.editReply({ content: 'Your purchase was verified, but I could not create the Management ticket. Nothing was claimed; check my category permissions and try again.', components: [] });
     }
 }
 
 export async function handleMarketplaceButton(interaction: ButtonInteraction): Promise<boolean> {
     if (interaction.customId !== 'marketplace:claim') return false;
-    await claimMarketplacePurchase(interaction);
+    await showMarketplaceClaimChoices(interaction);
     return true;
+}
+
+export async function handleMarketplaceSelect(interaction: StringSelectMenuInteraction): Promise<boolean> {
+    if (interaction.customId === 'marketplace:browse') {
+        await browseMarketplaceCategory(interaction);
+        return true;
+    }
+    if (interaction.customId.startsWith('marketplace:products:')) {
+        await showMarketplaceProduct(interaction);
+        return true;
+    }
+    if (interaction.customId === 'marketplace:claim-select') {
+        await claimSelectedMarketplacePurchase(interaction);
+        return true;
+    }
+    return false;
 }
 
 async function canPostMarketplace(interaction: ChatInputCommandInteraction): Promise<boolean> {

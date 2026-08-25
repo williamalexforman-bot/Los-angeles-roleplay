@@ -184,6 +184,7 @@ async function runOptionalComponent(interaction: Interaction): Promise<boolean> 
 
     if (id.startsWith('marketplace:')) {
         if (interaction.isButton()) attempts.push(async () => Boolean(await require('../commands/marketplace.ts').handleMarketplaceButton?.(interaction)));
+        if (interaction.isStringSelectMenu()) attempts.push(async () => Boolean(await require('../commands/marketplace.ts').handleMarketplaceSelect?.(interaction)));
     } else if (id.startsWith('paid-ad:')) {
         if (interaction.isModalSubmit()) attempts.push(async () => Boolean(await require('../commands/paidAds.ts').handlePaidAdModal?.(interaction)));
     } else if (id.startsWith('dashboard:')) {

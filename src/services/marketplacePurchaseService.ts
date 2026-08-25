@@ -4,10 +4,19 @@ export type MarketplaceProductKey =
     | 'paid-ad-everyone'
     | 'paid-ad-here'
     | 'sponsored-everyone'
-    | 'priority';
+    | 'priority'
+    | 'small-donation'
+    | 'medium-donation'
+    | 'large-donation'
+    | 'extra-large-donation';
 
-export type PaidAdProductKey = Exclude<MarketplaceProductKey, 'instant-post' | 'priority'>;
+export type PaidAdProductKey = Extract<MarketplaceProductKey,
+    'sponsored-here' | 'paid-ad-everyone' | 'paid-ad-here' | 'sponsored-everyone'
+>;
 export type MarketplaceAddOnKey = Extract<MarketplaceProductKey, 'instant-post' | 'priority'>;
+export type DonationProductKey = Extract<MarketplaceProductKey,
+    'small-donation' | 'medium-donation' | 'large-donation' | 'extra-large-donation'
+>;
 
 export interface MarketplaceProductConfig {
     key: MarketplaceProductKey;
@@ -17,7 +26,7 @@ export interface MarketplaceProductConfig {
     itemType: 'gamepass';
     itemId: string;
     purchaseUrl: string;
-    kind: 'paid-ad' | 'add-on';
+    kind: 'paid-ad' | 'add-on' | 'donation';
     pingType?: 'everyone' | 'here';
     sponsored?: boolean;
 }
@@ -101,6 +110,46 @@ const PRODUCTS: readonly MarketplaceProductConfig[] = [
         itemId: '1956096571',
         purchaseUrl: 'https://www.roblox.com/game-pass/1956096571/Priority',
         kind: 'add-on',
+    },
+    {
+        key: 'small-donation',
+        label: 'Small Donation',
+        description: 'Support Los Angeles Roleplay with a small donation.',
+        price: 100,
+        itemType: 'gamepass',
+        itemId: '1956206563',
+        purchaseUrl: 'https://www.roblox.com/game-pass/1956206563/Small-Donation',
+        kind: 'donation',
+    },
+    {
+        key: 'medium-donation',
+        label: 'Medium Donation',
+        description: 'Support Los Angeles Roleplay with a medium donation.',
+        price: 400,
+        itemType: 'gamepass',
+        itemId: '1953387997',
+        purchaseUrl: 'https://www.roblox.com/game-pass/1953387997/Medium-Donation',
+        kind: 'donation',
+    },
+    {
+        key: 'large-donation',
+        label: 'Large Donation',
+        description: 'Support Los Angeles Roleplay with a large donation.',
+        price: 800,
+        itemType: 'gamepass',
+        itemId: '1955515772',
+        purchaseUrl: 'https://www.roblox.com/game-pass/1955515772/Large-donation',
+        kind: 'donation',
+    },
+    {
+        key: 'extra-large-donation',
+        label: 'Extra Large Donation',
+        description: 'Support Los Angeles Roleplay with an extra large donation.',
+        price: 1_200,
+        itemType: 'gamepass',
+        itemId: '1957626275',
+        purchaseUrl: 'https://www.roblox.com/game-pass/1957626275/Extra-large-donation',
+        kind: 'donation',
     },
 ] as const;
 
