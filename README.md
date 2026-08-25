@@ -66,6 +66,8 @@ The bot needs View Channels, Manage Channels, Manage Roles/Permissions where app
 - `/session-vote` and `/session-start` — record SSU voters and notify them when the session starts.
 - `/view loa` — posts the current active LOAs in a Components V2 panel.
 - `/view session vote` — privately shows who voted in the latest SSU.
+- `/rules` — posts or refreshes the rules-channel Components V2 panel with private Discord Rules, Game Rules, and Ticket TOS views.
+- Ticket categories now open a private FAQ/Ticket TOS gate; members must review one option for 10 seconds before the ticket form unlocks.
 
 ## Optional integrations
 

@@ -26,6 +26,13 @@ const PANELS: readonly PersistentPanelSpec[] = [
         builderName: 'buildTicketPanelRefreshPayload',
     },
     {
+        channelId: '1526046592187105421',
+        label: 'Rules',
+        marker: 'rules:menu',
+        modulePath: '../commands/rules.ts',
+        builderName: 'buildRulesPanelRefreshPayload',
+    },
+    {
         channelId: '1526035041593856182',
         label: 'Applications',
         marker: 'applications:type',

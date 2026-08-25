@@ -29,6 +29,7 @@ import { dashboardCommand } from './dashboard';
 import { partnershipV2Command } from '../handlers/partnershipV2Command';
 import { handleEnhancedSessionCommand } from './sessionEnhancements';
 import { viewCommand } from './view';
+import { rulesCommand } from './rules';
 
 export interface CommandDefinition {
     data: {
@@ -88,6 +89,7 @@ addCommands('session', sessionCommands.map(command => {
     };
 }));
 addCommands('view', viewCommand);
+addCommands('rules', rulesCommand);
 addCommands('tickets', ticketCommands);
 addCommands('applications', applicationsPanelCommand);
 addCommands('role', roleCommand);

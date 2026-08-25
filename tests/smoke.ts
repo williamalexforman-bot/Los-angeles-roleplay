@@ -39,6 +39,7 @@ import { handleLoaButton, handleLoaModal } from '../src/commands/loa';
 import { handleTrainingModal } from '../src/commands/requestTraining';
 import { handleSuggestionButton } from '../src/commands/suggestions';
 import { buildDashboardRefreshPayload, handleDashboardSelect } from '../src/commands/dashboard';
+import { buildRulesPanelRefreshPayload, handleRulesSelect } from '../src/commands/rules';
 import {
     handleSecurityAuditEntry,
     resetServerSecurityStateForTests,
@@ -252,7 +253,7 @@ async function run(): Promise<void> {
 for (const required of [
         'movie-feedback', 'staff-feedback', 'partnership', 'staff-complaint', 'training-results',
         'promotion', 'infraction', 'view-infractions', 'session-start', 'session-vote', 'session-end',
-        'session-boost', 'session-full', 'prohibited-word', 'say', 'loa', 'view',
+        'session-boost', 'session-full', 'prohibited-word', 'say', 'loa', 'view', 'rules',
         'request-training', 'roleplay-log', 'rename', 'ticket', 'ticket-panel', 'ticketpanel', 'close', 'closerequest',
         'applications-panel', 'unclaim', 'add-member', 'remove-member', 'role', 'suggestions',
         'suggestion-approved', 'suggestion-denied', 'suggestion-maybe',
@@ -487,6 +488,55 @@ for (const required of [
         'underbanner.png',
     ]);
 
+    const rulesRefreshPayload = buildRulesPanelRefreshPayload();
+    const rulesRefreshPanel = rulesRefreshPayload.components[0].toJSON();
+    const rulesRefreshMedia = rulesRefreshPanel.components.filter((component: { type: number }) => component.type === 12);
+    assert.equal(rulesRefreshMedia[0]?.items?.[0]?.media?.url, 'attachment://rules-banner.png');
+    assert.equal(rulesRefreshMedia[1]?.items?.[0]?.media?.url, 'attachment://underbanner.png');
+    const rulesMenu = rulesRefreshPanel.components
+        .find((component: { type: number; components?: Array<{ custom_id?: string }> }) => component.type === 1
+            && component.components?.[0]?.custom_id === 'rules:menu')
+        ?.components?.[0];
+    assert.deepEqual(
+        rulesMenu?.options?.map((option: { value: string }) => option.value),
+        ['discord', 'game', 'ticket-tos'],
+        'the rules V2 menu must expose Discord Rules, Game Rules, and Ticket TOS',
+    );
+
+    let privateTicketTosPayload: any = null;
+    assert(await handleRulesSelect({
+        customId: 'rules:menu',
+        values: ['ticket-tos'],
+        reply: async (payload: any) => { privateTicketTosPayload = payload; },
+    } as never));
+    assert.equal(privateTicketTosPayload.flags, MessageFlags.Ephemeral | MessageFlags.IsComponentsV2);
+    const privateTicketTosText = JSON.stringify(privateTicketTosPayload.components[0].toJSON());
+    assert(privateTicketTosText.includes('Ticket Terms of Service'));
+    assert(privateTicketTosText.includes('right to close a ticket for **ANY** reason'));
+
+    let rulesCommandChannelId = '';
+    let rulesCommandPayload: any = null;
+    await commandNamed('rules').execute({
+        client: {
+            user: { id: 'rules-bot' },
+            channels: {
+                fetch: async (channelId: string) => {
+                    rulesCommandChannelId = channelId;
+                    return {
+                        isTextBased: () => true,
+                        isSendable: () => true,
+                        messages: { fetch: async () => null },
+                        send: async (payload: any) => { rulesCommandPayload = payload; },
+                    };
+                },
+            },
+        },
+        deferReply: async () => undefined,
+        editReply: async () => undefined,
+    } as never);
+    assert.equal(rulesCommandChannelId, '1526046592187105421');
+    assert.equal(rulesCommandPayload.flags, MessageFlags.IsComponentsV2);
+
     let marketplacePayload: any = null;
     await commandNamed('marketplace-panel').execute({
         guild: {
@@ -521,6 +571,7 @@ for (const required of [
     const persistentSpecs = [
         ['1526049604712529971', 'dashboard:menu', 'dashboard-banner.png'],
         ['1526034504953892925', 'ticket:create-select', 'assistance-banner.png'],
+        ['1526046592187105421', 'rules:menu', 'rules-banner.png'],
         ['1526035041593856182', 'applications:type', 'applications-banner.png'],
         ['1526035127606706196', 'marketplace:claim', 'paid-ad-banner.png'],
     ] as const;
@@ -546,7 +597,7 @@ for (const required of [
         user: { id: 'persistent-banner-bot' },
         channels: { fetch: async (channelId: string) => persistentChannels.get(channelId) || null },
     } as never);
-    assert.equal(persistentPanelEdits.size, 4, 'startup must rebuild every persistent branded panel');
+    assert.equal(persistentPanelEdits.size, 5, 'startup must rebuild every persistent branded panel');
     for (const [channelId, , bannerName] of persistentSpecs) {
         const refreshed = persistentPanelEdits.get(channelId);
         assert.deepEqual(refreshed.attachments, [], `${bannerName} refresh must clear old Discord attachments`);
@@ -2043,14 +2094,97 @@ for (const required of [
     assert(!routedTicketPanelReplies.some(reply => String(reply?.content || reply).includes('not currently available')),
         'every ticket panel command spelling must bypass the unavailable-command fallback');
 
+    const ticketGateUser = {
+        id: '1489388257925005511',
+        username: 'TicketUser',
+        tag: 'TicketUser#0001',
+        createdTimestamp: 1_600_000_000_000,
+    };
+    const realDateNow = Date.now;
+    const realSetTimeout = global.setTimeout;
+    Date.now = () => realDateNow() - 11_000;
+    (global as any).setTimeout = (callback: () => void) => {
+        callback();
+        return { unref: () => undefined };
+    };
+    let ticketGatePayload: any = null;
+    let ticketGateReadingPayload: any = null;
+    let ticketGateUnlockedPayload: any = null;
+    let earlyGateRejection = '';
     let generalTicketModal: any = null;
-    assert(await handleTicketSelect({
-        customId: 'ticket:create-select',
-        values: ['general'],
+    try {
+        assert(await handleTicketSelect({
+            customId: 'ticket:create-select',
+            values: ['general'],
+            guildId: 'ticket-guild',
+            user: ticketGateUser,
+            reply: async (payload: any) => { ticketGatePayload = payload; },
+        } as never));
+        assert.equal(ticketGatePayload.flags, MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
+            'selecting a category must open a private V2 reading gate instead of the ticket modal');
+        const gatePanel = ticketGatePayload.components[0].toJSON();
+        const gateButtons = gatePanel.components
+            .filter((component: { type: number }) => component.type === 1)
+            .flatMap((component: { components?: Array<{ custom_id?: string }> }) => component.components || []);
+        const faqButtonId = gateButtons.find((button: { custom_id?: string }) => button.custom_id?.startsWith('ticket:gate:faq:'))?.custom_id;
+        const tosButtonId = gateButtons.find((button: { custom_id?: string }) => button.custom_id?.startsWith('ticket:gate:tos:'))?.custom_id;
+        assert(faqButtonId && tosButtonId, 'the reading gate must offer FAQ and Ticket TOS buttons');
+        const gateToken = faqButtonId.split(':')[3];
+
+        assert(await handleTicketButton({
+            customId: faqButtonId,
+            guildId: 'ticket-guild',
+            user: ticketGateUser,
+            reply: async (payload: any) => { ticketGateReadingPayload = payload; },
+            editReply: async (payload: any) => { ticketGateUnlockedPayload = payload; },
+        } as never));
+        assert.equal(ticketGateReadingPayload.flags, MessageFlags.Ephemeral | MessageFlags.IsComponentsV2);
+        assert(JSON.stringify(ticketGateReadingPayload.components[0].toJSON()).includes('Frequently Asked Questions'));
+        assert(!JSON.stringify(ticketGateReadingPayload.components[0].toJSON()).includes('ticket:gate:continue:'),
+            'the red continuation button must remain hidden during the reading delay');
+        const unlockedGateJson = JSON.stringify(ticketGateUnlockedPayload.components[0].toJSON());
+        assert(unlockedGateJson.includes('ticket:gate:continue:'),
+            'the reading timer must add Still Need Assistance to the same private V2 message');
+        assert(unlockedGateJson.includes('"style":4'), 'Still Need Assistance must be a red Danger button');
+
+        assert(await handleTicketButton({
+            customId: `ticket:gate:continue:${gateToken}`,
+            guildId: 'ticket-guild',
+            user: ticketGateUser,
+            reply: async (payload: any) => { earlyGateRejection = payload.content; },
+            showModal: async (modal: any) => { generalTicketModal = modal; },
+        } as never));
+        assert(earlyGateRejection.includes('at least 10 seconds'));
+        assert.equal(generalTicketModal, null, 'the ticket form must stay locked during the 10-second delay');
+    } finally {
+        Date.now = realDateNow;
+        global.setTimeout = realSetTimeout;
+    }
+
+    const gateToken = ticketGatePayload.components[0].toJSON().components
+        .filter((component: { type: number }) => component.type === 1)
+        .flatMap((component: { components?: Array<{ custom_id?: string }> }) => component.components || [])
+        .find((button: { custom_id?: string }) => button.custom_id?.startsWith('ticket:gate:faq:'))
+        .custom_id.split(':')[3];
+    assert(await handleTicketButton({
+        customId: `ticket:gate:continue:${gateToken}`,
+        guildId: 'ticket-guild',
+        user: ticketGateUser,
+        reply: async () => undefined,
         showModal: async (modal: any) => { generalTicketModal = modal; },
     } as never));
-    assert.equal(generalTicketModal?.toJSON().custom_id, 'ticket:create-modal:general');
+    assert.equal(generalTicketModal?.toJSON().custom_id, `ticket:create-modal:general:${gateToken}`);
     assert.equal(generalTicketModal?.toJSON().components[0]?.components?.[0]?.custom_id, 'reason');
+
+    let directModalRejection = '';
+    assert(await handleTicketModal({
+        customId: 'ticket:create-modal:general',
+        guildId: 'ticket-guild',
+        user: ticketGateUser,
+        reply: async (payload: any) => { directModalRejection = payload.content; },
+    } as never));
+    assert(directModalRejection.includes('review the FAQ or Ticket TOS'),
+        'a direct or stale modal must not bypass the reading gate');
 
     let ticketCreateOptions: any = null;
     let openTicketPayload: any = null;
@@ -2107,15 +2241,11 @@ for (const required of [
     };
     const ticketCreationReplies: string[] = [];
     assert(await handleTicketModal({
-        customId: 'ticket:create-modal:general',
+        customId: generalTicketModal.toJSON().custom_id,
+        guildId: 'ticket-guild',
         guild: ticketGuild,
         client: { user: { id: 'ticket-bot' } },
-        user: {
-            id: '1489388257925005511',
-            username: 'TicketUser',
-            tag: 'TicketUser#0001',
-            createdTimestamp: 1_600_000_000_000,
-        },
+        user: ticketGateUser,
         fields: { getTextInputValue: () => 'I need help with the server.' },
         deferReply: async () => undefined,
         editReply: async (content: string) => { ticketCreationReplies.push(content); },

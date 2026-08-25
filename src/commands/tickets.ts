@@ -1,4 +1,5 @@
 import { resolve } from 'path';
+import { randomUUID } from 'node:crypto';
 import {
     ActionRowBuilder,
     AttachmentBuilder,
@@ -33,6 +34,7 @@ import {
     handleTicketFeedbackButton,
     handleTicketFeedbackModal,
 } from './ticketLifecycleEnhancements';
+import { SUPPORT_FAQ, TICKET_TERMS } from './supportContent';
 
 const ASSISTANCE_BANNER_NAME = 'assistance-banner.png';
 const UNDERBANNER_NAME = 'underbanner.png';
@@ -57,6 +59,19 @@ const TICKET_CHANNEL_PREFIXES = {
 
 type TicketType = keyof typeof TICKET_CATEGORIES;
 interface TicketMetadata { ownerId: string; type: TicketType; createdAt: string; claimedBy?: string; panelMessageId?: string; }
+interface PendingTicketGate {
+    token: string;
+    userId: string;
+    guildId: string;
+    type: TicketType;
+    createdAt: number;
+    readAt?: number;
+    modalOpenedAt?: number;
+}
+
+const TICKET_GATE_DELAY_MS = 10_000;
+const TICKET_GATE_TTL_MS = 15 * 60_000;
+const pendingTicketGates = new Map<string, PendingTicketGate>();
 
 const PANEL_COPY = [
     '## 🎫 Los Angeles Roleplay Support',
@@ -100,7 +115,157 @@ function ticketChannelName(type: TicketType, reason: string, userId: string): st
 }
 function memberHasRole(member: ButtonInteraction['member'], roleId: string): boolean { if (!member) return false; const roles = (member as GuildMember).roles; if (roles && 'cache' in roles) return roles.cache.has(roleId); return Array.isArray((member as { roles?: string[] }).roles) && (member as { roles: string[] }).roles.includes(roleId); }
 function isTicketStaff(interaction: ButtonInteraction | ModalSubmitInteraction | ChatInputCommandInteraction): boolean { return Boolean(interaction.memberPermissions?.has(PermissionFlagsBits.ManageChannels)) || memberHasRole(interaction.member, TICKET_SUPPORT_ROLE_ID); }
-function createTicketModal(type: TicketType): ModalBuilder { const modal = new ModalBuilder().setCustomId(`ticket:create-modal:${type}`).setTitle(`${TICKET_CATEGORIES[type].label} Ticket`.slice(0, 45)); if (type === 'internal') return modal.addComponents(modalInput('reported_user','User you are reporting',TextInputStyle.Short),modalInput('reason','Reason for report',TextInputStyle.Paragraph),modalInput('proof','Do you have proof?',TextInputStyle.Paragraph),modalInput('anything_else','Anything else?',TextInputStyle.Paragraph,false)); return modal.addComponents(modalInput('reason','Reason for opening ticket',TextInputStyle.Paragraph)); }
+function cleanupTicketGates(now = Date.now()): void {
+    for (const [token, gate] of pendingTicketGates) {
+        if (now - gate.createdAt > TICKET_GATE_TTL_MS) pendingTicketGates.delete(token);
+    }
+}
+function newTicketGate(interaction: StringSelectMenuInteraction, type: TicketType): PendingTicketGate {
+    cleanupTicketGates();
+    for (const [token, gate] of pendingTicketGates) {
+        if (gate.userId === interaction.user.id && gate.guildId === (interaction.guildId || '')) {
+            pendingTicketGates.delete(token);
+        }
+    }
+    const gate: PendingTicketGate = {
+        token: randomUUID().replace(/-/g, '').slice(0, 20),
+        userId: interaction.user.id,
+        guildId: interaction.guildId || '',
+        type,
+        createdAt: Date.now(),
+    };
+    pendingTicketGates.set(gate.token, gate);
+    return gate;
+}
+function ticketGateChoicePanel(gate: PendingTicketGate): ContainerBuilder {
+    const category = TICKET_CATEGORIES[gate.type];
+    return new ContainerBuilder()
+        .setAccentColor(BRAND.color)
+        .addMediaGalleryComponents(media(ASSISTANCE_BANNER_NAME))
+        .addSeparatorComponents(separator())
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+            '## Read Before Opening Your Ticket',
+            `You selected **${category.emoji} ${category.label}**.`,
+            '',
+            'Before we open your ticket, please read either our **Frequently Asked Questions** or our **Ticket Terms of Service**.',
+            '',
+            'You must review one section for 10 seconds before you can continue.',
+        ].join('\n')))
+        .addSeparatorComponents(separator())
+        .addActionRowComponents(new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder()
+                .setCustomId(`ticket:gate:faq:${gate.token}`)
+                .setLabel('Frequently Asked Questions')
+                .setEmoji('❔')
+                .setStyle(ButtonStyle.Primary),
+            new ButtonBuilder()
+                .setCustomId(`ticket:gate:tos:${gate.token}`)
+                .setLabel('Ticket TOS')
+                .setEmoji('📜')
+                .setStyle(ButtonStyle.Secondary),
+        ))
+        .addSeparatorComponents(separator())
+        .addMediaGalleryComponents(media(UNDERBANNER_NAME));
+}
+function ticketGateReadingPanel(gate: PendingTicketGate, kind: 'faq' | 'tos', unlocked: boolean): ContainerBuilder {
+    const panel = new ContainerBuilder()
+        .setAccentColor(BRAND.color)
+        .addMediaGalleryComponents(media(ASSISTANCE_BANNER_NAME))
+        .addSeparatorComponents(separator())
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+            kind === 'faq' ? SUPPORT_FAQ : TICKET_TERMS,
+        ));
+    if (unlocked) {
+        panel
+            .addSeparatorComponents(separator())
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+                'If these answers did not resolve your issue, you may now continue.',
+            ))
+            .addActionRowComponents(new ActionRowBuilder<ButtonBuilder>().addComponents(
+                new ButtonBuilder()
+                    .setCustomId(`ticket:gate:continue:${gate.token}`)
+                    .setLabel('Still Need Assistance')
+                    .setEmoji('🎫')
+                    .setStyle(ButtonStyle.Danger),
+            ));
+    } else {
+        panel
+            .addSeparatorComponents(separator())
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+                'Please review this information. **Still Need Assistance** will appear in 10 seconds.',
+            ));
+    }
+    return panel
+        .addSeparatorComponents(separator())
+        .addMediaGalleryComponents(media(UNDERBANNER_NAME));
+}
+function createTicketModal(type: TicketType, gateToken: string): ModalBuilder { const modal = new ModalBuilder().setCustomId(`ticket:create-modal:${type}:${gateToken}`).setTitle(`${TICKET_CATEGORIES[type].label} Ticket`.slice(0, 45)); if (type === 'internal') return modal.addComponents(modalInput('reported_user','User you are reporting',TextInputStyle.Short),modalInput('reason','Reason for report',TextInputStyle.Paragraph),modalInput('proof','Do you have proof?',TextInputStyle.Paragraph),modalInput('anything_else','Anything else?',TextInputStyle.Paragraph,false)); return modal.addComponents(modalInput('reason','Reason for opening ticket',TextInputStyle.Paragraph)); }
+async function rejectTicketGate(interaction: ButtonInteraction, content: string): Promise<void> {
+    await interaction.reply({ content, flags: MessageFlags.Ephemeral });
+}
+function validTicketGate(interaction: ButtonInteraction, token: string): PendingTicketGate | null {
+    cleanupTicketGates();
+    const gate = pendingTicketGates.get(token);
+    if (!gate || gate.userId !== interaction.user.id || gate.guildId !== (interaction.guildId || '')) return null;
+    return gate;
+}
+function scheduleTicketGateUnlock(
+    interaction: ButtonInteraction,
+    gate: PendingTicketGate,
+    kind: 'faq' | 'tos',
+): void {
+    const unlockAt = (gate.readAt || Date.now()) + TICKET_GATE_DELAY_MS;
+    const timeout = setTimeout(() => {
+        const active = pendingTicketGates.get(gate.token);
+        if (!active || active.userId !== gate.userId || active.modalOpenedAt) return;
+        void interaction.editReply({
+            components: [ticketGateReadingPanel(active, kind, true)],
+            allowedMentions: { parse: [] },
+        }).catch(error => {
+            logger.warn(`[Tickets] Could not unlock ticket gate ${gate.token}: ${error instanceof Error ? error.message : String(error)}`);
+        });
+    }, Math.max(0, unlockAt - Date.now()));
+    timeout.unref?.();
+}
+async function handleTicketGateButton(interaction: ButtonInteraction): Promise<boolean> {
+    const [, , action, token] = interaction.customId.split(':');
+    if (!token || !['faq', 'tos', 'continue'].includes(action)) return false;
+    const gate = validTicketGate(interaction, token);
+    if (!gate) {
+        await rejectTicketGate(interaction, 'This ticket request expired or belongs to another member. Select a ticket category again.');
+        return true;
+    }
+
+    if (action === 'faq' || action === 'tos') {
+        gate.readAt ??= Date.now();
+        await interaction.reply({
+            components: [ticketGateReadingPanel(gate, action, false)],
+            files: artwork(),
+            flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
+            allowedMentions: { parse: [] },
+        });
+        scheduleTicketGateUnlock(interaction, gate, action);
+        return true;
+    }
+
+    if (!gate.readAt || Date.now() < gate.readAt + TICKET_GATE_DELAY_MS) {
+        await rejectTicketGate(interaction, 'Please spend at least 10 seconds reviewing the FAQ or Ticket TOS before continuing.');
+        return true;
+    }
+    if (gate.modalOpenedAt) {
+        await rejectTicketGate(interaction, 'Your ticket form is already open. Complete it, or select the category again to restart.');
+        return true;
+    }
+
+    gate.modalOpenedAt = Date.now();
+    try {
+        await interaction.showModal(createTicketModal(gate.type, gate.token));
+    } catch (error) {
+        delete gate.modalOpenedAt;
+        throw error;
+    }
+    return true;
+}
 function closeRequestModal(): ModalBuilder { return new ModalBuilder().setCustomId('ticket:close-request-modal').setTitle('Request Ticket Closure').addComponents(modalInput('reason','Reason for close request',TextInputStyle.Paragraph)); }
 function modalInput(customId: string, label: string, style: TextInputStyle, required = true): ActionRowBuilder<TextInputBuilder> { return new ActionRowBuilder<TextInputBuilder>().addComponents(new TextInputBuilder().setCustomId(customId).setLabel(label).setStyle(style).setRequired(required).setMaxLength(style === TextInputStyle.Short ? 100 : 1_000)); }
 async function discordLogo(guild: ModalSubmitInteraction['guild']): Promise<string> { if (!guild) return '💬'; const emojis = await guild.emojis.fetch().catch(() => null); return emojis?.find(emoji => emoji.name?.toLowerCase() === 'discord_logo')?.toString() || '💬'; }
@@ -146,9 +311,9 @@ function restoredClaimComponents(message: Message): unknown[] { const components
 function containsClaimButton(message: Message): boolean { const visit=(node:Record<string,unknown>):boolean=>{ if(node.custom_id==='ticket:claim') return true; return ((node.components as Array<Record<string,unknown>>|undefined)||[]).some(visit); }; return message.components.some(component=>visit(component.toJSON() as unknown as Record<string,unknown>)); }
 async function findTicketPanelMessage(channel: TextChannel, metadata: TicketMetadata): Promise<Message | null> { if(metadata.panelMessageId){ const linked=await channel.messages.fetch(metadata.panelMessageId).catch(()=>null); if(linked&&containsClaimButton(linked)) return linked; } const recent=await channel.messages.fetch({ limit:100 }).catch(()=>null); return recent?.find(message=>message.author.id===channel.client.user.id && containsClaimButton(message)) || null; }
 
-export async function handleTicketSelect(interaction: StringSelectMenuInteraction): Promise<boolean> { if(interaction.customId!=='ticket:create-select') return false; const type=interaction.values[0] as TicketType; if(!(type in TICKET_CATEGORIES)){ await interaction.reply({ content:'That ticket category is unavailable.',flags:MessageFlags.Ephemeral }); return true; } await interaction.showModal(createTicketModal(type)); return true; }
-export async function handleTicketButton(interaction: ButtonInteraction): Promise<boolean> { if(interaction.customId.startsWith('ticket-feedback:')) return handleTicketFeedbackButton(interaction); if(!interaction.customId.startsWith('ticket:')) return false; if(interaction.customId==='ticket:claim'){ const channel=interaction.channel; if(!channel||channel.type!==ChannelType.GuildText) return true; const metadata=decodeMetadata(channel.topic); if(!metadata){ await interaction.reply({ content:'This is not a managed ticket.',flags:MessageFlags.Ephemeral }); return true; } if(!isTicketStaff(interaction)){ await interaction.reply({ content:'Only support staff can claim tickets.',flags:MessageFlags.Ephemeral }); return true; } if(metadata.claimedBy){ await interaction.reply({ content:`This ticket is already claimed by <@${metadata.claimedBy}>.`,flags:MessageFlags.Ephemeral }); return true; } metadata.claimedBy=interaction.user.id; await channel.setTopic(encodeMetadata(metadata)); await interaction.update({ components:updatedClaimComponents(interaction) as never }); await interaction.followUp({ content:`✅ Ticket claimed by <@${interaction.user.id}>.`,allowedMentions:{ parse:[] } }); return true; } if(interaction.customId==='ticket:close'){ await interaction.deferReply({ flags:MessageFlags.Ephemeral }); await closeTicketWithLifecycle(interaction,'Closed from the ticket panel.'); return true; } if(interaction.customId==='ticket:close-request'){ await interaction.showModal(closeRequestModal()); return true; } if(interaction.customId==='ticket:close-confirm'){ await interaction.deferReply({ flags:MessageFlags.Ephemeral }); await closeTicketWithLifecycle(interaction,'Close request accepted.'); return true; } if(interaction.customId==='ticket:close-keep'){ const channel=interaction.channel; const metadata=channel?.type===ChannelType.GuildText ? decodeMetadata(channel.topic) : null; if(!metadata || (interaction.user.id!==metadata.ownerId&&!isTicketStaff(interaction))){ await interaction.reply({ content:'Only the ticket opener or support staff can answer this request.',flags:MessageFlags.Ephemeral }); return true; } await interaction.reply({ content:'The ticket will remain open.',flags:MessageFlags.Ephemeral }); await interaction.message.delete().catch(()=>undefined); return true; } return false; }
-export async function handleTicketModal(interaction: ModalSubmitInteraction): Promise<boolean> { if(interaction.customId.startsWith('ticket-feedback:')) return handleTicketFeedbackModal(interaction); if(interaction.customId.startsWith('ticket:create-modal:')){ const type=interaction.customId.split(':')[2] as TicketType; if(!(type in TICKET_CATEGORIES)) return false; await createTicket(interaction,type); return true; } if(interaction.customId==='ticket:close-request-modal'){ await interaction.deferReply({ flags:MessageFlags.Ephemeral }); const channel=interaction.channel; if(!channel||channel.type!==ChannelType.GuildText){ await interaction.editReply('This can only be used inside a ticket channel.'); return true; } const metadata=decodeMetadata(channel.topic); if(!metadata){ await interaction.editReply('This is not a managed ticket channel.'); return true; } const reason=interaction.fields.getTextInputValue('reason'); await channel.send({ components:[buildCloseRequestPanel(metadata.ownerId,interaction.user.id,reason)],files:artwork(),flags:MessageFlags.IsComponentsV2,allowedMentions:{ parse:[],users:[metadata.ownerId] } }); await interaction.editReply('✅ Your close request was sent to the ticket opener.'); return true; } return false; }
+export async function handleTicketSelect(interaction: StringSelectMenuInteraction): Promise<boolean> { if(interaction.customId!=='ticket:create-select') return false; const type=interaction.values[0] as TicketType; if(!(type in TICKET_CATEGORIES)){ await interaction.reply({ content:'That ticket category is unavailable.',flags:MessageFlags.Ephemeral }); return true; } const gate=newTicketGate(interaction,type); await interaction.reply({ components:[ticketGateChoicePanel(gate)],files:artwork(),flags:MessageFlags.Ephemeral|MessageFlags.IsComponentsV2,allowedMentions:{parse:[]} }); return true; }
+export async function handleTicketButton(interaction: ButtonInteraction): Promise<boolean> { if(interaction.customId.startsWith('ticket-feedback:')) return handleTicketFeedbackButton(interaction); if(interaction.customId.startsWith('ticket:gate:')) return handleTicketGateButton(interaction); if(!interaction.customId.startsWith('ticket:')) return false; if(interaction.customId==='ticket:claim'){ const channel=interaction.channel; if(!channel||channel.type!==ChannelType.GuildText) return true; const metadata=decodeMetadata(channel.topic); if(!metadata){ await interaction.reply({ content:'This is not a managed ticket.',flags:MessageFlags.Ephemeral }); return true; } if(!isTicketStaff(interaction)){ await interaction.reply({ content:'Only support staff can claim tickets.',flags:MessageFlags.Ephemeral }); return true; } if(metadata.claimedBy){ await interaction.reply({ content:`This ticket is already claimed by <@${metadata.claimedBy}>.`,flags:MessageFlags.Ephemeral }); return true; } metadata.claimedBy=interaction.user.id; await channel.setTopic(encodeMetadata(metadata)); await interaction.update({ components:updatedClaimComponents(interaction) as never }); await interaction.followUp({ content:`✅ Ticket claimed by <@${interaction.user.id}>.`,allowedMentions:{ parse:[] } }); return true; } if(interaction.customId==='ticket:close'){ await interaction.deferReply({ flags:MessageFlags.Ephemeral }); await closeTicketWithLifecycle(interaction,'Closed from the ticket panel.'); return true; } if(interaction.customId==='ticket:close-request'){ await interaction.showModal(closeRequestModal()); return true; } if(interaction.customId==='ticket:close-confirm'){ await interaction.deferReply({ flags:MessageFlags.Ephemeral }); await closeTicketWithLifecycle(interaction,'Close request accepted.'); return true; } if(interaction.customId==='ticket:close-keep'){ const channel=interaction.channel; const metadata=channel?.type===ChannelType.GuildText ? decodeMetadata(channel.topic) : null; if(!metadata || (interaction.user.id!==metadata.ownerId&&!isTicketStaff(interaction))){ await interaction.reply({ content:'Only the ticket opener or support staff can answer this request.',flags:MessageFlags.Ephemeral }); return true; } await interaction.reply({ content:'The ticket will remain open.',flags:MessageFlags.Ephemeral }); await interaction.message.delete().catch(()=>undefined); return true; } return false; }
+export async function handleTicketModal(interaction: ModalSubmitInteraction): Promise<boolean> { if(interaction.customId.startsWith('ticket-feedback:')) return handleTicketFeedbackModal(interaction); if(interaction.customId.startsWith('ticket:create-modal:')){ const parts=interaction.customId.split(':'); const type=parts[2] as TicketType; const token=parts[3]; if(!(type in TICKET_CATEGORIES)) return false; cleanupTicketGates(); const gate=token?pendingTicketGates.get(token):null; const gateIsValid=Boolean(gate&&gate.userId===interaction.user.id&&gate.guildId===(interaction.guildId||'')&&gate.type===type&&gate.readAt&&Date.now()>=gate.readAt+TICKET_GATE_DELAY_MS&&gate.modalOpenedAt); if(!gateIsValid){ await interaction.reply({content:'Before opening a ticket, select a category and review the FAQ or Ticket TOS for 10 seconds.',flags:MessageFlags.Ephemeral}); return true; } pendingTicketGates.delete(token); await createTicket(interaction,type); return true; } if(interaction.customId==='ticket:close-request-modal'){ await interaction.deferReply({ flags:MessageFlags.Ephemeral }); const channel=interaction.channel; if(!channel||channel.type!==ChannelType.GuildText){ await interaction.editReply('This can only be used inside a ticket channel.'); return true; } const metadata=decodeMetadata(channel.topic); if(!metadata){ await interaction.editReply('This is not a managed ticket channel.'); return true; } const reason=interaction.fields.getTextInputValue('reason'); await channel.send({ components:[buildCloseRequestPanel(metadata.ownerId,interaction.user.id,reason)],files:artwork(),flags:MessageFlags.IsComponentsV2,allowedMentions:{ parse:[],users:[metadata.ownerId] } }); await interaction.editReply('✅ Your close request was sent to the ticket opener.'); return true; } return false; }
 
 export function isTicketPanelCommandName(commandName: string): boolean { return commandName.replace(/[-_\s]/g,'').toLowerCase()==='ticketpanel' || commandName.toLowerCase()==='ticket'; }
 export function buildTicketPanelRefreshPayload() { return { components:[buildTicketLauncher()], files:artwork(), flags:MessageFlags.IsComponentsV2 as MessageFlags.IsComponentsV2, allowedMentions:{ parse:[] as [] } }; }

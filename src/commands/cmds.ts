@@ -10,7 +10,7 @@ interface CommandEntry {
 
 const CATEGORY_NAMES: Readonly<Record<string, readonly string[]>> = {
     Moderation: ['warn', 'kick', 'ban', 'timeout', 'purge', 'lock', 'unlock', 'slowmode', 'punish', 'punishment', 'prohibited-word'],
-    Admin: ['admin', 'role', 'say', 'dock-config', 'rename'],
+    Admin: ['admin', 'role', 'say', 'dock-config', 'rename', 'rules'],
     'Staff Management': ['application', 'training', 'training-results', 'infraction', 'promotion', 'request-training', 'view-infractions', 'loa'],
     Community: ['movie-feedback', 'staff-feedback', 'staff-complaint', 'partnership', 'suggest', 'suggestions', 'suggestion-approved', 'suggestion-denied', 'suggestion-maybe'],
     Sessions: ['session-start', 'session-vote', 'session-end', 'session-boost', 'session-full'],

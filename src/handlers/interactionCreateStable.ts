@@ -185,6 +185,8 @@ async function runOptionalComponent(interaction: Interaction): Promise<boolean> 
     if (id.startsWith('dashboard:')) {
         if (interaction.isButton()) attempts.push(async () => Boolean(await require('../commands/dashboard.ts').handleDashboardButton?.(interaction)));
         if (interaction.isStringSelectMenu()) attempts.push(async () => Boolean(await require('../commands/dashboard.ts').handleDashboardSelect?.(interaction)));
+    } else if (id.startsWith('rules:')) {
+        if (interaction.isStringSelectMenu()) attempts.push(async () => Boolean(await require('../commands/rules.ts').handleRulesSelect?.(interaction)));
     } else if (id.startsWith('loa:')) {
         if (interaction.isButton()) attempts.push(async () => Boolean(await require('../commands/loa.ts').handleLoaButton?.(interaction)));
         if (interaction.isModalSubmit()) attempts.push(async () => Boolean(await require('../commands/loa.ts').handleLoaModal?.(interaction)));
