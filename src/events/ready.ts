@@ -13,6 +13,7 @@ import { registerLoaApprovalGuard } from './loaApprovalGuard';
 import { installBatchOneBannerAssets } from './bannerAssetInstaller';
 import { refreshPersistentPanels } from './persistentPanelRefresh';
 import { registerGiveawayScheduler } from '../commands/giveaway';
+import { registerPaidAdScheduler } from '../commands/paidAds';
 import { registerMemberLifecycleLogs } from './memberLifecycleLogs';
 
 const COMMAND_PREWARM_DELAY_MS = 1_000;
@@ -192,6 +193,12 @@ export const onReady = async (client: Client): Promise<void> => {
         registerGiveawayScheduler(client);
     } catch (error) {
         logger.warn(`[Giveaway] Failed to register completion scheduler: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    try {
+        registerPaidAdScheduler(client);
+    } catch (error) {
+        logger.warn(`[PaidAds] Failed to register publishing scheduler: ${error instanceof Error ? error.message : String(error)}`);
     }
 
     try {

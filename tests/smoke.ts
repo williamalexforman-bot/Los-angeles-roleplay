@@ -567,26 +567,6 @@ for (const required of [
         'paid-ad-banner.png',
         'underbanner.png',
     ]);
-    const marketplaceItems = marketplacePanel.components
-        .filter((component: { type: number }) => component.type === 9)
-        .map((component: {
-            components?: Array<{ content?: string }>;
-            accessory?: { custom_id?: string; label?: string };
-        }) => ({
-            title: component.components?.[0]?.content?.split('\n')[0],
-            id: component.accessory?.custom_id,
-            price: component.accessory?.label,
-        }));
-    assert.deepEqual(marketplaceItems, [
-        { title: '**Paid Ad — @everyone**', id: 'marketplace:price:paid-ad-everyone', price: '800' },
-        { title: '**Paid Ad — @here**', id: 'marketplace:price:paid-ad-here', price: '450' },
-        { title: '**Sponsored — @everyone**', id: 'marketplace:price:sponsored-everyone', price: '650' },
-        { title: '**Sponsored — @here**', id: 'marketplace:price:sponsored-here', price: '350' },
-        { title: '**Instant Post**', id: 'marketplace:price:instant-post', price: '1500' },
-        { title: '**Priority**', id: 'marketplace:price:priority', price: '1000' },
-    ]);
-    assert(!JSON.stringify(marketplacePanel).includes('marketplace:price:plus'),
-        'the removed Plus package must not appear in the marketplace');
 
     const persistentSpecs = [
         ['1526049604712529971', 'dashboard:menu', 'dashboard-banner.png'],
@@ -2128,8 +2108,8 @@ for (const required of [
         return { unref: () => undefined };
     };
     let ticketGatePayload: any = null;
-    let ticketGateReadingPayload: any = null;
-    let ticketGateUnlockedPayload: any = null;
+    const ticketGateReadingPayloads: any[] = [];
+    let ticketGateDeferFlags: any = null;
     let ticketContinueButtonId = '';
     let earlyGateRejection = '';
     let generalTicketModal: any = null;
@@ -2156,23 +2136,18 @@ for (const required of [
             customId: faqButtonId,
             guildId: 'ticket-guild',
             user: ticketGateUser,
-            reply: async (payload: any) => { ticketGateReadingPayload = payload; },
-            editReply: async (payload: any) => { ticketGateUnlockedPayload = payload; },
+            deferReply: async (payload: any) => { ticketGateDeferFlags = payload.flags; },
+            editReply: async (payload: any) => { ticketGateReadingPayloads.push(payload); },
         } as never));
-        assert.equal(ticketGateReadingPayload.flags, MessageFlags.Ephemeral | MessageFlags.IsComponentsV2);
-        assert(JSON.stringify(ticketGateReadingPayload.components[0].toJSON()).includes('Frequently Asked Questions'));
-        assert(!JSON.stringify(ticketGateReadingPayload.components[0].toJSON()).includes('ticket:gate:continue:'),
+        assert.equal(ticketGateDeferFlags, MessageFlags.Ephemeral);
+        assert(ticketGateReadingPayloads[0].content.includes('Frequently Asked Questions'));
+        assert.equal(ticketGateReadingPayloads[0].components.length, 0,
             'the red continuation button must remain hidden during the reading delay');
-        const unlockedGateJson = JSON.stringify(ticketGateUnlockedPayload.components[0].toJSON());
-        assert(unlockedGateJson.includes('ticket:gate:continue:'),
-            'the reading timer must add Still Need Assistance to the same private V2 message');
-        assert(unlockedGateJson.includes('"style":4'), 'Still Need Assistance must be a red Danger button');
-        ticketContinueButtonId = ticketGateUnlockedPayload.components[0].toJSON().components
-            .filter((component: { type: number }) => component.type === 1)
-            .flatMap((component: { components?: Array<{ custom_id?: string }> }) => component.components || [])
-            .find((button: { custom_id?: string }) => button.custom_id?.startsWith('ticket:gate:continue:'))
-            ?.custom_id || '';
-        assert(ticketContinueButtonId, 'the unlocked reading panel must include a continuation button');
+        assert.equal(ticketGateReadingPayloads[1].components[0].toJSON().components[0].style, 4,
+            'Still Need Assistance must unlock as a red Danger button');
+        ticketContinueButtonId = ticketGateReadingPayloads[1].components[0].toJSON().components[0].custom_id;
+        assert(ticketContinueButtonId.startsWith('ticket:gate:continue:'),
+            'the reading timer must supply a signed continuation button');
         assert(ticketContinueButtonId.length <= 100, 'the continuation custom ID must fit Discord limits');
 
         assert(await handleTicketButton({

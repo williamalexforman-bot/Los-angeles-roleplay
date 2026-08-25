@@ -10,7 +10,7 @@
     "start": "node index.js",
     "build": "npm run typecheck && npm run check:banner-quality && npm run check:v2-emblems",
     "typecheck": "tsc --noEmit",
-    "test": "ts-node --transpile-only tests/smoke.ts && ts-node --transpile-only tests/giveaway.ts && ts-node --transpile-only tests/memberLifecycleLogs.ts",
+    "test": "ts-node --transpile-only tests/smoke.ts && ts-node --transpile-only tests/marketplace.ts && ts-node --transpile-only tests/giveaway.ts && ts-node --transpile-only tests/memberLifecycleLogs.ts",
     "check:banner-quality": "node scripts/check-banner-quality.js",
     "check:v2-emblems": "node scripts/check-v2-emblems.js",
     "check": "npm run typecheck && npm run check:banner-quality && npm test",

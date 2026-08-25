@@ -140,6 +140,20 @@ function newTicketGate(
 function gateCustomId(action: 'faq' | 'tos' | 'continue', gate: TicketGateState): string {
     return `ticket:gate:${action}:${gate.type}:${gate.userId}:${gate.timestamp.toString(36)}:${gate.signature}`;
 }
+function ticketGateChoiceRow(gate: TicketGateState): ActionRowBuilder<ButtonBuilder> {
+    return new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+            .setCustomId(gateCustomId('faq', gate))
+            .setLabel('Frequently Asked Questions')
+            .setEmoji('❔')
+            .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+            .setCustomId(gateCustomId('tos', gate))
+            .setLabel('Ticket TOS')
+            .setEmoji('📜')
+            .setStyle(ButtonStyle.Secondary),
+    );
+}
 function safeSignatureMatches(actual: string, expected: string): boolean {
     const actualBuffer = Buffer.from(actual);
     const expectedBuffer = Buffer.from(expected);
@@ -178,52 +192,28 @@ function ticketGateChoicePanel(gate: TicketGateState): ContainerBuilder {
             'You must review one section for 10 seconds before you can continue.',
         ].join('\n')))
         .addSeparatorComponents(separator())
-        .addActionRowComponents(new ActionRowBuilder<ButtonBuilder>().addComponents(
-            new ButtonBuilder()
-                .setCustomId(gateCustomId('faq', gate))
-                .setLabel('Frequently Asked Questions')
-                .setEmoji('❔')
-                .setStyle(ButtonStyle.Primary),
-            new ButtonBuilder()
-                .setCustomId(gateCustomId('tos', gate))
-                .setLabel('Ticket TOS')
-                .setEmoji('📜')
-                .setStyle(ButtonStyle.Secondary),
-        ))
+        .addActionRowComponents(ticketGateChoiceRow(gate))
         .addSeparatorComponents(separator())
         .addMediaGalleryComponents(media(UNDERBANNER_NAME));
 }
-function ticketGateReadingPanel(gate: TicketGateState, kind: 'faq' | 'tos', unlocked: boolean): ContainerBuilder {
-    const panel = new ContainerBuilder()
-        .setAccentColor(BRAND.color)
-        .addMediaGalleryComponents(media(ASSISTANCE_BANNER_NAME))
-        .addSeparatorComponents(separator())
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(
-            kind === 'faq' ? SUPPORT_FAQ : TICKET_TERMS,
-        ));
-    if (unlocked) {
-        panel
-            .addSeparatorComponents(separator())
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(
-                'If these answers did not resolve your issue, you may now continue.',
-            ))
-            .addActionRowComponents(new ActionRowBuilder<ButtonBuilder>().addComponents(
-                new ButtonBuilder()
-                    .setCustomId(gateCustomId('continue', gate))
-                    .setLabel('Still Need Assistance')
-                    .setEmoji('🎫')
-                    .setStyle(ButtonStyle.Danger),
-            ));
-    } else {
-        panel
-            .addSeparatorComponents(separator())
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(
-                'Please review this information. **Still Need Assistance** will appear in 10 seconds.',
-            ));
-    }
-    return panel
-        .addSeparatorComponents(separator())
-        .addMediaGalleryComponents(media(UNDERBANNER_NAME));
+function ticketGateReadingPayload(gate: TicketGateState, kind: 'faq' | 'tos', unlocked: boolean) {
+    const content = [
+        kind === 'faq' ? SUPPORT_FAQ : TICKET_TERMS,
+        '',
+        unlocked
+            ? 'If this did not resolve your issue, you may now continue.'
+            : 'Please review this information. **Still Need Assistance** will appear in 10 seconds.',
+    ].join('\n');
+    const components = unlocked
+        ? [new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder()
+                .setCustomId(gateCustomId('continue', gate))
+                .setLabel('Still Need Assistance')
+                .setEmoji('🎫')
+                .setStyle(ButtonStyle.Danger),
+        )]
+        : [];
+    return { content, components, allowedMentions: { parse: [] as [] } };
 }
 function createTicketModal(gate: TicketGateState): ModalBuilder { const modal = new ModalBuilder().setCustomId(`ticket:create-modal:${gate.type}:${gate.userId}:${gate.timestamp.toString(36)}:${gate.signature}`).setTitle(`${TICKET_CATEGORIES[gate.type].label} Ticket`.slice(0, 45)); if (gate.type === 'internal') return modal.addComponents(modalInput('reported_user','User you are reporting',TextInputStyle.Short),modalInput('reason','Reason for report',TextInputStyle.Paragraph),modalInput('proof','Do you have proof?',TextInputStyle.Paragraph),modalInput('anything_else','Anything else?',TextInputStyle.Paragraph,false)); return modal.addComponents(modalInput('reason','Reason for opening ticket',TextInputStyle.Paragraph)); }
 async function rejectTicketGate(interaction: ButtonInteraction, content: string): Promise<void> {
@@ -236,10 +226,7 @@ function scheduleTicketGateUnlock(
 ): void {
     const unlockAt = gate.timestamp + TICKET_GATE_DELAY_MS;
     const timeout = setTimeout(() => {
-        void interaction.editReply({
-            components: [ticketGateReadingPanel(gate, kind, true)],
-            allowedMentions: { parse: [] },
-        }).catch(error => {
+        void interaction.editReply(ticketGateReadingPayload(gate, kind, true)).catch(error => {
             logger.warn(`[Tickets] Could not unlock private ticket gate: ${error instanceof Error ? error.message : String(error)}`);
         });
     }, Math.max(0, unlockAt - Date.now()));
@@ -247,7 +234,10 @@ function scheduleTicketGateUnlock(
 }
 async function handleTicketGateButton(interaction: ButtonInteraction): Promise<boolean> {
     const [, , action, type, userId, encodedTimestamp, signature] = interaction.customId.split(':');
-    if (!signature || !['faq', 'tos', 'continue'].includes(action)) return false;
+    if (!signature || !['faq', 'tos', 'continue'].includes(action)) {
+        await rejectTicketGate(interaction, 'This private ticket step expired. Select the ticket category again to restart.');
+        return true;
+    }
     const gate = parseTicketGate(
         interaction,
         action === 'continue' ? 'read' : 'choice',
@@ -263,12 +253,11 @@ async function handleTicketGateButton(interaction: ButtonInteraction): Promise<b
 
     if (action === 'faq' || action === 'tos') {
         const readingGate = newTicketGate(interaction, gate.type, 'read');
-        await interaction.reply({
-            components: [ticketGateReadingPanel(readingGate, action, false)],
-            files: artwork(),
-            flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
-            allowedMentions: { parse: [] },
-        });
+        // Acknowledge first, then use a lightweight standard message. This
+        // avoids making Discord process two image uploads before the component
+        // callback deadline and keeps the reading gate reliable under load.
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        await interaction.editReply(ticketGateReadingPayload(readingGate, action, false));
         scheduleTicketGateUnlock(interaction, readingGate, action);
         return true;
     }
@@ -279,6 +268,20 @@ async function handleTicketGateButton(interaction: ButtonInteraction): Promise<b
     }
     await interaction.showModal(createTicketModal(gate));
     return true;
+}
+export async function beginMarketplaceClaimTicketGate(interaction: ButtonInteraction): Promise<void> {
+    const gate = newTicketGate(interaction, 'highrank', 'choice');
+    await interaction.reply({
+        content: [
+            '## Claim a Marketplace Purchase',
+            'Your claim will be handled through **⭐ High-Rank Support**.',
+            '',
+            'Before opening the claim ticket, please read either the FAQ or Ticket TOS.',
+        ].join('\n'),
+        components: [ticketGateChoiceRow(gate)],
+        flags: MessageFlags.Ephemeral,
+        allowedMentions: { parse: [] },
+    });
 }
 function closeRequestModal(): ModalBuilder { return new ModalBuilder().setCustomId('ticket:close-request-modal').setTitle('Request Ticket Closure').addComponents(modalInput('reason','Reason for close request',TextInputStyle.Paragraph)); }
 function modalInput(customId: string, label: string, style: TextInputStyle, required = true): ActionRowBuilder<TextInputBuilder> { return new ActionRowBuilder<TextInputBuilder>().addComponents(new TextInputBuilder().setCustomId(customId).setLabel(label).setStyle(style).setRequired(required).setMaxLength(style === TextInputStyle.Short ? 100 : 1_000)); }

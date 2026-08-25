@@ -1,60 +1,129 @@
-export type PaidAdProductKey = 'paid-ad-everyone' | 'paid-ad-here';
+export type MarketplaceProductKey =
+    | 'sponsored-here'
+    | 'instant-post'
+    | 'paid-ad-everyone'
+    | 'paid-ad-here'
+    | 'sponsored-everyone'
+    | 'priority';
 
-export interface PaidAdProductConfig {
-    key: PaidAdProductKey;
+export type PaidAdProductKey = Exclude<MarketplaceProductKey, 'instant-post' | 'priority'>;
+export type MarketplaceAddOnKey = Extract<MarketplaceProductKey, 'instant-post' | 'priority'>;
+
+export interface MarketplaceProductConfig {
+    key: MarketplaceProductKey;
     label: string;
-    pingType: 'everyone' | 'here';
-    itemType: string;
+    description: string;
+    price: number;
+    itemType: 'gamepass';
     itemId: string;
+    purchaseUrl: string;
+    kind: 'paid-ad' | 'add-on';
+    pingType?: 'everyone' | 'here';
+    sponsored?: boolean;
 }
+
+export type PaidAdProductConfig = MarketplaceProductConfig & {
+    key: PaidAdProductKey;
+    kind: 'paid-ad';
+    pingType: 'everyone' | 'here';
+    sponsored: boolean;
+};
 
 export type RobloxOwnershipResult =
     | { ok: true; owned: boolean }
     | { ok: false; message: string };
 
-function configuredProduct(
-    key: PaidAdProductKey,
-    label: string,
-    pingType: 'everyone' | 'here',
-    idEnv: string,
-    typeEnv: string,
-): PaidAdProductConfig | null {
-    const itemId = (process.env[idEnv] || '').trim();
-    if (!/^\d+$/.test(itemId)) return null;
-    const itemType = (process.env[typeEnv] || 'gamepass').trim().toLowerCase();
-    if (!/^[a-z0-9-]+$/.test(itemType)) return null;
-    return { key, label, pingType, itemType, itemId };
+const PRODUCTS: readonly MarketplaceProductConfig[] = [
+    {
+        key: 'sponsored-here',
+        label: 'Sponsored — @here',
+        description: 'A sponsored advertisement that notifies everyone currently online.',
+        price: 350,
+        itemType: 'gamepass',
+        itemId: '1955281739',
+        purchaseUrl: 'https://www.roblox.com/game-pass/1955281739/here-sponsored',
+        kind: 'paid-ad',
+        pingType: 'here',
+        sponsored: true,
+    },
+    {
+        key: 'instant-post',
+        label: 'Instant Post',
+        description: 'Publish one queued advertisement immediately instead of waiting for its scheduled slot.',
+        price: 1_500,
+        itemType: 'gamepass',
+        itemId: '1954897792',
+        purchaseUrl: 'https://www.roblox.com/game-pass/1954897792/Instant-Post',
+        kind: 'add-on',
+    },
+    {
+        key: 'paid-ad-everyone',
+        label: 'Paid Ad — @everyone',
+        description: 'A paid advertisement that notifies everyone in the server.',
+        price: 800,
+        itemType: 'gamepass',
+        itemId: '1955011806',
+        purchaseUrl: 'https://www.roblox.com/game-pass/1955011806/everyone-PAID-AD',
+        kind: 'paid-ad',
+        pingType: 'everyone',
+        sponsored: false,
+    },
+    {
+        key: 'paid-ad-here',
+        label: 'Paid Ad — @here',
+        description: 'A paid advertisement that notifies everyone currently online.',
+        price: 450,
+        itemType: 'gamepass',
+        itemId: '1954819787',
+        purchaseUrl: 'https://www.roblox.com/game-pass/1954819787/here-paid-ad',
+        kind: 'paid-ad',
+        pingType: 'here',
+        sponsored: false,
+    },
+    {
+        key: 'sponsored-everyone',
+        label: 'Sponsored — @everyone',
+        description: 'A sponsored advertisement that notifies everyone in the server.',
+        price: 650,
+        itemType: 'gamepass',
+        itemId: '1955581700',
+        purchaseUrl: 'https://www.roblox.com/game-pass/1955581700/everyone-sponsored',
+        kind: 'paid-ad',
+        pingType: 'everyone',
+        sponsored: true,
+    },
+    {
+        key: 'priority',
+        label: 'Priority',
+        description: 'Move one scheduled advertisement to the front of the waiting list.',
+        price: 1_000,
+        itemType: 'gamepass',
+        itemId: '1956096571',
+        purchaseUrl: 'https://www.roblox.com/game-pass/1956096571/Priority',
+        kind: 'add-on',
+    },
+] as const;
+
+export function marketplaceProducts(): MarketplaceProductConfig[] {
+    return PRODUCTS.map(product => ({ ...product }));
 }
 
-/**
- * Product IDs are intentionally configuration-only so real Roblox purchase IDs
- * never need to be hard-coded. Configure these later on the bot host:
- * MARKETPLACE_PAID_AD_EVERYONE_ITEM_ID
- * MARKETPLACE_PAID_AD_HERE_ITEM_ID
- * Optional item type vars default to "gamepass".
- */
+export function marketplaceProduct(key: string): MarketplaceProductConfig | undefined {
+    return PRODUCTS.find(product => product.key === key);
+}
+
 export function paidAdProducts(): PaidAdProductConfig[] {
-    return [
-        configuredProduct(
-            'paid-ad-everyone',
-            'Paid Ad — @everyone',
-            'everyone',
-            'MARKETPLACE_PAID_AD_EVERYONE_ITEM_ID',
-            'MARKETPLACE_PAID_AD_EVERYONE_ITEM_TYPE',
-        ),
-        configuredProduct(
-            'paid-ad-here',
-            'Paid Ad — @here',
-            'here',
-            'MARKETPLACE_PAID_AD_HERE_ITEM_ID',
-            'MARKETPLACE_PAID_AD_HERE_ITEM_TYPE',
-        ),
-    ].filter((value): value is PaidAdProductConfig => Boolean(value));
+    return PRODUCTS.filter((product): product is PaidAdProductConfig => product.kind === 'paid-ad');
+}
+
+export function isPaidAdProduct(product: MarketplaceProductConfig): product is PaidAdProductConfig {
+    return product.kind === 'paid-ad';
 }
 
 export async function robloxUserOwnsConfiguredItem(
     robloxUserId: string,
-    product: PaidAdProductConfig,
+    product: MarketplaceProductConfig,
+    fetchImpl: typeof fetch = fetch,
 ): Promise<RobloxOwnershipResult> {
     if (!/^\d+$/.test(robloxUserId)) return { ok: false, message: 'Invalid Roblox user ID.' };
 
@@ -63,7 +132,7 @@ export async function robloxUserOwnsConfiguredItem(
     try {
         const url = `https://inventory.roblox.com/v1/users/${encodeURIComponent(robloxUserId)}`
             + `/items/${encodeURIComponent(product.itemType)}/${encodeURIComponent(product.itemId)}/is-owned`;
-        const response = await fetch(url, {
+        const response = await fetchImpl(url, {
             method: 'GET',
             headers: { Accept: 'application/json' },
             signal: controller.signal,
@@ -81,4 +150,22 @@ export async function robloxUserOwnsConfiguredItem(
     } finally {
         clearTimeout(timer);
     }
+}
+
+export async function ownedMarketplaceProducts(
+    robloxUserId: string,
+    fetchImpl: typeof fetch = fetch,
+): Promise<{ products: MarketplaceProductConfig[]; failures: string[] }> {
+    const results = await Promise.all(PRODUCTS.map(async product => ({
+        product,
+        result: await robloxUserOwnsConfiguredItem(robloxUserId, product, fetchImpl),
+    })));
+    return {
+        products: results
+            .filter(result => result.result.ok && result.result.owned)
+            .map(result => result.product),
+        failures: results
+            .filter(result => !result.result.ok)
+            .map(result => result.result.ok ? '' : result.result.message),
+    };
 }

@@ -58,6 +58,9 @@ The bot needs View Channels, Manage Channels, Manage Roles/Permissions where app
 - `/suggest` and `/suggestions` — publish a persistent V2 suggestion panel; votes and staff decisions recover from the Discord message after a restart.
 - `/add-member` and `/remove-member` — grant or deny a member access to the current managed ticket. A member-specific removal also overrides the support-role channel access.
 - `/partnership request` — posts the branded partnership rules panel; the button opens a server-name, representative, invite-link, and server-ad modal. Completed requests go to the configured partnership review channel with staff-only Approve/Deny controls.
+- `/marketplace-panel` — posts the marketplace with direct Roblox purchase buttons and a claim button. Claims resolve the buyer's Melonly-verified Roblox account, check all six game passes, prevent duplicate use, and open a Management ticket.
+- `/paid-ad create` — inside the buyer's marketplace ticket, opens the server-name, permanent-invite, and full-ad form and assigns the next durable publishing slot.
+- `/paid-ad priority`, `/paid-ad instant`, and `/paid-ad queue` — consume the matching verified add-on, publish immediately, or show the ticket's waiting ads.
 - `/staff-complaint` — submits a structured 1–5 star complaint about a staff member to the configured private complaint channel.
 - `/training-results` — publishes scored Pass/Fail training results.
 - `/promotion issue` — uses a Discord server-role selector, publishes a professional promotion notice, and pings the promoted member without pinging the selected role.
@@ -72,13 +75,15 @@ The bot needs View Channels, Manage Channels, Manage Roles/Permissions where app
 ## Optional integrations
 
 - **Partnership role:** set `PARTNERSHIP_ROLE_ID` so approving a partnership automatically assigns the role. The request and complaint destinations default to `1527122924975165530` and `1527139806797369504` and can be overridden with `PARTNERSHIP_REQUEST_CHANNEL_ID` and `STAFF_COMPLAINT_CHANNEL_ID`.
+- **Marketplace verification:** store the Melonly server token in `MELONY_API_KEY` (the `MELONLY_API_TOKEN` and `MELONLY_API_KEY` aliases are also accepted). Do not commit it. The default API base is `https://api.melonly.xyz/api/v1`.
+- **Paid-ad queue:** advertisements publish in channel `1538624666313170964` by default; override it with `PAID_AD_OUTPUT_CHANNEL_ID`. `MARKETPLACE_MANAGEMENT_CATEGORY_ID` controls where verified claim tickets open. Standard timing defaults to a one-hour initial delay and 24-hour spacing; override it with `PAID_AD_INITIAL_DELAY_MINUTES` and `PAID_AD_INTERVAL_MINUTES`. The bot needs **Mention @everyone, @here, and All Roles** in the output channel.
 - **ER:LC:** set `ERLC_SERVER_KEY`. The monitor uses `GET https://api.erlc.gg/v2/server` with Players, CommandLogs, and JoinLogs enabled, honors rate-limit reset/retry data, and persists processed state in MongoDB. An authorized `/session-end` (SSD) also uses the v2 command endpoint to run `:kick all`; API failures are shown to the staff member so they can run the command manually.
 - **Official ER:LC webhooks:** point the configured event webhook to the public HTTPS route `/erlc-event`. Signed Ed25519 payloads are verified before processing.
 
 ## Validation
 
 - `npm run build` — strict TypeScript check.
-- `npm test` — offline integration coverage for staff tools, moderation, profanity/raid payloads and dedupe, slash-command auditing/redaction, movie feedback, Pass/Fail training output, public infraction evidence threads/controls, and ER:LC command/team/punishment comparisons.
+- `npm test` — offline integration coverage for staff tools, moderation, marketplace/Melonly parsing, Roblox ownership checks, paid-ad layouts, profanity/raid payloads and dedupe, slash-command auditing/redaction, movie feedback, Pass/Fail training output, public infraction evidence threads/controls, and ER:LC command/team/punishment comparisons.
 - `npm run check` — runs both.
 
 Live Discord channel/thread creation and external API calls should be exercised in the configured test guild before production rollout.

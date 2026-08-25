@@ -26,11 +26,14 @@ export function getBloxlinkApiKey(): string | undefined {
 }
 
 export function getMelonyApiKey(): string | undefined {
-    return getConfiguredSecret('MELONY_API_KEY');
+    const preferred = getConfiguredSecret('MELONY_API_KEY');
+    if (preferred) return preferred;
+    const alias = process.env.MELONLY_API_TOKEN?.trim() || process.env.MELONLY_API_KEY?.trim();
+    return alias && !PLACEHOLDER_SECRET.test(alias) ? alias : undefined;
 }
 
 export function getMelonyApiUrl(): string | undefined {
-    const value = process.env.MELONY_API_URL?.trim();
+    const value = process.env.MELONY_API_URL?.trim() || process.env.MELONLY_API_URL?.trim();
     if (!value) return undefined;
     return value;
 }

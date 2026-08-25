@@ -182,7 +182,11 @@ async function runOptionalComponent(interaction: Interaction): Promise<boolean> 
     const id = interaction.customId;
     const attempts: Array<() => Promise<boolean>> = [];
 
-    if (id.startsWith('dashboard:')) {
+    if (id.startsWith('marketplace:')) {
+        if (interaction.isButton()) attempts.push(async () => Boolean(await require('../commands/marketplace.ts').handleMarketplaceButton?.(interaction)));
+    } else if (id.startsWith('paid-ad:')) {
+        if (interaction.isModalSubmit()) attempts.push(async () => Boolean(await require('../commands/paidAds.ts').handlePaidAdModal?.(interaction)));
+    } else if (id.startsWith('dashboard:')) {
         if (interaction.isButton()) attempts.push(async () => Boolean(await require('../commands/dashboard.ts').handleDashboardButton?.(interaction)));
         if (interaction.isStringSelectMenu()) attempts.push(async () => Boolean(await require('../commands/dashboard.ts').handleDashboardSelect?.(interaction)));
     } else if (id.startsWith('rules:')) {
@@ -228,12 +232,18 @@ async function runOptionalComponent(interaction: Interaction): Promise<boolean> 
         }
     }
 
+    let attemptFailed = false;
     for (const attempt of attempts) {
         try {
             if (await attempt()) return true;
         } catch (error) {
+            attemptFailed = true;
             logger.warn(`[StableRouter] Optional component failed without taking down the router: ${error instanceof Error ? error.message : String(error)}`);
         }
+    }
+    if (attemptFailed) {
+        await safeReply(interaction, 'That action hit an internal error. Please try again.');
+        return true;
     }
     return false;
 }

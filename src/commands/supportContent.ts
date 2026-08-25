@@ -68,7 +68,7 @@ export const SUPPORT_FAQ = [
     'Use `/partnership request` to open the partnership request form. Please use a permanent Discord invite and include your complete server advertisement.',
     '',
     '### How do I verify?',
-    'Head to <#1541110029048881313> and follow the verification instructions there.',
+    'Head to <#1541264318799159326> and follow the verification instructions there.',
     '',
     '### How do I become a Moderator?',
     'Use the application options in the server dashboard. Make sure your written responses use proper spelling, punctuation, and grammar and meet all application requirements.',
