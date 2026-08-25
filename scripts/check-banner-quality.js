@@ -20,6 +20,8 @@ const TOP_BANNERS = [
   'session-end-banner.png',
   'session-vote-banner.png',
   'session-boost-banner.png',
+  'giveaway-banner.png',
+  'loa-banner.png',
 ];
 
 async function assertImage(filename, expectedWidth, expectedHeight) {

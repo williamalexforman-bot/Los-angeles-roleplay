@@ -12,6 +12,8 @@ import { registerLoaCalendarRequest } from './loaCalendarRequest';
 import { registerLoaApprovalGuard } from './loaApprovalGuard';
 import { installBatchOneBannerAssets } from './bannerAssetInstaller';
 import { refreshPersistentPanels } from './persistentPanelRefresh';
+import { registerGiveawayScheduler } from '../commands/giveaway';
+import { registerMemberLifecycleLogs } from './memberLifecycleLogs';
 
 const COMMAND_PREWARM_DELAY_MS = 1_000;
 let commandPrewarmTimer: ReturnType<typeof setTimeout> | null = null;
@@ -154,6 +156,12 @@ export const onReady = async (client: Client): Promise<void> => {
     logger.info(`Logged in as ${client.user?.tag}.`);
 
     try {
+        registerMemberLifecycleLogs(client);
+    } catch (error) {
+        logger.warn(`[Member Join] Failed to register V2 join logs: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    try {
         // Verify the exact standalone artwork before refreshing persistent
         // Discord panels so a missing attachment cannot invalidate a message.
         await installBatchOneBannerAssets();
@@ -178,6 +186,12 @@ export const onReady = async (client: Client): Promise<void> => {
         logger.info('[Presence] Member-count watching activity enabled.');
     } catch (error) {
         logger.warn(`[Presence] Failed to register member-count activity: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    try {
+        registerGiveawayScheduler(client);
+    } catch (error) {
+        logger.warn(`[Giveaway] Failed to register completion scheduler: ${error instanceof Error ? error.message : String(error)}`);
     }
 
     try {

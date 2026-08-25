@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import {
     ActionRowBuilder,
     ButtonBuilder,
@@ -21,10 +22,12 @@ import {
     LoaRequest as LoaRequestModel,
     type LoaRequestRecord,
 } from '../database/models';
-import { legacyEmbedToV2Message } from '../utils/embeds';
+import { legacyEmbedToV2Message, type LegacyEmbedV2Options } from '../utils/embeds';
 import { logger } from '../utils/logger';
 
 const LOA_REVIEW_CHANNEL_ID = process.env.LOA_REQUEST_CHANNEL_ID || '1528206019237515344';
+const LOA_BANNER_NAME = 'loa-banner.png';
+const LOA_BANNER_PATH = resolve(__dirname, '..', '..', 'assets', LOA_BANNER_NAME);
 const LOA_ACTIVE_CHANNEL_ID = '1541223750832357456';
 // The historical LOA channel is retained as the default logs destination. If
 // the host already has a dedicated LOA_LOG_CHANNEL_ID/LOA_LOGS_CHANNEL_ID, it
@@ -76,6 +79,14 @@ const endTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const roleGuardTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const completedInProcess = new Set<string>();
 let installed = false;
+
+function loaV2Message(embed: EmbedBuilder, options: LegacyEmbedV2Options = {}) {
+    return legacyEmbedToV2Message(embed, {
+        ...options,
+        topBannerName: LOA_BANNER_NAME,
+        topBannerPath: LOA_BANNER_PATH,
+    });
+}
 
 function parseDateOnly(value: string, endOfDay: boolean): Date | null {
     const match = value.trim().match(DATE_ONLY_RE);
@@ -332,7 +343,7 @@ async function postCompletionLog(
         logger.warn(`[LOA] Completion log channel ${LOA_LOG_CHANNEL_ID} is unavailable.`);
         return false;
     }
-    return channel.send(legacyEmbedToV2Message(
+    return channel.send(loaV2Message(
         endedEmbed(info, mode, endedById, roleRemoved),
         {
             content: `<@${info.userId}>`,
@@ -362,7 +373,7 @@ async function notifyMemberEnded(
             { name: 'Start Date', value: dateTimestamp(info.startAt), inline: true },
             { name: 'End Date', value: dateTimestamp(info.endAt), inline: true },
         );
-    await member.send(legacyEmbedToV2Message(embed)).catch(() => undefined);
+    await member.send(loaV2Message(embed)).catch(() => undefined);
 }
 
 function clearLifecycleTimers(pendingId: string): void {
@@ -555,7 +566,7 @@ async function postActiveLoa(client: Client, info: ActiveLoaInfo): Promise<Messa
         return existing;
     }
 
-    const message = await channel.send(legacyEmbedToV2Message(activeEmbed(info), {
+    const message = await channel.send(loaV2Message(activeEmbed(info), {
         content: `<@${info.userId}>`,
         actionRows: activeButtons(info.pendingId),
         allowedMentions: { parse: [], users: [info.userId] },

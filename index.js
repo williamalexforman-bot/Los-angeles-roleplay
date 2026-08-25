@@ -22,12 +22,14 @@ if (!token) {
 }
 
 const messageModerationEnabled = String(process.env.ENABLE_MESSAGE_MODERATION || 'true').toLowerCase() !== 'false';
+const privilegedIntentsEnabled = String(process.env.ENABLE_PRIVILEGED_INTENTS || 'true').toLowerCase() === 'true';
 const intents = [
   GatewayIntentBits.Guilds,
   GatewayIntentBits.GuildMessages,
   GatewayIntentBits.DirectMessages,
 ];
 if (messageModerationEnabled) intents.push(GatewayIntentBits.MessageContent);
+if (privilegedIntentsEnabled) intents.push(GatewayIntentBits.GuildMembers);
 
 const client = new Client({
   intents,
@@ -37,6 +39,7 @@ globalThis.__discordClient = client;
 globalThis.__indexOwnsStableInteractionBridge = true;
 
 console.log(`[MessageModeration] Curse/raid message monitoring ${messageModerationEnabled ? 'ENABLED' : 'DISABLED'}.`);
+console.log(`[MemberLifecycle] Join events ${privilegedIntentsEnabled ? 'ENABLED' : 'DISABLED (set ENABLE_PRIVILEGED_INTENTS=true)'}.`);
 
 function restErrorMeta(error) {
   const status = error?.status ?? error?.rawError?.status ?? error?.response?.status ?? 'unknown';

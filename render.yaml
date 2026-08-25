@@ -73,11 +73,10 @@ services:
       - key: QUOTA_MOD_ROLE_ID
         value: "1521593407795888336"
 
-      # Keep privileged gateway intents disabled in production until both
-      # Server Members Intent and Message Content Intent are confirmed enabled
-      # in the Discord Developer Portal. Slash commands do not require them.
+      # Required for accurate guildMemberAdd join logs. Server Members Intent
+      # must also be enabled in the Discord Developer Portal.
       - key: ENABLE_PRIVILEGED_INTENTS
-        value: "false"
+        value: "true"
 
       - key: PORT
         value: "10000"

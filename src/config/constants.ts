@@ -28,6 +28,8 @@ export const CHANNEL_IDS = {
     promotions: process.env.PROMOTION_CHANNEL_ID || '1526044978109743255',
     movieFeedback: process.env.MOVIE_FEEDBACK_CHANNEL_ID || '1528933044310904884',
     suggestions: process.env.SUGGESTION_CHANNEL_ID || '1538693259621044264',
+    giveaways: process.env.GIVEAWAY_CHANNEL_ID || '1526036762848137318',
+    memberJoinLog: process.env.JOIN_LOG_CHANNEL_ID || '1529283685168447698',
     privateAudit: process.env.PRIVATE_AUDIT_LOG_CHANNEL_ID || process.env.DISCORD_COMMAND_LOG_CHANNEL_ID || '1528917592604020917',
 } as const;
 

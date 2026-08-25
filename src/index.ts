@@ -46,7 +46,7 @@ process.on('exit', (code: number) => {
 // Keep-alive timer to prevent event loop from emptying if all timers/promises resolve
 setInterval(() => {}, 60_000);
 
-const enablePrivileged = (process.env.ENABLE_PRIVILEGED_INTENTS || 'false').toLowerCase() === 'true';
+const enablePrivileged = (process.env.ENABLE_PRIVILEGED_INTENTS || 'true').toLowerCase() === 'true';
 let erlcMonitor: ErlcMonitor | null = null;
 let webhookServer: Server | null = null;
 const rapidJoinStates = new Map<string, { joins: number[]; lastAlertAt: number }>();
@@ -183,31 +183,14 @@ function createConfiguredClient(privilegedIntents: boolean): Client {
             return visible.map(roleId => `<@&${roleId}>`).join(' • ');
         };
 
-        const accountCreatedField = (userId: string): { name: string; value: string; inline: true } => {
-            const timestamp = Math.floor(Number(BigInt(userId) >> 22n) / 1000);
+        const accountCreatedField = (user: { createdTimestamp: number }): { name: string; value: string; inline: true } => {
+            const timestamp = Math.floor(user.createdTimestamp / 1000);
             return { name: 'Account Created', value: `<t:${timestamp}:F> • <t:${timestamp}:R>`, inline: true };
         };
 
         bot.on('guildMemberAdd', async member => {
-            const joinChannelId = process.env.JOIN_LOG_CHANNEL_ID || '1529283685168447698';
-            const joinChannel = await member.client.channels.fetch(joinChannelId).catch(() => null);
-            const embed = new EmbedBuilder()
-                .setColor(BRAND.color)
-                .setTitle('Member Joined')
-                .setDescription(`<@${member.id}> has joined the server.`)
-                .setThumbnail(member.user.displayAvatarURL())
-                .addFields(
-                    { name: 'Discord Tag', value: member.user.tag, inline: true },
-                    accountCreatedField(member.id),
-                    { name: 'Joined Server', value: member.joinedAt ? `<t:${Math.floor(member.joinedAt.getTime() / 1000)}:F>` : 'Unknown', inline: true },
-                )
-                .setFooter({ text: BRAND.footer })
-                .setTimestamp();
-
-            if (joinChannel?.isSendable()) {
-                await joinChannel.send(legacyEmbedToV2Message(embed)).catch(() => undefined);
-            }
-
+            // The canonical native Components V2 join log is registered by
+            // onReady(). This listener only maintains rapid-join detection.
             const now = Date.now();
             const state = rapidJoinStates.get(member.guild.id) || { joins: [], lastAlertAt: 0 };
             state.joins.push(now);
@@ -249,7 +232,7 @@ function createConfiguredClient(privilegedIntents: boolean): Client {
                 .setThumbnail(member.user.displayAvatarURL())
                 .addFields(
                     { name: 'Discord Tag', value: member.user.tag, inline: true },
-                    accountCreatedField(member.id),
+                    accountCreatedField(member.user),
                     { name: 'Roles Before Leave', value: roles.length ? roles.map(roleId => `<@&${roleId}>`).join(' • ') : 'None', inline: false },
                 )
                 .setFooter({ text: BRAND.footer })
@@ -273,7 +256,7 @@ function createConfiguredClient(privilegedIntents: boolean): Client {
                     .setThumbnail(member.user.displayAvatarURL())
                     .addFields(
                         { name: 'Discord Tag', value: member.user.tag, inline: true },
-                        accountCreatedField(member.id),
+                        accountCreatedField(member.user),
                         { name: 'Kick Reason', value: entry.reason ? entry.reason : 'Unspecified', inline: false },
                         { name: 'Roles Before Kick', value: roles.length ? roles.map(roleId => `<@&${roleId}>`).join(' • ') : 'None', inline: false },
                     )
@@ -323,7 +306,7 @@ function createConfiguredClient(privilegedIntents: boolean): Client {
                 .setThumbnail(ban.user.displayAvatarURL())
                 .addFields(
                     { name: 'Discord Tag', value: ban.user.tag, inline: true },
-                    accountCreatedField(ban.user.id),
+                    accountCreatedField(ban.user),
                     { name: 'Banned By', value: bannedBy, inline: true },
                     { name: 'Ban Reason', value: reason, inline: false },
                 )

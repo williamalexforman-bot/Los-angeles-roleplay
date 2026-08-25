@@ -194,6 +194,8 @@ async function runOptionalComponent(interaction: Interaction): Promise<boolean> 
         return false;
     } else if (id.startsWith('suggestion')) {
         if (interaction.isButton()) attempts.push(async () => Boolean(await require('../commands/suggestions.ts').handleSuggestionButton?.(interaction)));
+    } else if (id.startsWith('giveaway:')) {
+        if (interaction.isButton()) attempts.push(async () => Boolean(await require('../commands/giveaway.ts').handleGiveawayButton?.(interaction)));
     } else if (id.startsWith('partnership:') || id.startsWith('community:')) {
         if (interaction.isButton()) attempts.push(async () => Boolean(await require('../commands/community.ts').handleCommunityButton?.(interaction)));
         if (interaction.isModalSubmit()) attempts.push(async () => Boolean(await require('../commands/community.ts').handleCommunityModal?.(interaction)));

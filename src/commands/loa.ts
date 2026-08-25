@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import {
     ActionRowBuilder,
     ButtonBuilder,
@@ -15,13 +16,15 @@ import {
     type GuildMember,
 } from 'discord.js';
 import { BRAND } from '../config/constants';
-import { legacyEmbedToV2Message } from '../utils/embeds';
+import { legacyEmbedToV2Message, type LegacyEmbedV2Options } from '../utils/embeds';
 import { markSlashCommandFailed } from '../utils/commandAudit';
 import { logger } from '../utils/logger';
 import { isDatabaseAvailable } from '../database/connection';
 import { LoaRequest as LoaRequestModel, type LoaRequestRecord } from '../database/models';
 
 const LOA_REQUEST_CHANNEL_ID = process.env.LOA_REQUEST_CHANNEL_ID || '1528206019237515344';
+const LOA_BANNER_NAME = 'loa-banner.png';
+const LOA_BANNER_PATH = resolve(__dirname, '..', '..', 'assets', LOA_BANNER_NAME);
 const LOA_ROLE_ID = process.env.LOA_ROLE_ID || '1521593407795888329';
 const LOA_REQUESTER_ROLE_ID = process.env.LOA_REQUESTER_ROLE_ID || '';
 const LOA_REQUESTER_ROLE_REQUIRED = Boolean(process.env.LOA_REQUESTER_ROLE_ID);
@@ -68,6 +71,14 @@ const LOA_PROCESSING_LEASE_MS = 5 * 60 * 1_000;
 const LOA_EXPIRY_SCAN_MS = 60_000;
 let loaExpiryRecoveryTimer: NodeJS.Timeout | null = null;
 const cleanedApprovedLoas = new Set<string>();
+
+function loaV2Message(embed: EmbedBuilder, options: LegacyEmbedV2Options = {}) {
+    return legacyEmbedToV2Message(embed, {
+        ...options,
+        topBannerName: LOA_BANNER_NAME,
+        topBannerPath: LOA_BANNER_PATH,
+    });
+}
 
 type RecoverableLoaEmbed = {
     title?: string | null;
@@ -515,7 +526,7 @@ async function sendApprovalConfirmation(member: GuildMember, active: ActiveLoa):
             { name: 'Start Date', value: dateTimestamp(active.startDate), inline: true },
             { name: 'End Date', value: dateTimestamp(active.endDate), inline: true },
         );
-    await member.send(legacyEmbedToV2Message(dmEmbed)).catch(() => {
+    await member.send(loaV2Message(dmEmbed)).catch(() => {
         logger.warn(`Could not send LOA approval DM to ${member.user.tag} (${member.id}).`);
     });
 }
@@ -528,7 +539,7 @@ async function sendDenialConfirmation(member: GuildMember, pending: PendingLoa, 
             { name: 'Requested End', value: dateTimestamp(pending.endDate), inline: true },
             { name: 'Reviewed By', value: `<@${reviewedBy}>`, inline: true },
         );
-    await member.send(legacyEmbedToV2Message(dmEmbed)).catch(() => {
+    await member.send(loaV2Message(dmEmbed)).catch(() => {
         logger.warn(`Could not send LOA denial DM to ${member.user.tag} (${member.id}).`);
     });
 }
@@ -635,7 +646,7 @@ export async function handleLoaButton(interaction: ButtonInteraction): Promise<b
 
                 const channel = await interaction.client.channels.fetch(LOA_REQUEST_CHANNEL_ID).catch(() => null);
                 if (channel?.isSendable()) {
-                    await channel.send(legacyEmbedToV2Message(approvedEmbed(active), {
+                    await channel.send(loaV2Message(approvedEmbed(active), {
                         content: `<@${pending.userId}>`,
                         allowedMentions: { parse: [], users: [pending.userId] },
                     })).catch(error => {
@@ -664,7 +675,7 @@ export async function handleLoaButton(interaction: ButtonInteraction): Promise<b
 
                 const channel = await interaction.client.channels.fetch(LOA_REQUEST_CHANNEL_ID).catch(() => null);
                 if (channel?.isSendable()) {
-                    await channel.send(legacyEmbedToV2Message(deniedEmbed(pending.memberUsername), {
+                    await channel.send(loaV2Message(deniedEmbed(pending.memberUsername), {
                         content: `<@${pending.userId}>`,
                         allowedMentions: { parse: [], users: [pending.userId] },
                     })).catch(error => {
@@ -738,7 +749,7 @@ export async function handleLoaModal(interaction: ModalSubmitInteraction): Promi
             return true;
         }
 
-        const sent = await channel.send(legacyEmbedToV2Message(requestEmbed(pending), {
+        const sent = await channel.send(loaV2Message(requestEmbed(pending), {
             content: `<@${interaction.user.id}>`,
             actionRows: reviewActionRows(pendingId),
             allowedMentions: { parse: [], users: [interaction.user.id] },
