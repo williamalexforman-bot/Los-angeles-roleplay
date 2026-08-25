@@ -143,12 +143,13 @@ function marketplaceTicketPanel(
     userId: string,
     profile: MelonlyRobloxProfile,
     products: readonly MarketplaceProductConfig[],
+    staffRoleIds: readonly string[],
 ): ContainerBuilder {
     const identity = profile.username
         ? `[@${profile.username}](https://www.roblox.com/users/${profile.robloxId}/profile) (\`${profile.robloxId}\`)`
         : `[Roblox account ${profile.robloxId}](https://www.roblox.com/users/${profile.robloxId}/profile)`;
     const details = [
-        `<@&${TICKET_SUPPORT_ROLE_ID}> • <@${userId}>`,
+        [...staffRoleIds.map(roleId => `<@&${roleId}>`), `<@${userId}>`].join(' • '),
         '## 🛍️ Marketplace Purchase Claim',
         `> **Melonly Verified Roblox:** ${identity}`,
         '> **Purchase Check:** `Passed`',
@@ -174,13 +175,21 @@ function marketplaceTicketPanel(
         .addMediaGalleryComponents(marketplaceGallery(BOTTOM_UNDERBANNER));
 }
 
-function marketplaceStaffRoleIds(): string[] {
-    return [...new Set([
+async function marketplaceStaffRoleIds(guild: Guild): Promise<string[]> {
+    const configured = [...new Set([
         TICKET_SUPPORT_ROLE_ID,
         process.env.MANAGEMENT_ROLE_ID,
         process.env.HIGH_RANK_ROLE_ID,
         process.env.ADMIN_ROLE_ID,
     ].filter((value): value is string => Boolean(value && /^\d{17,20}$/.test(value))))];
+    const roles = await guild.roles.fetch().catch(error => {
+        logger.warn(`[Marketplace] Could not refresh guild roles before ticket creation: ${error instanceof Error ? error.message : String(error)}`);
+        return guild.roles.cache;
+    });
+    const existing = configured.filter(roleId => roles.has(roleId));
+    const stale = configured.filter(roleId => !roles.has(roleId));
+    if (stale.length) logger.warn(`[Marketplace] Ignoring missing marketplace staff role IDs: ${stale.join(', ')}`);
+    return existing;
 }
 
 async function createManagementTicket(
@@ -197,7 +206,8 @@ async function createManagementTicket(
         createdAt: new Date().toISOString(),
         marketplace: { claimIds, robloxUserId: profile.robloxId },
     };
-    const staffOverwrites = marketplaceStaffRoleIds().map(roleId => ({
+    const staffRoleIds = await marketplaceStaffRoleIds(guild);
+    const staffOverwrites = staffRoleIds.map(roleId => ({
         id: roleId,
         allow: [
             PermissionFlagsBits.ViewChannel,
@@ -232,7 +242,6 @@ async function createManagementTicket(
                     PermissionFlagsBits.ReadMessageHistory,
                     PermissionFlagsBits.ManageChannels,
                     PermissionFlagsBits.ManageMessages,
-                    PermissionFlagsBits.MentionEveryone,
                 ],
             },
         ],
@@ -241,10 +250,10 @@ async function createManagementTicket(
 
     try {
         const panelMessage = await channel.send({
-            components: [marketplaceTicketPanel(userId, profile, products)],
+            components: [marketplaceTicketPanel(userId, profile, products, staffRoleIds)],
             files: marketplaceAttachments(),
             flags: MessageFlags.IsComponentsV2,
-            allowedMentions: { parse: [], users: [userId], roles: marketplaceStaffRoleIds() },
+            allowedMentions: { parse: [], users: [userId], roles: staffRoleIds },
         });
         metadata.panelMessageId = panelMessage.id;
         await channel.setTopic(encodeMarketplaceTicketMetadata(metadata), 'Marketplace claim panel linked');
