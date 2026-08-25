@@ -2266,15 +2266,59 @@ for (const required of [
     assert.deepEqual(openTicketButtons, ['ticket:claim', 'ticket:close', 'ticket:close-request']);
     assert(ticketCreationReplies.some(reply => reply.includes('ticket-channel-1')));
 
+    const deniedCloseReplies: string[] = [];
+    let deniedCloseDeferred = false;
+    await commandNamed('close').execute({
+        member: { roles: ['administrator-without-support-role'] },
+        memberPermissions: { has: () => true },
+        reply: async (payload: { content: string }) => { deniedCloseReplies.push(payload.content); },
+        deferReply: async () => { deniedCloseDeferred = true; },
+    } as never);
+    assert(deniedCloseReplies.some(reply => reply.includes('1523122697746382868')),
+        '/close must require the exact Ticket Support role');
+    assert.equal(deniedCloseDeferred, false,
+        'Manage Channels must not bypass the Ticket Support role requirement for /close');
+
+    const supportCloseReplies: string[] = [];
+    let supportCloseDeferred = false;
+    await commandNamed('close').execute({
+        channel: null,
+        member: { roles: ['1523122697746382868'] },
+        deferReply: async () => { supportCloseDeferred = true; },
+        editReply: async (content: string) => { supportCloseReplies.push(content); },
+    } as never);
+    assert.equal(supportCloseDeferred, true, 'Ticket Support must be allowed through the /close role gate');
+    assert(supportCloseReplies.some(reply => reply.includes('ticket channel')));
+
+    const deniedCloseRequestReplies: string[] = [];
+    let deniedCloseRequestModalShown = false;
+    await commandNamed('closerequest').execute({
+        channel: createdTicketChannel,
+        member: { roles: ['administrator-without-support-role'] },
+        memberPermissions: { has: () => true },
+        reply: async (payload: { content: string }) => { deniedCloseRequestReplies.push(payload.content); },
+        showModal: async () => { deniedCloseRequestModalShown = true; },
+    } as never);
+    assert(deniedCloseRequestReplies.some(reply => reply.includes('1523122697746382868')),
+        '/closerequest must require the exact Ticket Support role');
+    assert.equal(deniedCloseRequestModalShown, false,
+        'Manage Channels must not bypass the Ticket Support role requirement for /closerequest');
+
+    let supportCloseRequestModal: any = null;
+    await commandNamed('closerequest').execute({
+        channel: createdTicketChannel,
+        member: { roles: ['1523122697746382868'] },
+        showModal: async (modal: { toJSON(): unknown }) => { supportCloseRequestModal = modal.toJSON(); },
+    } as never);
+    assert.equal(supportCloseRequestModal.custom_id, 'ticket:close-request-modal');
+
     const ticketMemberOverwrites: Array<{ memberId: string; permissions: Record<string, boolean> }> = [];
-    const ticketMemberAnnouncements: Array<{ content: string; allowedMentions?: { users?: string[] } }> = [];
+    const ticketMemberDeferrals: unknown[] = [];
+    const ticketMemberReplyPayloads: Array<string | { content: string; allowedMentions?: { users?: string[] } }> = [];
     const ticketMemberChannel = {
         id: 'ticket-member-channel',
         type: ChannelType.GuildText,
         topic: createdTicketChannel.topic,
-        send: async (payload: { content: string; allowedMentions?: { users?: string[] } }) => {
-            ticketMemberAnnouncements.push(payload);
-        },
         permissionOverwrites: {
             edit: async (memberId: string, permissions: Record<string, boolean>) => {
                 ticketMemberOverwrites.push({ memberId, permissions });
@@ -2290,22 +2334,27 @@ for (const required of [
             member: { roles: ['1523122697746382868'] },
             memberPermissions: { has: () => false },
             options: { getUser: () => ({ id: 'support-member', username: 'SupportMember' }) },
-            deferReply: async () => undefined,
-            editReply: async (content: string) => { replies.push(content); },
+            deferReply: async (options?: unknown) => { ticketMemberDeferrals.push(options); },
+            editReply: async (payload: string | { content: string; allowedMentions?: { users?: string[] } }) => {
+                ticketMemberReplyPayloads.push(payload);
+                replies.push(typeof payload === 'string' ? payload : payload.content);
+            },
         } as never);
         return replies;
     };
-    assert((await ticketMemberCommand('add-member')).some(reply => reply.includes('Added')));
+    assert((await ticketMemberCommand('add-member')).some(reply => reply.includes('was added')));
     assert.equal(ticketMemberOverwrites[0].permissions.ViewChannel, true);
     assert.equal(ticketMemberOverwrites[0].permissions.SendMessages, true,
         '/add-member must grant participation rather than view-only access');
     assert.equal(ticketMemberOverwrites[0].permissions.AddReactions, true);
     assert.equal(ticketMemberOverwrites[0].permissions.UseApplicationCommands, true);
-    assert.equal(ticketMemberAnnouncements.length, 1);
-    assert(ticketMemberAnnouncements[0].content.includes('<@support-member> was added to this ticket'));
-    assert(ticketMemberAnnouncements[0].content.includes('view and send messages'));
-    assert.deepEqual(ticketMemberAnnouncements[0].allowedMentions?.users, ['support-member']);
-    assert((await ticketMemberCommand('remove-member')).some(reply => reply.includes('Removed')));
+    assert.equal(ticketMemberDeferrals[0], undefined,
+        '/add-member success must be a public interaction reply, not an ephemeral reply');
+    const addMemberReply = ticketMemberReplyPayloads[0] as { content: string; allowedMentions?: { users?: string[] } };
+    assert(addMemberReply.content.includes('<@support-member> was added to this ticket'));
+    assert(addMemberReply.content.includes('view and send messages'));
+    assert.deepEqual(addMemberReply.allowedMentions?.users, ['support-member']);
+    assert((await ticketMemberCommand('remove-member')).some(reply => reply.includes('was removed')));
     assert.equal(ticketMemberOverwrites[1].permissions.ViewChannel, false,
         '/remove-member must create a member-specific deny that overrides the support-role allow');
     assert.equal(ticketMemberOverwrites[1].permissions.SendMessages, false);

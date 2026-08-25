@@ -339,28 +339,69 @@ export async function postTicketPanel(interaction: ChatInputCommandInteraction):
 const ticketPanelCommand={ data:new SlashCommandBuilder().setName('ticket-panel').setDescription('Post the Los Angeles Roleplay support ticket panel (legacy alias)').setDMPermission(false).setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels), async execute(interaction:ChatInputCommandInteraction):Promise<void>{ await postTicketPanel(interaction); } };
 const ticketPanelCompatibilityCommand={ data:new SlashCommandBuilder().setName('ticketpanel').setDescription('Post the Los Angeles Roleplay V2 support ticket panel').setDMPermission(false).setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels), async execute(interaction:ChatInputCommandInteraction):Promise<void>{ await postTicketPanel(interaction); } };
 const ticketCommand={ data:new SlashCommandBuilder().setName('ticket').setDescription('Manage the Los Angeles Roleplay ticket system').setDMPermission(false).setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels).addSubcommand(subcommand=>subcommand.setName('panel').setDescription('Post the V2 support ticket panel in the configured channel')), async execute(interaction:ChatInputCommandInteraction):Promise<void>{ await postTicketPanel(interaction); } };
-const closeCommand={ data:new SlashCommandBuilder().setName('close').setDescription('Close the current ticket and save its transcript').setDMPermission(false), async execute(interaction:ChatInputCommandInteraction):Promise<void>{ await interaction.deferReply({ flags:MessageFlags.Ephemeral }); await closeTicketWithLifecycle(interaction,'Closed with /close.'); } };
-const closeRequestCommand={ data:new SlashCommandBuilder().setName('closerequest').setDescription('Ask the ticket opener for permission to close this ticket').setDMPermission(false), async execute(interaction:ChatInputCommandInteraction):Promise<void>{ const channel=interaction.channel; if(!channel||channel.type!==ChannelType.GuildText||!decodeMetadata(channel.topic)){ await interaction.reply({ content:'This command can only be used inside a ticket channel.',flags:MessageFlags.Ephemeral }); return; } await interaction.showModal(closeRequestModal()); } };
+const closeCommand = {
+    data: new SlashCommandBuilder()
+        .setName('close')
+        .setDescription('Close the current ticket and save its transcript')
+        .setDMPermission(false),
+    async execute(interaction: ChatInputCommandInteraction): Promise<void> {
+        if (!memberHasRole(interaction.member, TICKET_SUPPORT_ROLE_ID)) {
+            await interaction.reply({
+                content: `You need <@&${TICKET_SUPPORT_ROLE_ID}> to use \`/close\`.`,
+                flags: MessageFlags.Ephemeral,
+            });
+            return;
+        }
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        await closeTicketWithLifecycle(interaction, 'Closed with /close.');
+    },
+};
+const closeRequestCommand = {
+    data: new SlashCommandBuilder()
+        .setName('closerequest')
+        .setDescription('Ask the ticket opener for permission to close this ticket')
+        .setDMPermission(false),
+    async execute(interaction: ChatInputCommandInteraction): Promise<void> {
+        if (!memberHasRole(interaction.member, TICKET_SUPPORT_ROLE_ID)) {
+            await interaction.reply({
+                content: `You need <@&${TICKET_SUPPORT_ROLE_ID}> to use \`/closerequest\`.`,
+                flags: MessageFlags.Ephemeral,
+            });
+            return;
+        }
+        const channel = interaction.channel;
+        if (!channel || channel.type !== ChannelType.GuildText || !decodeMetadata(channel.topic)) {
+            await interaction.reply({ content: 'This command can only be used inside a ticket channel.', flags: MessageFlags.Ephemeral });
+            return;
+        }
+        await interaction.showModal(closeRequestModal());
+    },
+};
 const unclaimCommand={ data:new SlashCommandBuilder().setName('unclaim').setDescription('Unclaim the current support ticket').setDMPermission(false), async execute(interaction:ChatInputCommandInteraction):Promise<void>{ await interaction.deferReply({ flags:MessageFlags.Ephemeral }); const channel=interaction.channel; if(!channel||channel.type!==ChannelType.GuildText){ await interaction.editReply('This command can only be used inside a ticket channel.'); return; } const metadata=decodeMetadata(channel.topic); if(!metadata){ await interaction.editReply('This is not a managed ticket channel.'); return; } if(!isTicketStaff(interaction)){ await interaction.editReply('Only support staff can unclaim tickets.'); return; } const panelMessage=await findTicketPanelMessage(channel,metadata); if(!panelMessage){ await interaction.editReply('I could not find the ticket panel message, so the claim was not changed.'); return; } const previousClaimant=metadata.claimedBy; delete metadata.claimedBy; metadata.panelMessageId=panelMessage.id; await channel.setTopic(encodeMetadata(metadata),`Ticket unclaimed by ${interaction.user.id}`); try { await panelMessage.edit({ components:restoredClaimComponents(panelMessage) as never,flags:MessageFlags.IsComponentsV2,attachments:Array.from(panelMessage.attachments.values()) }); } catch(error){ if(previousClaimant){ metadata.claimedBy=previousClaimant; await channel.setTopic(encodeMetadata(metadata),'Restoring ticket claim after panel update failure').catch(()=>undefined); } logger.error(`[Tickets] Could not restore the claim button in ${channel.id}: ${error instanceof Error ? error.message : 'Unknown error'}`); await interaction.editReply('I could not restore the Claim Ticket button, so the existing claim was kept.'); return; } await interaction.editReply(previousClaimant ? `✅ Ticket unclaimed. It was previously claimed by <@${previousClaimant}>.` : '✅ The ticket was already unclaimed; the Claim Ticket button has been restored.'); } };
 
 async function updateTicketMemberAccess(interaction: ChatInputCommandInteraction, add: boolean): Promise<void> {
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const channel = interaction.channel;
     if (!channel || channel.type !== ChannelType.GuildText || !decodeMetadata(channel.topic)) {
-        await interaction.editReply('This command can only be used inside a managed ticket channel.');
+        await interaction.reply({
+            content: 'This command can only be used inside a managed ticket channel.',
+            flags: MessageFlags.Ephemeral,
+        });
         return;
     }
     if (!isTicketStaff(interaction)) {
-        await interaction.editReply('Only support staff can change ticket members.');
+        await interaction.reply({ content: 'Only support staff can change ticket members.', flags: MessageFlags.Ephemeral });
         return;
     }
 
     const member = interaction.options.getUser('member', true);
     if (member.id === interaction.client.user.id) {
-        await interaction.editReply('I cannot remove my own ticket access.');
+        await interaction.reply({ content: 'I cannot remove my own ticket access.', flags: MessageFlags.Ephemeral });
         return;
     }
 
+    // Successful member changes are intentionally public so everyone in the
+    // ticket can see exactly who was added or removed.
+    await interaction.deferReply();
     try {
         await channel.permissionOverwrites.edit(member.id, {
             ViewChannel: add,
@@ -371,13 +412,12 @@ async function updateTicketMemberAccess(interaction: ChatInputCommandInteraction
             AddReactions: add,
             UseApplicationCommands: add,
         }, { reason: `${add ? 'Added to' : 'Removed from'} ticket by ${interaction.user.tag}` });
-        if (add) {
-            await channel.send({
-                content: `✅ <@${member.id}> was added to this ticket by <@${interaction.user.id}>. They can now view and send messages here.`,
-                allowedMentions: { parse: [], users: [member.id] },
-            });
-        }
-        await interaction.editReply(`${add ? '✅ Added' : '✅ Removed'} <@${member.id}> ${add ? 'to' : 'from'} this ticket.`);
+        await interaction.editReply({
+            content: add
+                ? `✅ <@${member.id}> was added to this ticket by <@${interaction.user.id}>. They can now view and send messages here.`
+                : `✅ <@${member.id}> was removed from this ticket by <@${interaction.user.id}>.`,
+            allowedMentions: { parse: [], users: add ? [member.id] : [] },
+        });
     } catch (error) {
         logger.error(`[Tickets] Could not ${add ? 'add' : 'remove'} ${member.id} in ${channel.id}: ${error instanceof Error ? error.message : 'Unknown error'}`);
         await interaction.editReply(`I could not ${add ? 'add' : 'remove'} that member. Check that I have Manage Channels.`);
