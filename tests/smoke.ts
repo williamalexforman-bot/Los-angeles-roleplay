@@ -567,6 +567,26 @@ for (const required of [
         'paid-ad-banner.png',
         'underbanner.png',
     ]);
+    const marketplaceItems = marketplacePanel.components
+        .filter((component: { type: number }) => component.type === 9)
+        .map((component: {
+            components?: Array<{ content?: string }>;
+            accessory?: { custom_id?: string; label?: string };
+        }) => ({
+            title: component.components?.[0]?.content?.split('\n')[0],
+            id: component.accessory?.custom_id,
+            price: component.accessory?.label,
+        }));
+    assert.deepEqual(marketplaceItems, [
+        { title: '**Paid Ad — @everyone**', id: 'marketplace:price:paid-ad-everyone', price: '800' },
+        { title: '**Paid Ad — @here**', id: 'marketplace:price:paid-ad-here', price: '450' },
+        { title: '**Sponsored — @everyone**', id: 'marketplace:price:sponsored-everyone', price: '650' },
+        { title: '**Sponsored — @here**', id: 'marketplace:price:sponsored-here', price: '350' },
+        { title: '**Instant Post**', id: 'marketplace:price:instant-post', price: '1500' },
+        { title: '**Priority**', id: 'marketplace:price:priority', price: '1000' },
+    ]);
+    assert(!JSON.stringify(marketplacePanel).includes('marketplace:price:plus'),
+        'the removed Plus package must not appear in the marketplace');
 
     const persistentSpecs = [
         ['1526049604712529971', 'dashboard:menu', 'dashboard-banner.png'],

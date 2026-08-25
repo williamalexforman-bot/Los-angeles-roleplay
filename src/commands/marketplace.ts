@@ -31,12 +31,12 @@ type MarketplaceItem = {
 };
 
 const MARKETPLACE_ITEMS: readonly MarketplaceItem[] = [
-    { id: 'paid-ad-everyone', title: 'Paid Ad — @everyone', description: 'With an everyone ping, everyone on the server will be notified of your advertisement.', price: 450 },
+    { id: 'paid-ad-everyone', title: 'Paid Ad — @everyone', description: 'With an everyone ping, everyone on the server will be notified of your advertisement.', price: 800 },
     { id: 'paid-ad-here', title: 'Paid Ad — @here', description: 'With a here ping, everyone currently online in the server will be notified of your advertisement.', price: 450 },
-    { id: 'giveaway-everyone', title: 'Sponsored Giveaway — @everyone', description: 'With an everyone ping, every online member in the server will be notified of your giveaway.', price: 650 },
-    { id: 'giveaway-here', title: 'Sponsored Giveaway — @here', description: 'With a here ping, every online member in the server will be notified of your giveaway.', price: 650 },
-    { id: 'priority-queue', title: 'Priority Queue', description: 'With priority, your advertisement is transferred to the priority queue.', price: 800 },
-    { id: 'plus', title: 'Plus', description: 'You gain access to Exclusive Channels, a Hoisted Role (Plus), GIF/Embed Permissions, Media Permissions (Attaching Files), Add Reactions, Use of external emojis & stickers, and $30,000 in Economy Money every 1 hour.', price: 800 },
+    { id: 'sponsored-everyone', title: 'Sponsored — @everyone', description: 'Your sponsored post will notify everyone in the server with an everyone ping.', price: 650 },
+    { id: 'sponsored-here', title: 'Sponsored — @here', description: 'Your sponsored post will notify everyone currently online with a here ping.', price: 350 },
+    { id: 'instant-post', title: 'Instant Post', description: 'Your advertisement is posted immediately without waiting in the standard queue.', price: 1_500 },
+    { id: 'priority', title: 'Priority', description: 'Your advertisement is moved ahead of standard posts in the priority queue.', price: 1_000 },
 ];
 
 function marketplaceGallery(url: string): MediaGalleryBuilder {
