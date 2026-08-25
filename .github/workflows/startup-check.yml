@@ -30,7 +30,7 @@ jobs:
           PORT: '10000'
           NODE_ENV: production
           ENABLE_PRIVILEGED_INTENTS: 'false'
-          BOT_TOKEN: 'ci-placeholder-token'
+          CI_HEALTHCHECK_ONLY: 'true'
         run: |
           node index.js > startup.log 2>&1 &
           PID=$!

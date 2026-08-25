@@ -16,7 +16,8 @@ const {
 } = require('discord.js');
 
 const token = (process.env.BOT_TOKEN || process.env.TOKEN || '').trim();
-if (!token) {
+const healthcheckOnly = String(process.env.CI_HEALTHCHECK_ONLY || '').toLowerCase() === 'true';
+if (!token && !healthcheckOnly) {
   console.error('[FATAL] BOT_TOKEN/TOKEN is missing.');
   process.exit(1);
 }
@@ -196,8 +197,12 @@ client.once(Events.ClientReady, async readyClient => {
   }
 });
 
-console.log('[Discord] Attempting login...');
-client.login(token).catch(error => {
-  console.error('[FATAL] Discord login failed:', error?.stack || error?.message || String(error));
-  process.exit(1);
-});
+if (healthcheckOnly) {
+  console.log('[Discord] CI health-check mode enabled; gateway login skipped.');
+} else {
+  console.log('[Discord] Attempting login...');
+  client.login(token).catch(error => {
+    console.error('[FATAL] Discord login failed:', error?.stack || error?.message || String(error));
+    process.exit(1);
+  });
+}
