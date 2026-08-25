@@ -2267,10 +2267,14 @@ for (const required of [
     assert(ticketCreationReplies.some(reply => reply.includes('ticket-channel-1')));
 
     const ticketMemberOverwrites: Array<{ memberId: string; permissions: Record<string, boolean> }> = [];
+    const ticketMemberAnnouncements: Array<{ content: string; allowedMentions?: { users?: string[] } }> = [];
     const ticketMemberChannel = {
         id: 'ticket-member-channel',
         type: ChannelType.GuildText,
         topic: createdTicketChannel.topic,
+        send: async (payload: { content: string; allowedMentions?: { users?: string[] } }) => {
+            ticketMemberAnnouncements.push(payload);
+        },
         permissionOverwrites: {
             edit: async (memberId: string, permissions: Record<string, boolean>) => {
                 ticketMemberOverwrites.push({ memberId, permissions });
@@ -2293,6 +2297,14 @@ for (const required of [
     };
     assert((await ticketMemberCommand('add-member')).some(reply => reply.includes('Added')));
     assert.equal(ticketMemberOverwrites[0].permissions.ViewChannel, true);
+    assert.equal(ticketMemberOverwrites[0].permissions.SendMessages, true,
+        '/add-member must grant participation rather than view-only access');
+    assert.equal(ticketMemberOverwrites[0].permissions.AddReactions, true);
+    assert.equal(ticketMemberOverwrites[0].permissions.UseApplicationCommands, true);
+    assert.equal(ticketMemberAnnouncements.length, 1);
+    assert(ticketMemberAnnouncements[0].content.includes('<@support-member> was added to this ticket'));
+    assert(ticketMemberAnnouncements[0].content.includes('view and send messages'));
+    assert.deepEqual(ticketMemberAnnouncements[0].allowedMentions?.users, ['support-member']);
     assert((await ticketMemberCommand('remove-member')).some(reply => reply.includes('Removed')));
     assert.equal(ticketMemberOverwrites[1].permissions.ViewChannel, false,
         '/remove-member must create a member-specific deny that overrides the support-role allow');

@@ -368,7 +368,15 @@ async function updateTicketMemberAccess(interaction: ChatInputCommandInteraction
             ReadMessageHistory: add,
             AttachFiles: add,
             EmbedLinks: add,
+            AddReactions: add,
+            UseApplicationCommands: add,
         }, { reason: `${add ? 'Added to' : 'Removed from'} ticket by ${interaction.user.tag}` });
+        if (add) {
+            await channel.send({
+                content: `✅ <@${member.id}> was added to this ticket by <@${interaction.user.id}>. They can now view and send messages here.`,
+                allowedMentions: { parse: [], users: [member.id] },
+            });
+        }
         await interaction.editReply(`${add ? '✅ Added' : '✅ Removed'} <@${member.id}> ${add ? 'to' : 'from'} this ticket.`);
     } catch (error) {
         logger.error(`[Tickets] Could not ${add ? 'add' : 'remove'} ${member.id} in ${channel.id}: ${error instanceof Error ? error.message : 'Unknown error'}`);
