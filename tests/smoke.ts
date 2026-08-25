@@ -2130,6 +2130,7 @@ for (const required of [
     let ticketGatePayload: any = null;
     let ticketGateReadingPayload: any = null;
     let ticketGateUnlockedPayload: any = null;
+    let ticketContinueButtonId = '';
     let earlyGateRejection = '';
     let generalTicketModal: any = null;
     try {
@@ -2149,7 +2150,7 @@ for (const required of [
         const faqButtonId = gateButtons.find((button: { custom_id?: string }) => button.custom_id?.startsWith('ticket:gate:faq:'))?.custom_id;
         const tosButtonId = gateButtons.find((button: { custom_id?: string }) => button.custom_id?.startsWith('ticket:gate:tos:'))?.custom_id;
         assert(faqButtonId && tosButtonId, 'the reading gate must offer FAQ and Ticket TOS buttons');
-        const gateToken = faqButtonId.split(':')[3];
+        assert(faqButtonId.length <= 100 && tosButtonId.length <= 100, 'ticket gate custom IDs must fit Discord limits');
 
         assert(await handleTicketButton({
             customId: faqButtonId,
@@ -2166,9 +2167,16 @@ for (const required of [
         assert(unlockedGateJson.includes('ticket:gate:continue:'),
             'the reading timer must add Still Need Assistance to the same private V2 message');
         assert(unlockedGateJson.includes('"style":4'), 'Still Need Assistance must be a red Danger button');
+        ticketContinueButtonId = ticketGateUnlockedPayload.components[0].toJSON().components
+            .filter((component: { type: number }) => component.type === 1)
+            .flatMap((component: { components?: Array<{ custom_id?: string }> }) => component.components || [])
+            .find((button: { custom_id?: string }) => button.custom_id?.startsWith('ticket:gate:continue:'))
+            ?.custom_id || '';
+        assert(ticketContinueButtonId, 'the unlocked reading panel must include a continuation button');
+        assert(ticketContinueButtonId.length <= 100, 'the continuation custom ID must fit Discord limits');
 
         assert(await handleTicketButton({
-            customId: `ticket:gate:continue:${gateToken}`,
+            customId: ticketContinueButtonId,
             guildId: 'ticket-guild',
             user: ticketGateUser,
             reply: async (payload: any) => { earlyGateRejection = payload.content; },
@@ -2181,19 +2189,17 @@ for (const required of [
         global.setTimeout = realSetTimeout;
     }
 
-    const gateToken = ticketGatePayload.components[0].toJSON().components
-        .filter((component: { type: number }) => component.type === 1)
-        .flatMap((component: { components?: Array<{ custom_id?: string }> }) => component.components || [])
-        .find((button: { custom_id?: string }) => button.custom_id?.startsWith('ticket:gate:faq:'))
-        .custom_id.split(':')[3];
     assert(await handleTicketButton({
-        customId: `ticket:gate:continue:${gateToken}`,
+        customId: ticketContinueButtonId,
         guildId: 'ticket-guild',
         user: ticketGateUser,
         reply: async () => undefined,
         showModal: async (modal: any) => { generalTicketModal = modal; },
     } as never));
-    assert.equal(generalTicketModal?.toJSON().custom_id, `ticket:create-modal:general:${gateToken}`);
+    assert.match(generalTicketModal?.toJSON().custom_id || '',
+        /^ticket:create-modal:general:1489388257925005511:[a-z0-9]+:[A-Za-z0-9_-]{12}$/u,
+        'the ticket modal must carry a signed, user-bound reading receipt');
+    assert((generalTicketModal?.toJSON().custom_id.length || 0) <= 100, 'the ticket modal custom ID must fit Discord limits');
     assert.equal(generalTicketModal?.toJSON().components[0]?.components?.[0]?.custom_id, 'reason');
 
     let directModalRejection = '';
