@@ -376,7 +376,10 @@ for (const required of [
         deferUpdate: async () => undefined,
         followUp: async (payload: any) => { suggestionFollowUps.push(payload); },
     } as never);
-    assert.equal(suggestionEdit?.flags, MessageFlags.IsComponentsV2);
+    assert.equal(suggestionEdit?.flags, undefined,
+        'suggestion votes must retain the existing immutable Components V2 flag');
+    assert.equal(suggestionEdit?.attachments, undefined,
+        'suggestion votes must retain existing artwork without rewriting attachments');
     assert(suggestionFollowUps.some(reply => String(reply.content).includes('upvote was recorded')));
 
     const suggestionDecisionReplies: string[] = [];
@@ -417,8 +420,10 @@ for (const required of [
         deferUpdate: async () => undefined,
         followUp: async (payload: any) => { recoveredSuggestionReplies.push(payload); },
     } as never));
-    assert.equal(recoveredSuggestionEdit?.flags, MessageFlags.IsComponentsV2,
-        'suggestion voting must recover from the live V2 message after a process restart');
+    assert.equal(recoveredSuggestionEdit?.flags, undefined,
+        'suggestion voting must recover without rewriting the immutable Components V2 flag');
+    assert.equal(recoveredSuggestionEdit?.attachments, undefined,
+        'recovered suggestion voting must retain the original artwork');
     assert(recoveredSuggestionReplies.some(reply => String(reply.content).includes('upvote was recorded')));
 
     const channelRecoveryId = '87654322';
@@ -463,6 +468,32 @@ for (const required of [
     assert(channelRecoveryReplies.some(reply => reply.includes('Maybe')),
         'suggestion decisions must recover a posted suggestion after memory/database state is lost');
     assert(JSON.stringify(channelRecoveryEdit).includes('Maybe'));
+
+    const suggestionDeniedReplies: string[] = [];
+    await commandNamed('suggestion-denied').execute({
+        guildId: 'suggestion-guild',
+        guild: { ownerId: 'suggestion-owner' },
+        user: { id: 'suggestion-owner' },
+        options: { getString: () => channelRecoveryId },
+        client: {
+            channels: {
+                fetch: async () => ({
+                    isTextBased: () => true,
+                    messages: { fetch: async () => channelRecoveryMessage },
+                }),
+            },
+            users: { fetch: async () => ({ send: async () => undefined }) },
+        },
+        deferReply: async () => undefined,
+        editReply: async (content: string) => { suggestionDeniedReplies.push(content); },
+    } as never);
+    assert(suggestionDeniedReplies.some(reply => reply.includes('Denied')),
+        'suggestion denial must update a recovered suggestion');
+    assert(JSON.stringify(channelRecoveryEdit).includes('Denied'));
+    assert.equal(channelRecoveryEdit?.flags, undefined,
+        'suggestion decisions must retain the existing immutable Components V2 flag');
+    assert.equal(channelRecoveryEdit?.attachments, undefined,
+        'suggestion decisions must retain existing artwork without rewriting attachments');
 
     const dashboardPayload = buildDashboardRefreshPayload();
     const dashboardPanel = dashboardPayload.components[0].toJSON();
