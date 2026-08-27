@@ -22,6 +22,16 @@ const SAME_EXECUTOR_ACTION_THRESHOLD = 3;
 const GLOBAL_ACTION_THRESHOLD = 5;
 const ALERT_COOLDOWN_MS = 30_000;
 
+// Explicitly approved applications/bots that must never be treated as raid actors
+// or raid targets by this bot's automated protection systems.
+const PROTECTED_BOT_IDS = new Set<string>([
+    '497196352866877441',
+]);
+
+export function isProtectedBotId(userId: string | null | undefined): boolean {
+    return Boolean(userId && PROTECTED_BOT_IDS.has(userId));
+}
+
 interface ModerationAction {
     kind: 'Kick' | 'Ban';
     targetId: string;
@@ -71,6 +81,12 @@ async function recordModerationAction(
     guildId: string,
     action: ModerationAction,
 ): Promise<void> {
+    // Never treat the approved bot as a raid target or raid executor.
+    if (isProtectedBotId(action.targetId) || isProtectedBotId(action.executorId)) {
+        logger.info(`[Raid Protection] Ignored protected bot moderation event target=${action.targetId} executor=${action.executorId || 'unknown'}.`);
+        return;
+    }
+
     const now = Date.now();
     const recent = pruneActions(guildId, now);
     recent.push(action);
@@ -124,8 +140,9 @@ async function fetchMatchingAuditEntry(
 }
 
 async function handleMemberRemoved(member: GuildMember | PartialGuildMember): Promise<void> {
+    if (isProtectedBotId(member.id)) return;
     const audit = await fetchMatchingAuditEntry(member.guild, AuditLogEvent.MemberKick, member.id);
-    if (!audit) return;
+    if (!audit || isProtectedBotId(audit.executorId)) return;
     await recordModerationAction(member.client, member.guild.id, {
         kind: 'Kick',
         targetId: member.id,
@@ -135,7 +152,12 @@ async function handleMemberRemoved(member: GuildMember | PartialGuildMember): Pr
 }
 
 async function handleMemberBanned(ban: GuildBan): Promise<void> {
+    if (isProtectedBotId(ban.user.id)) {
+        logger.warn(`[Raid Protection] Protected bot ${ban.user.id} was banned. This protection module did not initiate the ban.`);
+        return;
+    }
     const audit = await fetchMatchingAuditEntry(ban.guild, AuditLogEvent.MemberBanAdd, ban.user.id);
+    if (isProtectedBotId(audit?.executorId)) return;
     await recordModerationAction(ban.client, ban.guild.id, {
         kind: 'Ban',
         targetId: ban.user.id,
@@ -154,6 +176,7 @@ function normalizedMessage(content: string): string {
 }
 
 async function timeoutMember(message: Message, reason: string): Promise<boolean> {
+    if (isProtectedBotId(message.author.id)) return false;
     const member = message.member || await message.guild?.members.fetch(message.author.id).catch(() => null);
     if (!member || !member.moderatable) return false;
     try {
@@ -197,6 +220,7 @@ function spamDetection(message: Message): { triggered: boolean; reason: string; 
 }
 
 async function handleSpam(message: Message): Promise<void> {
+    if (isProtectedBotId(message.author.id)) return;
     const detection = spamDetection(message);
     if (!detection.triggered) return;
 
@@ -225,11 +249,15 @@ async function handleSpam(message: Message): Promise<void> {
 }
 
 export async function handleRaidProtectionMessage(message: Message): Promise<void> {
-    if (!message.guild || message.author.bot || message.webhookId) return;
+    if (!message.guild || message.author.bot || message.webhookId || isProtectedBotId(message.author.id)) return;
     await handleSpam(message);
 }
 
 export function registerRaidProtection(client: Client): void {
+    client.on('guildMemberAdd', member => {
+        if (!isProtectedBotId(member.id)) return;
+        logger.info(`[Raid Protection] Protected bot ${member.id} joined and is explicitly exempt from automated raid moderation.`);
+    });
     client.on('guildMemberRemove', member => {
         void handleMemberRemoved(member).catch(error => {
             logger.warn(`[Raid Protection] Kick-burst check failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -246,5 +274,5 @@ export function registerRaidProtection(client: Client): void {
         });
     });
 
-    logger.info('[Raid Protection] Active: mass kick/ban burst detection and spam-raid protection are enabled. AI image moderation is removed from the runtime.');
+    logger.info('[Raid Protection] Active: mass kick/ban burst detection and spam-raid protection are enabled. Protected bot exemptions are active. AI image moderation is removed from the runtime.');
 }
