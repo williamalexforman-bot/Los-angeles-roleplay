@@ -15,6 +15,7 @@ import { refreshPersistentPanels } from './persistentPanelRefresh';
 import { registerGiveawayScheduler } from '../commands/giveaway';
 import { registerPaidAdScheduler } from '../commands/paidAds';
 import { registerMemberLifecycleLogs } from './memberLifecycleLogs';
+import { registerRetirementTicketWorkflow } from './retirementTicketWorkflow';
 
 const COMMAND_PREWARM_DELAY_MS = 1_000;
 let commandPrewarmTimer: ReturnType<typeof setTimeout> | null = null;
@@ -206,6 +207,13 @@ export const onReady = async (client: Client): Promise<void> => {
         logger.info('[Tickets] Priority channel naming enabled.');
     } catch (error) {
         logger.warn(`[Tickets] Priority naming failed to register: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    try {
+        registerRetirementTicketWorkflow(client);
+        logger.info('[Retirement] Retirement request routing and approvals enabled.');
+    } catch (error) {
+        logger.warn(`[Retirement] Failed to register retirement workflow: ${error instanceof Error ? error.message : String(error)}`);
     }
 
     try {
