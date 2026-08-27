@@ -6,6 +6,8 @@ import {
 } from 'discord.js';
 import { markSlashCommandFailed } from '../utils/commandAudit';
 
+const SAY_ALLOWED_ROLE_ID = '1539939754932568105';
+
 interface SayDestination {
     isSendable(): boolean;
     send(payload: { content: string; allowedMentions: { parse: never[] } }): Promise<unknown>;
@@ -44,6 +46,24 @@ export const sayCommand = {
         ),
 
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
+        if (!interaction.guild) {
+            await interaction.reply({
+                content: 'This command can only be used inside the server.',
+                flags: MessageFlags.Ephemeral,
+            });
+            return;
+        }
+
+        const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
+        if (!member?.roles.cache.has(SAY_ALLOWED_ROLE_ID)) {
+            await interaction.reply({
+                content: `❌ You cannot use /say. You must have <@&${SAY_ALLOWED_ROLE_ID}>.`,
+                flags: MessageFlags.Ephemeral,
+                allowedMentions: { parse: [] },
+            });
+            return;
+        }
+
         const message = interaction.options.getString('message', true);
         const selectedChannel = interaction.options.getChannel('channel');
         const target = selectedChannel || interaction.channel;
