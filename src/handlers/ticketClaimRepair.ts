@@ -66,19 +66,13 @@ function claimedComponents(interaction: ButtonInteraction): unknown[] {
         if (node.custom_id === 'ticket:claim') {
             node.label = `Claimed by ${interaction.user.username}`.slice(0, 80);
             node.disabled = true;
-            node.style = ButtonStyle.Secondary;
+            node.style = ButtonStyle.Success;
         }
         const children = node.components as Array<Record<string, unknown>> | undefined;
         if (children) children.forEach(visit);
     };
     components.forEach(visit);
     return components;
-}
-
-async function freshMetadata(channel: TextChannel): Promise<TicketMetadata | null> {
-    const refreshed = await channel.fetch().catch(() => null);
-    if (!refreshed || refreshed.type !== ChannelType.GuildText) return decodeMetadata(channel.topic);
-    return decodeMetadata(refreshed.topic);
 }
 
 async function dmTicketOwnerClaimed(
@@ -92,6 +86,23 @@ async function dmTicketOwnerClaimed(
         else logger.warn(`[TicketClaimRepair] Discord did not deliver the claim DM to ticket opener ${metadata.ownerId}.`);
     } catch (error) {
         logger.warn(`[TicketClaimRepair] Could not DM ticket opener ${metadata.ownerId}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+}
+
+async function persistClaim(
+    interaction: ButtonInteraction,
+    channel: TextChannel,
+    claimedMetadata: TicketMetadata,
+): Promise<void> {
+    try {
+        await channel.setTopic(encodeMetadata(claimedMetadata), `Ticket claimed by ${interaction.user.id}`);
+        logger.info(`[TicketClaimRepair] ${channel.id} claimed by ${interaction.user.id}.`);
+    } catch (error) {
+        logger.error(`[TicketClaimRepair] Claim metadata save failed in ${channel.id}: ${error instanceof Error ? error.message : String(error)}`);
+        await interaction.followUp({
+            content: '⚠️ The ticket was visually claimed, but I could not save the claim metadata. Please tell an administrator if this persists.',
+            flags: MessageFlags.Ephemeral,
+        }).catch(() => undefined);
     }
 }
 
@@ -114,8 +125,8 @@ export async function handleTicketClaimRepair(interaction: ButtonInteraction): P
 
     claimLocks.add(channel.id);
     try {
-        // Stop Discord's button spinner before any permission or channel REST
-        // request. The claim result is reported through follow-ups below.
+        // Acknowledge the click immediately. Everything else happens after the
+        // button spinner is already gone.
         await interaction.deferUpdate();
 
         if (!(await canClaim(interaction))) {
@@ -127,7 +138,9 @@ export async function handleTicketClaimRepair(interaction: ButtonInteraction): P
             return true;
         }
 
-        const metadata = await freshMetadata(channel);
+        // Use the metadata already delivered with the interaction instead of
+        // performing a channel.fetch() before the UI can change.
+        const metadata = decodeMetadata(channel.topic);
         if (!metadata) {
             await interaction.followUp({ content: 'This is not a managed ticket.', flags: MessageFlags.Ephemeral });
             return true;
@@ -144,35 +157,28 @@ export async function handleTicketClaimRepair(interaction: ButtonInteraction): P
             return true;
         }
 
-        const originalMetadata = { ...metadata };
-        const claimedMetadata = {
+        const claimedMetadata: TicketMetadata = {
             ...metadata,
             claimedBy: interaction.user.id,
             panelMessageId: interaction.message.id,
         };
 
-        try {
-            await channel.setTopic(encodeMetadata(claimedMetadata), `Ticket claimed by ${interaction.user.id}`);
-            await interaction.editReply({
-                components: claimedComponents(interaction) as never,
-            });
-        } catch (error) {
-            await channel.setTopic(encodeMetadata(originalMetadata), 'Rolling back failed ticket claim').catch(() => undefined);
-            logger.error(`[TicketClaimRepair] Claim failed in ${channel.id}: ${error instanceof Error ? error.message : String(error)}`);
-            await interaction.followUp({
-                content: 'I could not finish claiming this ticket, so the claim was rolled back. Please try again.',
-                flags: MessageFlags.Ephemeral,
-            }).catch(() => undefined);
-            return true;
-        }
+        // Change the button FIRST. This is the visible action staff expect to
+        // happen the instant they press Claim.
+        await interaction.editReply({
+            components: claimedComponents(interaction) as never,
+        });
+
+        // Metadata persistence and the owner DM are intentionally off the
+        // critical interaction path so Discord/network latency cannot make the
+        // claim button feel slow.
+        void persistClaim(interaction, channel, claimedMetadata);
+        void dmTicketOwnerClaimed(interaction, claimedMetadata, channel);
 
         await interaction.followUp({
             content: `✅ Ticket claimed by <@${interaction.user.id}>.`,
             allowedMentions: { parse: [] },
         }).catch(() => undefined);
-        // A slow or disabled DM must never hold the claim interaction open.
-        void dmTicketOwnerClaimed(interaction, claimedMetadata, channel);
-        logger.info(`[TicketClaimRepair] ${channel.id} claimed by ${interaction.user.id}.`);
         return true;
     } finally {
         claimLocks.delete(channel.id);
