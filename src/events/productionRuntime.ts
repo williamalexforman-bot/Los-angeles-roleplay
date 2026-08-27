@@ -6,6 +6,7 @@ import { setDiscordClientForDm } from '../commands/punishment';
 import { configureApplicationSessionDatabaseAdapter } from '../database/applicationSessionAdapter';
 import { configureInfractionDatabaseAdapter } from '../database/infractionAdapter';
 import { logger } from '../utils/logger';
+import { registerInfractionAudit } from './infractionAudit';
 import { handleMessageModeration } from './messageModeration';
 
 export type ProductionMessageRoute = 'application' | 'ban-appeal' | 'moderation' | 'ignored';
@@ -17,7 +18,8 @@ export function configureProductionRuntime(client: Client): void {
     setInfractionAppealClient(client);
     configureInfractionDatabaseAdapter();
     configureApplicationSessionDatabaseAdapter();
-    logger.info('[Runtime] Command clients and durable application/infraction adapters configured.');
+    registerInfractionAudit(client);
+    logger.info('[Runtime] Command clients, durable application/infraction adapters, and infraction log verification configured.');
 }
 
 /** Routes DM conversations before guild-message moderation. */
