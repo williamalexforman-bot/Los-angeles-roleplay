@@ -164,18 +164,7 @@ function normalizedComponents(message: Message, metadata: TicketMetadata): unkno
     };
     components.forEach(visit);
 
-    if (!mainTextReplaced) {
-        const textNode = (() => {
-            let found: RawComponent | null = null;
-            const find = (node: RawComponent): void => {
-                if (!found && typeof node.content === 'string') found = node;
-                node.components?.forEach(find);
-            };
-            components.forEach(find);
-            return found;
-        })();
-        if (textNode) textNode.content = polishedText(message, metadata);
-    }
+    if (!mainTextReplaced) return null;
 
     const setGalleryMedia = (gallery: RawComponent, filename: string): void => {
         if (!gallery.items?.length || !gallery.items[0].media) return;
@@ -189,6 +178,10 @@ function normalizedComponents(message: Message, metadata: TicketMetadata): unkno
 }
 
 function shortSlug(value: string): string {
+    const ignored = new Set([
+        'the', 'a', 'an', 'and', 'or', 'to', 'for', 'of', 'my', 'me', 'i', 'is', 'it',
+        'this', 'that', 'please', 'ticket', 'need', 'want', 'help', 'with', 'about', 'because',
+    ]);
     const words = value
         .normalize('NFKD')
         .toLowerCase()
@@ -197,10 +190,7 @@ function shortSlug(value: string): string {
         .trim()
         .split(/\s+/u)
         .filter(Boolean)
-        .filter(word => !new Set([
-            'the', 'a', 'an', 'and', 'or', 'to', 'for', 'of', 'my', 'me', 'i', 'is', 'it',
-            'this', 'that', 'please', 'ticket', 'need', 'want', 'help', 'with', 'about', 'because',
-        ]).has(word))
+        .filter(word => !ignored.has(word))
         .slice(0, 4);
     return (words.length ? words.join('-') : 'support').slice(0, 34).replace(/-+$/gu, '') || 'support';
 }
