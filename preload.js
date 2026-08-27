@@ -51,6 +51,56 @@ try {
   console.error('[DiscordRecovery] Could not install gateway-discovery bypass:', errorText(error));
 }
 
+// TEMPORARY SAFETY MODE: this process must not ban Discord bot accounts.
+// This sits at the REST layer so /ban, /punish ban, and any future code path
+// that uses discord.js's normal ban endpoint gets the same protection.
+try {
+  const { REST } = require('discord.js');
+  const guardKey = Symbol.for('larp.noBotBans');
+
+  if (!REST.prototype[guardKey]) {
+    const originalPut = REST.prototype.put;
+
+    Object.defineProperty(REST.prototype, guardKey, {
+      value: true,
+      enumerable: false,
+      configurable: false,
+      writable: false,
+    });
+
+    REST.prototype.put = async function larpNoBotBan(route, options) {
+      const routeText = String(route || '');
+      const match = routeText.match(/^\/guilds\/[^/]+\/bans\/(\d{17,20})(?:$|\?)/);
+
+      if (match) {
+        const targetId = match[1];
+        let targetUser = globalThis.__discordClient?.users?.cache?.get(targetId) || null;
+
+        if (!targetUser && globalThis.__discordClient) {
+          try {
+            targetUser = await globalThis.__discordClient.users.fetch(targetId);
+          } catch {
+            targetUser = null;
+          }
+        }
+
+        if (targetUser?.bot) {
+          console.warn(`[BotBanGuard] BLOCKED ban attempt against bot ${targetId}. Bot bans are temporarily disabled.`);
+          const error = new Error('Bot bans are temporarily disabled. No Discord bot accounts may be banned by this bot right now.');
+          error.code = 'LARP_BOT_BAN_DISABLED';
+          throw error;
+        }
+      }
+
+      return originalPut.call(this, route, options);
+    };
+
+    console.log('[BotBanGuard] ACTIVE: this bot cannot ban Discord bot accounts right now.');
+  }
+} catch (error) {
+  console.error('[BotBanGuard] Could not install global bot-ban guard:', errorText(error));
+}
+
 process.on('warning', warning => {
   console.warn('[Runtime] Node warning:', warning?.stack || warning?.message || String(warning));
 });
@@ -103,7 +153,7 @@ setInterval(() => {
   console.log(
     `[RuntimeHeartbeat] uptime=${Math.floor(process.uptime())}s discordReady=${ready}`
     + ` keepAliveOk=${lastRenderKeepAliveOk} keepAliveAge=${keepAliveAgeSeconds ?? 'never'}s`
-    + ' interaction429=native-rest',
+    + ' interaction429=native-rest botBans=disabled',
   );
 }, RUNTIME_HEARTBEAT_INTERVAL_MS);
 
