@@ -223,7 +223,10 @@ async function runOptionalComponent(interaction: Interaction): Promise<boolean> 
     const id = interaction.customId;
     const attempts: Array<() => Promise<boolean>> = [];
 
-    if (id.startsWith('marketplace:')) {
+    if (id.startsWith('training:')) {
+        if (interaction.isButton()) attempts.push(async () => Boolean(await require('../commands/requestTraining.ts').handleTrainingButton?.(interaction)));
+        if (interaction.isModalSubmit()) attempts.push(async () => Boolean(await require('../commands/requestTraining.ts').handleTrainingModal?.(interaction)));
+    } else if (id.startsWith('marketplace:')) {
         if (interaction.isButton()) attempts.push(async () => Boolean(await require('../commands/marketplace.ts').handleMarketplaceButton?.(interaction)));
         if (interaction.isStringSelectMenu()) attempts.push(async () => Boolean(await require('../commands/marketplace.ts').handleMarketplaceSelect?.(interaction)));
     } else if (id.startsWith('paid-ad:')) {
@@ -267,7 +270,6 @@ async function runOptionalComponent(interaction: Interaction): Promise<boolean> 
         }
         if (interaction.isModalSubmit()) {
             attempts.push(
-                async () => Boolean(await require('../commands/requestTraining.ts').handleTrainingModal?.(interaction)),
                 async () => Boolean(await require('../commands/community.ts').handleCommunityModal?.(interaction)),
                 async () => Boolean(await require('../commands/staffManagement.ts').handleStaffManagementModal?.(interaction)),
             );
