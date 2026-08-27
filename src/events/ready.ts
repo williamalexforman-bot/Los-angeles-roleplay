@@ -4,7 +4,6 @@ import { logger } from '../utils/logger';
 import { loadProhibitedWordOverrides } from '../commands/prohibitedWords';
 import { registerTicketPriority } from './ticketPriority';
 import { registerRaidProtection } from './raidProtection';
-import { registerServerSecurity } from './serverSecurity';
 import { registerInfractionAppealExpiry } from './infractionAppealExpiry';
 import { registerLoaLifecycleEnhancements } from './loaLifecycleEnhancements';
 import { registerLegacyLoaActiveMigration } from './loaActiveMigration';
@@ -223,12 +222,7 @@ export const onReady = async (client: Client): Promise<void> => {
         logger.warn(`[Raid Protection] Failed to register: ${error instanceof Error ? error.message : String(error)}`);
     }
 
-    try {
-        await registerServerSecurity(client);
-        logger.info('[Server Security] Runtime protection enabled.');
-    } catch (error) {
-        logger.warn(`[Server Security] Failed to register: ${error instanceof Error ? error.message : String(error)}`);
-    }
+    logger.warn('[Server Security] NOT REGISTERED: automatic bot removal and unauthorized-join security alerts are disabled by owner request.');
 
     try {
         registerInfractionAppealExpiry(client);
