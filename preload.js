@@ -51,12 +51,15 @@ try {
   console.error('[DiscordRecovery] Could not install gateway-discovery bypass:', errorText(error));
 }
 
-// TEMPORARY SAFETY MODE: this process must not ban Discord bot accounts.
-// This sits at the REST layer so /ban, /punish ban, and any future code path
-// that uses discord.js's normal ban endpoint gets the same protection.
+// TEMPORARY BAN LOCKDOWN.
+// Keep this false until the owner explicitly asks to turn Discord banning back on.
+// This blocks every normal discord.js guild-ban request at the REST layer, so it
+// applies to /ban, /punish ban, automated systems, and future command paths.
+const BAN_ACTIONS_ENABLED = false;
+
 try {
   const { REST } = require('discord.js');
-  const guardKey = Symbol.for('larp.noBotBans');
+  const guardKey = Symbol.for('larp.allBansDisabled');
 
   if (!REST.prototype[guardKey]) {
     const originalPut = REST.prototype.put;
@@ -68,37 +71,24 @@ try {
       writable: false,
     });
 
-    REST.prototype.put = async function larpNoBotBan(route, options) {
+    REST.prototype.put = async function larpBanLockdown(route, options) {
       const routeText = String(route || '');
-      const match = routeText.match(/^\/guilds\/[^/]+\/bans\/(\d{17,20})(?:$|\?)/);
+      const isGuildBanRoute = /^\/guilds\/[^/]+\/bans\/\d{17,20}(?:$|\?)/.test(routeText);
 
-      if (match) {
-        const targetId = match[1];
-        let targetUser = globalThis.__discordClient?.users?.cache?.get(targetId) || null;
-
-        if (!targetUser && globalThis.__discordClient) {
-          try {
-            targetUser = await globalThis.__discordClient.users.fetch(targetId);
-          } catch {
-            targetUser = null;
-          }
-        }
-
-        if (targetUser?.bot) {
-          console.warn(`[BotBanGuard] BLOCKED ban attempt against bot ${targetId}. Bot bans are temporarily disabled.`);
-          const error = new Error('Bot bans are temporarily disabled. No Discord bot accounts may be banned by this bot right now.');
-          error.code = 'LARP_BOT_BAN_DISABLED';
-          throw error;
-        }
+      if (!BAN_ACTIONS_ENABLED && isGuildBanRoute) {
+        console.warn(`[BanLockdown] BLOCKED Discord ban request route=${routeText}. All bans are temporarily disabled.`);
+        const error = new Error('All Discord bans are temporarily disabled by the server owner.');
+        error.code = 'LARP_ALL_BANS_DISABLED';
+        throw error;
       }
 
       return originalPut.call(this, route, options);
     };
 
-    console.log('[BotBanGuard] ACTIVE: this bot cannot ban Discord bot accounts right now.');
+    console.log('[BanLockdown] ACTIVE: this bot cannot ban ANY Discord user or bot right now.');
   }
 } catch (error) {
-  console.error('[BotBanGuard] Could not install global bot-ban guard:', errorText(error));
+  console.error('[BanLockdown] Could not install global ban guard:', errorText(error));
 }
 
 process.on('warning', warning => {
@@ -153,7 +143,7 @@ setInterval(() => {
   console.log(
     `[RuntimeHeartbeat] uptime=${Math.floor(process.uptime())}s discordReady=${ready}`
     + ` keepAliveOk=${lastRenderKeepAliveOk} keepAliveAge=${keepAliveAgeSeconds ?? 'never'}s`
-    + ' interaction429=native-rest botBans=disabled',
+    + ` interaction429=native-rest bans=${BAN_ACTIONS_ENABLED ? 'enabled' : 'disabled'}`,
   );
 }, RUNTIME_HEARTBEAT_INTERVAL_MS);
 
