@@ -16,6 +16,11 @@ const TICKET_COMMANDS = new Set([
     'remove-member',
 ]);
 
+type TicketMetadata = {
+    ownerId?: string;
+    claimedBy?: string;
+};
+
 function isRateLimitError(error: unknown): boolean {
     const candidate = error as {
         status?: number;
@@ -50,6 +55,40 @@ function isTicketInteraction(interaction: Interaction): boolean {
     return false;
 }
 
+function decodeTicketMetadata(interaction: Interaction): TicketMetadata | null {
+    const channel = interaction.channel as { topic?: string | null } | null;
+    const topic = channel?.topic;
+    if (!topic?.startsWith('larp-ticket:')) return null;
+    try {
+        const parsed = JSON.parse(Buffer.from(topic.slice('larp-ticket:'.length), 'base64url').toString('utf8')) as TicketMetadata;
+        return parsed?.ownerId ? parsed : null;
+    } catch {
+        return null;
+    }
+}
+
+function isTicketCloseAction(interaction: Interaction): boolean {
+    if (interaction.isChatInputCommand()) return interaction.commandName === 'close';
+    if (interaction.isButton()) {
+        return interaction.customId === 'ticket:close'
+            || interaction.customId === 'ticket:close-confirm';
+    }
+    return false;
+}
+
+async function blockUnclaimedTicketClose(interaction: Interaction): Promise<boolean> {
+    if (!isTicketCloseAction(interaction)) return false;
+    const metadata = decodeTicketMetadata(interaction);
+    if (!metadata || metadata.claimedBy) return false;
+
+    await safeReply(
+        interaction,
+        '🔒 This ticket cannot be closed while it is **Unclaimed**. A staff member must press **Claim** first, then the ticket can be closed.',
+    );
+    logger.info(`[Tickets] Blocked close on unclaimed ticket channel=${interaction.channelId || 'unknown'}.`);
+    return true;
+}
+
 function isApplicationInteraction(interaction: Interaction): boolean {
     if (interaction.isChatInputCommand()) return interaction.commandName === 'applications-panel';
     if (interaction.isButton() || interaction.isModalSubmit() || interaction.isStringSelectMenu()) {
@@ -68,6 +107,8 @@ async function runCriticalTickets(interaction: Interaction): Promise<boolean> {
     if (!isTicketInteraction(interaction)) return false;
 
     try {
+        if (await blockUnclaimedTicketClose(interaction)) return true;
+
         try {
             const blacklist = require('./ticketBlacklist.ts') as {
                 handleTicketBlacklist?: (i: Interaction) => Promise<boolean>;
