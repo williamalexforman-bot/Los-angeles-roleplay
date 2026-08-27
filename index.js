@@ -188,6 +188,13 @@ client.once(Events.ClientReady, async readyClient => {
   console.log('[DiscordREST] Passive logging only; startup canary disabled so READY does not make an extra REST request.');
 
   try {
+    const { registerTicketArtworkConsistency } = require('./src/events/ticketArtworkConsistency.ts');
+    registerTicketArtworkConsistency(readyClient);
+  } catch (error) {
+    console.error('[TicketArtwork] Could not register ticket artwork consistency:', error?.stack || error?.message || String(error));
+  }
+
+  try {
     const { onReady } = require('./src/events/ready.ts');
     void onReady(readyClient)
       .then(() => console.log('[Discord] Ready hooks completed.'))
