@@ -81,7 +81,6 @@ async function recordModerationAction(
     guildId: string,
     action: ModerationAction,
 ): Promise<void> {
-    // Never treat the approved bot as a raid target or raid executor.
     if (isProtectedBotId(action.targetId) || isProtectedBotId(action.executorId)) {
         logger.info(`[Raid Protection] Ignored protected bot moderation event target=${action.targetId} executor=${action.executorId || 'unknown'}.`);
         return;
@@ -151,9 +150,42 @@ async function handleMemberRemoved(member: GuildMember | PartialGuildMember): Pr
     });
 }
 
+async function restoreProtectedBotAfterBan(ban: GuildBan): Promise<void> {
+    const audit = await fetchMatchingAuditEntry(ban.guild, AuditLogEvent.MemberBanAdd, ban.user.id);
+    const executorId = audit?.executorId || null;
+    const unbanned = await ban.guild.bans.remove(
+        ban.user.id,
+        'Protected application 497196352866877441 must not remain banned.',
+    ).then(() => true).catch(error => {
+        logger.error(`[ProtectedBot] FAILED to remove ban for ${ban.user.id}: ${error instanceof Error ? error.message : String(error)}`);
+        return false;
+    });
+
+    const embed = new EmbedBuilder()
+        .setColor(unbanned ? 0x22c55e : 0xef4444)
+        .setAuthor({ name: 'Protected Bot Guard' })
+        .setTitle(unbanned ? '🛡️ Protected Bot Automatically Unbanned' : '🚨 Protected Bot Ban Could Not Be Removed')
+        .setDescription(
+            unbanned
+                ? 'The protected Discord application was banned and the bot immediately removed the ban.'
+                : 'The protected Discord application was banned, but this bot could not remove the ban. Check Ban Members permission and role hierarchy.',
+        )
+        .addFields(
+            { name: 'Protected Application', value: `<@${ban.user.id}> (\`${ban.user.id}\`)`, inline: false },
+            { name: 'Ban Executor', value: executorId ? `<@${executorId}> (\`${executorId}\`)` : 'Unknown / audit log unavailable', inline: false },
+        )
+        .setFooter({ text: BRAND.footer })
+        .setTimestamp();
+    await sendRaidAlert(ban.client, embed);
+
+    logger.warn(
+        `[ProtectedBot] protected=${ban.user.id} bannedBy=${executorId || 'unknown'} autoUnban=${unbanned ? 'success' : 'failed'}`,
+    );
+}
+
 async function handleMemberBanned(ban: GuildBan): Promise<void> {
     if (isProtectedBotId(ban.user.id)) {
-        logger.warn(`[Raid Protection] Protected bot ${ban.user.id} was banned. This protection module did not initiate the ban.`);
+        await restoreProtectedBotAfterBan(ban);
         return;
     }
     const audit = await fetchMatchingAuditEntry(ban.guild, AuditLogEvent.MemberBanAdd, ban.user.id);
@@ -265,7 +297,7 @@ export function registerRaidProtection(client: Client): void {
     });
     client.on('guildBanAdd', ban => {
         void handleMemberBanned(ban).catch(error => {
-            logger.warn(`[Raid Protection] Ban-burst check failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            logger.warn(`[Raid Protection] Ban-burst/protected-bot check failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
         });
     });
     client.on('messageCreate', message => {
@@ -274,5 +306,5 @@ export function registerRaidProtection(client: Client): void {
         });
     });
 
-    logger.info('[Raid Protection] Active: mass kick/ban burst detection and spam-raid protection are enabled. Protected bot exemptions are active. AI image moderation is removed from the runtime.');
+    logger.info('[Raid Protection] Active: mass kick/ban burst detection, spam-raid protection, and protected-bot automatic unban are enabled. AI image moderation is removed from the runtime.');
 }
