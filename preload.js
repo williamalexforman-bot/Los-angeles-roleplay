@@ -58,11 +58,56 @@ try {
 
 // TEMPORARY MODERATION LOCKDOWN.
 // Keep both false until the owner explicitly asks to turn Discord removals back on.
-// These guards sit at the REST layer, so slash commands and automated systems
-// cannot bypass them through normal discord.js ban/kick methods.
 const BAN_ACTIONS_ENABLED = false;
 const KICK_ACTIONS_ENABLED = false;
 
+// First layer: block the high-level discord.js APIs themselves. This prevents
+// server-security code, commands, and future handlers from ever reaching REST.
+try {
+  const discord = require('discord.js');
+  const highLevelKey = Symbol.for('larp.highLevelRemovalLockdown');
+
+  if (!discord.GuildMember.prototype[highLevelKey]) {
+    Object.defineProperty(discord.GuildMember.prototype, highLevelKey, {
+      value: true,
+      enumerable: false,
+      configurable: false,
+      writable: false,
+    });
+
+    discord.GuildMember.prototype.kick = async function larpKickBlocked() {
+      const targetId = this?.id || 'unknown';
+      console.warn(`[RemovalLockdown] BLOCKED GuildMember.kick target=${targetId}.`);
+      const error = new Error('All Discord kicks are temporarily disabled by the server owner.');
+      error.code = 'LARP_ALL_KICKS_DISABLED';
+      throw error;
+    };
+
+    discord.GuildMember.prototype.ban = async function larpMemberBanBlocked() {
+      const targetId = this?.id || 'unknown';
+      console.warn(`[RemovalLockdown] BLOCKED GuildMember.ban target=${targetId}.`);
+      const error = new Error('All Discord bans are temporarily disabled by the server owner.');
+      error.code = 'LARP_ALL_BANS_DISABLED';
+      throw error;
+    };
+
+    if (discord.GuildMemberManager?.prototype?.ban) {
+      discord.GuildMemberManager.prototype.ban = async function larpManagerBanBlocked(target) {
+        const targetId = typeof target === 'string' ? target : target?.id || target?.user?.id || 'unknown';
+        console.warn(`[RemovalLockdown] BLOCKED GuildMemberManager.ban target=${targetId}.`);
+        const error = new Error('All Discord bans are temporarily disabled by the server owner.');
+        error.code = 'LARP_ALL_BANS_DISABLED';
+        throw error;
+      };
+    }
+
+    console.log('[RemovalLockdown] HIGH-LEVEL GUARD ACTIVE: GuildMember kick/ban and member-manager ban are disabled.');
+  }
+} catch (error) {
+  console.error('[RemovalLockdown] Could not install high-level member-removal guard:', errorText(error));
+}
+
+// Second layer: block the raw discord.js REST routes as a backstop.
 try {
   const { REST } = require('discord.js');
   const guardKey = Symbol.for('larp.memberRemovalLockdown');
@@ -106,7 +151,7 @@ try {
       return originalDelete.call(this, route, options);
     };
 
-    console.log('[RemovalLockdown] ACTIVE: this bot cannot ban or kick ANY Discord member or bot right now.');
+    console.log('[RemovalLockdown] REST GUARD ACTIVE: this bot cannot ban or kick ANY Discord member or bot right now.');
     console.log('[Server Security] DISABLED: automatic bot-join removal/security alerts are off.');
   }
 } catch (error) {
