@@ -1,11 +1,18 @@
+import { resolve } from 'path';
 import {
     ActionRowBuilder,
     ButtonBuilder,
     ButtonStyle,
     ChannelType,
+    ContainerBuilder,
+    MediaGalleryBuilder,
+    MediaGalleryItemBuilder,
     MessageFlags,
     ModalBuilder,
     PermissionFlagsBits,
+    SeparatorBuilder,
+    SeparatorSpacingSize,
+    TextDisplayBuilder,
     TextInputBuilder,
     TextInputStyle,
     type Interaction,
@@ -20,6 +27,11 @@ const SUPPORT_ROLE_ID = '1523122697746382868';
 const INTERNAL_ROLE_ID = '1521593407816990811';
 const MANAGEMENT_ROLE_ID = '1523122912201277590';
 const HIGH_RANK_ROLE_ID = '1527845170748326021';
+
+const ASSISTANCE_BANNER_NAME = 'assistance-banner.png';
+const UNDERBANNER_NAME = 'underbanner.png';
+const ASSISTANCE_BANNER_PATH = resolve(__dirname, '..', '..', 'assets', ASSISTANCE_BANNER_NAME);
+const UNDERBANNER_PATH = resolve(__dirname, '..', '..', 'assets', UNDERBANNER_NAME);
 
 const CATEGORIES = {
     general: { label: 'General Support', parentId: '1526254341646712883', roleId: SUPPORT_ROLE_ID, prefix: 'gen' },
@@ -74,24 +86,60 @@ function reviewRow(type: TicketType, userId: string): ActionRowBuilder<ButtonBui
     );
 }
 
-async function showReview(interaction: StringSelectMenuInteraction, type: TicketType): Promise<void> {
+function separator(): SeparatorBuilder {
+    return new SeparatorBuilder()
+        .setDivider(true)
+        .setSpacing(SeparatorSpacingSize.Small);
+}
+
+function banner(name: string): MediaGalleryBuilder {
+    return new MediaGalleryBuilder().addItems(
+        new MediaGalleryItemBuilder().setURL(`attachment://${name}`),
+    );
+}
+
+function reviewPanel(type: TicketType, userId: string): ContainerBuilder {
     const config = CATEGORIES[type];
+    const faqText = SUPPORT_FAQ.length > 1_700 ? `${SUPPORT_FAQ.slice(0, 1_699)}…` : SUPPORT_FAQ;
+    const tosText = TICKET_TERMS.length > 1_700 ? `${TICKET_TERMS.slice(0, 1_699)}…` : TICKET_TERMS;
+
+    return new ContainerBuilder()
+        .setAccentColor(0x247bf1)
+        .addMediaGalleryComponents(banner(ASSISTANCE_BANNER_NAME))
+        .addSeparatorComponents(separator())
+        .addTextDisplayComponents(
+            new TextDisplayBuilder().setContent([
+                `## 🎫 ${config.label}`,
+                'Before opening your ticket, please review the information below.',
+                '',
+                faqText,
+            ].join('\n')),
+        )
+        .addSeparatorComponents(separator())
+        .addTextDisplayComponents(
+            new TextDisplayBuilder().setContent([
+                tosText,
+                '',
+                '**By continuing, you confirm that you have read the FAQ and Ticket Terms of Service.**',
+            ].join('\n')),
+        )
+        .addActionRowComponents(reviewRow(type, userId))
+        .addSeparatorComponents(separator())
+        .addMediaGalleryComponents(banner(UNDERBANNER_NAME));
+}
+
+async function showReview(interaction: StringSelectMenuInteraction, type: TicketType): Promise<void> {
+    const startedAt = Date.now();
     await interaction.reply({
-        content: [
-            `## ${config.label}`,
-            'Before opening your ticket, please review the FAQ and Ticket Terms of Service below.',
-            '',
-            SUPPORT_FAQ,
-            '',
-            TICKET_TERMS,
-            '',
-            '**When you are finished reading, press Continue to Ticket Form.**',
-        ].join('\n').slice(0, 1_990),
-        components: [reviewRow(type, interaction.user.id)],
-        flags: MessageFlags.Ephemeral,
+        components: [reviewPanel(type, interaction.user.id)],
+        files: [
+            { attachment: ASSISTANCE_BANNER_PATH, name: ASSISTANCE_BANNER_NAME },
+            { attachment: UNDERBANNER_PATH, name: UNDERBANNER_NAME },
+        ],
+        flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
         allowedMentions: { parse: [] },
     });
-    logger.info(`[DirectTickets] Displayed FAQ/TOS for ${type} ticket to ${interaction.user.id}.`);
+    logger.info(`[DirectTickets] Displayed V2 FAQ/TOS panel for ${type} to ${interaction.user.id} in ${Date.now() - startedAt}ms.`);
 }
 
 function safeChannelPart(value: string): string {
