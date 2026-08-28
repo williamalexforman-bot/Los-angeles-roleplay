@@ -165,6 +165,14 @@ async function resolveRole(guild: ModalSubmitInteraction['guild'], roleId: strin
     return guild.roles.cache.get(roleId) || await guild.roles.fetch(roleId).catch(() => null);
 }
 
+function optionalField(interaction: ModalSubmitInteraction, id: string): string {
+    try {
+        return interaction.fields.getTextInputValue(id).trim();
+    } catch {
+        return '';
+    }
+}
+
 async function createTicket(interaction: ModalSubmitInteraction, type: TicketType): Promise<void> {
     const guild = interaction.guild;
     if (!guild) {
@@ -177,8 +185,11 @@ async function createTicket(interaction: ModalSubmitInteraction, type: TicketTyp
     logger.info(`[ReliableTickets] ACK modal type=${type} user=${interaction.user.id} ms=${Date.now() - started}`);
 
     const config = CATEGORIES[type];
-    const reason = interaction.fields.getTextInputValue('reason').trim() || 'support';
-    const details = interaction.fields.getTextInputValue('details').trim();
+    const reason = optionalField(interaction, 'reason') || 'support';
+    // Older ticket modals did not always contain the details field. Treat all
+    // non-required fields as optional so a modal created before a deploy can
+    // still be submitted successfully afterward.
+    const details = optionalField(interaction, 'details') || optionalField(interaction, 'anything_else');
     const supportRole = await resolveRole(guild, SUPPORT_ROLE_ID);
     const categoryRole = config.roleId === SUPPORT_ROLE_ID ? supportRole : await resolveRole(guild, config.roleId);
 
@@ -222,8 +233,8 @@ async function createTicket(interaction: ModalSubmitInteraction, type: TicketTyp
 
     let channel: TextChannel | null = null;
     try {
-        // IMPORTANT: create outside every category first. A category-level deny
-        // can no longer prevent the ticket from existing.
+        // Create outside every category first. A category-level deny cannot
+        // prevent the ticket from existing.
         channel = await guild.channels.create({
             name: `${config.prefix}-${safeName(reason)}-${interaction.user.id.slice(-4)}`.slice(0, 40),
             type: ChannelType.GuildText,
@@ -233,7 +244,6 @@ async function createTicket(interaction: ModalSubmitInteraction, type: TicketTyp
         });
         logger.info(`[ReliableTickets] CHANNEL_CREATED type=${type} channel=${channel.id} user=${interaction.user.id}`);
 
-        // Move after creation. Failure here is non-fatal.
         const targetCategory = guild.channels.cache.get(config.parentId)
             || await guild.channels.fetch(config.parentId).catch(() => null);
         if (targetCategory?.type === ChannelType.GuildCategory) {
@@ -251,8 +261,10 @@ async function createTicket(interaction: ModalSubmitInteraction, type: TicketTyp
 
         const extraLines: string[] = [];
         if (type === 'internal') {
-            extraLines.push(`**User Reported:** ${interaction.fields.getTextInputValue('reported_user')}`);
-            extraLines.push(`**Proof:** ${interaction.fields.getTextInputValue('proof')}`);
+            const reportedUser = optionalField(interaction, 'reported_user');
+            const proof = optionalField(interaction, 'proof');
+            if (reportedUser) extraLines.push(`**User Reported:** ${reportedUser}`);
+            if (proof) extraLines.push(`**Proof:** ${proof}`);
         }
         if (details) extraLines.push(`**Additional Details:** ${details.slice(0, 1000)}`);
 
@@ -286,13 +298,27 @@ async function createTicket(interaction: ModalSubmitInteraction, type: TicketTyp
     } catch (error) {
         logger.error(`[ReliableTickets] CREATE_FAILED type=${type} user=${interaction.user.id} channel=${channel?.id || 'none'} error=${error instanceof Error ? error.stack || error.message : String(error)}`);
         if (channel) {
-            // Do not delete a channel that Discord successfully created. Leaving
-            // it available is safer than making a partially successful ticket disappear.
             await interaction.editReply(`Your ticket channel was created but setup did not finish: <#${channel.id}>. Staff can still assist you there.`).catch(() => undefined);
         } else {
             await interaction.editReply(`Unable to create your **${config.label}** ticket. Please contact an administrator.`).catch(() => undefined);
         }
     }
+}
+
+function parseContinueCustomId(customId: string): { type: string; ownerId: string } | null {
+    const prefixes = ['reliable-ticket:continue:', 'direct-ticket:continue:'];
+    const prefix = prefixes.find(candidate => customId.startsWith(candidate));
+    if (!prefix) return null;
+    const remainder = customId.slice(prefix.length);
+    const [type, ownerId] = remainder.split(':');
+    return type && ownerId ? { type, ownerId } : null;
+}
+
+function parseCreateCustomId(customId: string): string | null {
+    for (const prefix of ['reliable-ticket:create:', 'direct-ticket:create:']) {
+        if (customId.startsWith(prefix)) return customId.slice(prefix.length).split(':')[0] || null;
+    }
+    return null;
 }
 
 export async function handleReliableTicketInteraction(interaction: Interaction): Promise<boolean> {
@@ -306,29 +332,33 @@ export async function handleReliableTicketInteraction(interaction: Interaction):
         return true;
     }
 
-    if (interaction.isButton() && interaction.customId.startsWith('reliable-ticket:continue:')) {
-        const [, , typeValue, ownerId] = interaction.customId.split(':');
-        if (!isTicketType(typeValue)) {
-            await interaction.reply({ content: 'That ticket category is unavailable.', flags: MessageFlags.Ephemeral });
+    if (interaction.isButton()) {
+        const parsed = parseContinueCustomId(interaction.customId);
+        if (parsed) {
+            if (!isTicketType(parsed.type)) {
+                await interaction.reply({ content: 'That ticket category is unavailable.', flags: MessageFlags.Ephemeral });
+                return true;
+            }
+            if (parsed.ownerId !== interaction.user.id) {
+                await interaction.reply({ content: 'This ticket form belongs to another user.', flags: MessageFlags.Ephemeral });
+                return true;
+            }
+            await interaction.showModal(ticketModal(parsed.type));
+            logger.info(`[ReliableTickets] MODAL_OPEN type=${parsed.type} user=${interaction.user.id} source=${interaction.customId.startsWith('direct-ticket:') ? 'legacy' : 'current'}`);
             return true;
         }
-        if (ownerId !== interaction.user.id) {
-            await interaction.reply({ content: 'This ticket form belongs to another user.', flags: MessageFlags.Ephemeral });
-            return true;
-        }
-        await interaction.showModal(ticketModal(typeValue));
-        logger.info(`[ReliableTickets] MODAL_OPEN type=${typeValue} user=${interaction.user.id}`);
-        return true;
     }
 
-    if (interaction.isModalSubmit() && interaction.customId.startsWith('reliable-ticket:create:')) {
-        const type = interaction.customId.split(':')[2] || '';
-        if (!isTicketType(type)) {
-            await interaction.reply({ content: 'That ticket category is unavailable.', flags: MessageFlags.Ephemeral });
+    if (interaction.isModalSubmit()) {
+        const type = parseCreateCustomId(interaction.customId);
+        if (type) {
+            if (!isTicketType(type)) {
+                await interaction.reply({ content: 'That ticket category is unavailable.', flags: MessageFlags.Ephemeral });
+                return true;
+            }
+            await createTicket(interaction, type);
             return true;
         }
-        await createTicket(interaction, type);
-        return true;
     }
 
     return false;
