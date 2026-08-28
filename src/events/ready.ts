@@ -15,6 +15,7 @@ import { registerGiveawayScheduler } from '../commands/giveaway';
 import { registerPaidAdScheduler } from '../commands/paidAds';
 import { registerMemberLifecycleLogs } from './memberLifecycleLogs';
 import { registerRetirementTicketWorkflow } from './retirementTicketWorkflow';
+import { runRuntimeIntegrityAudit } from './runtimeIntegrityAudit';
 
 const COMMAND_PREWARM_DELAY_MS = 1_000;
 let commandPrewarmTimer: ReturnType<typeof setTimeout> | null = null;
@@ -50,8 +51,6 @@ export async function synchronizeSlashCommands(client: Client): Promise<number> 
 
     if (guild) {
         await guild.commands.set(schemas);
-        // Guild commands update immediately. Remove any old global catalog so
-        // users do not see duplicate or retired commands during propagation.
         if (client.application) await client.application.commands.set([]);
         logger.info(`[SlashCommands] Synchronized ${schemas.length} commands to guild ${guild.id} and cleared stale global commands.`);
         return schemas.length;
@@ -157,14 +156,18 @@ export const onReady = async (client: Client): Promise<void> => {
     logger.info(`Logged in as ${client.user?.tag}.`);
 
     try {
+        await runRuntimeIntegrityAudit(client);
+    } catch (error) {
+        logger.error(`[IntegrityAudit] Unexpected audit failure: ${error instanceof Error ? error.stack || error.message : String(error)}`);
+    }
+
+    try {
         registerMemberLifecycleLogs(client);
     } catch (error) {
         logger.warn(`[Member Join] Failed to register V2 join logs: ${error instanceof Error ? error.message : String(error)}`);
     }
 
     try {
-        // Verify the exact standalone artwork before refreshing persistent
-        // Discord panels so a missing attachment cannot invalidate a message.
         await installBatchOneBannerAssets();
     } catch (error) {
         logger.warn(`[Banners] Banner verification failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -217,7 +220,7 @@ export const onReady = async (client: Client): Promise<void> => {
 
     try {
         registerRaidProtection(client);
-        logger.info('[Raid Protection] Runtime protection enabled.');
+        logger.info('[Raid Protection] Registration completed. Current protection state is reported by the raid-protection module.');
     } catch (error) {
         logger.warn(`[Raid Protection] Failed to register: ${error instanceof Error ? error.message : String(error)}`);
     }
