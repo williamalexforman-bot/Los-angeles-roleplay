@@ -16,6 +16,17 @@ const TICKET_COMMANDS = new Set([
     'remove-member',
 ]);
 
+const LEGACY_TICKET_BUTTON_TYPES: Record<string, 'general' | 'internal' | 'management' | 'highrank'> = {
+    'ticket-general': 'general',
+    'ticket-internal': 'internal',
+    'ticket-internal-affairs': 'internal',
+    'ticket-management': 'management',
+    'ticket-highrank': 'highrank',
+    'ticket-high-rank': 'highrank',
+    'ticket-directorship': 'highrank',
+    'ticket-ownership': 'highrank',
+};
+
 function isRateLimitError(error: unknown): boolean {
     const candidate = error as {
         status?: number;
@@ -92,6 +103,19 @@ async function runCriticalTickets(interaction: Interaction): Promise<boolean> {
         }
 
         if (interaction.isButton()) {
+            const legacyType = LEGACY_TICKET_BUTTON_TYPES[interaction.customId];
+            if (legacyType && typeof tickets.handleTicketSelect === 'function') {
+                const legacySelectInteraction = new Proxy(interaction as any, {
+                    get(target, property) {
+                        if (property === 'customId') return 'ticket:create-select';
+                        if (property === 'values') return [legacyType];
+                        const value = Reflect.get(target, property, target);
+                        return typeof value === 'function' ? value.bind(target) : value;
+                    },
+                });
+                if (await tickets.handleTicketSelect(legacySelectInteraction)) return true;
+            }
+
             if (interaction.customId === 'ticket:claim') {
                 try {
                     const repair = require('./ticketClaimRepair.ts') as { handleTicketClaimRepair?: (i: any) => Promise<boolean> };
