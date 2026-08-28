@@ -8,6 +8,7 @@ import { configureInfractionDatabaseAdapter } from '../database/infractionAdapte
 import { logger } from '../utils/logger';
 import { registerInfractionAudit } from './infractionAudit';
 import { handleMessageModeration } from './messageModeration';
+import { registerTicketSelectAckGuard } from './ticketSelectAckGuard';
 
 export type ProductionMessageRoute = 'application' | 'ban-appeal' | 'moderation' | 'ignored';
 
@@ -19,7 +20,8 @@ export function configureProductionRuntime(client: Client): void {
     configureInfractionDatabaseAdapter();
     configureApplicationSessionDatabaseAdapter();
     registerInfractionAudit(client);
-    logger.info('[Runtime] Command clients, durable application/infraction adapters, and infraction log verification configured.');
+    registerTicketSelectAckGuard(client);
+    logger.info('[Runtime] Command clients, durable application/infraction adapters, infraction verification, and early ticket-select acknowledgement configured.');
 }
 
 /** Routes DM conversations before guild-message moderation. */
