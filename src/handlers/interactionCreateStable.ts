@@ -3,6 +3,7 @@ import {
     Interaction,
     MessageFlags,
 } from 'discord.js';
+import { handleDirectTicketInteraction } from '../events/directTicketOpen';
 import { logger } from '../utils/logger';
 
 const TICKET_COMMANDS = new Set([
@@ -212,7 +213,7 @@ async function runOptionalComponent(interaction: Interaction): Promise<boolean> 
     } else if (id.startsWith('loa:')) {
         if (interaction.isButton()) attempts.push(async () => Boolean(await require('../commands/loa.ts').handleLoaButton?.(interaction)));
         if (interaction.isModalSubmit()) attempts.push(async () => Boolean(await require('../commands/loa.ts').handleLoaModal?.(interaction)));
-    } else if (id.startsWith('applications:') || id.startsWith('ticket:')) {
+    } else if (id.startsWith('applications:') || id.startsWith('ticket:') || id.startsWith('direct-ticket:')) {
         return false;
     } else if (id.startsWith('suggestion')) {
         if (interaction.isButton()) attempts.push(async () => Boolean(await require('../commands/suggestions.ts').handleSuggestionButton?.(interaction)));
@@ -267,6 +268,7 @@ async function runOptionalComponent(interaction: Interaction): Promise<boolean> 
 
 export async function interactionCreateStable(interaction: Interaction): Promise<void> {
     try {
+        if (await handleDirectTicketInteraction(interaction)) return;
         if (isTicketInteraction(interaction)) {
             await runCriticalTickets(interaction);
             return;
