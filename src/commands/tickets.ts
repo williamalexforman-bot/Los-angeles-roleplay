@@ -7,14 +7,19 @@ import {
     ButtonStyle,
     ChannelType,
     ChatInputCommandInteraction,
-    EmbedBuilder,
+    ContainerBuilder,
+    MediaGalleryBuilder,
+    MediaGalleryItemBuilder,
     MessageFlags,
     ModalBuilder,
     ModalSubmitInteraction,
     PermissionFlagsBits,
+    SeparatorBuilder,
+    SeparatorSpacingSize,
     SlashCommandBuilder,
     StringSelectMenuBuilder,
     StringSelectMenuInteraction,
+    TextDisplayBuilder,
     TextInputBuilder,
     TextInputStyle,
     type GuildMember,
@@ -25,7 +30,9 @@ import { logger } from '../utils/logger';
 import { SUPPORT_FAQ, TICKET_TERMS } from './supportContent';
 
 const BANNER_NAME = 'assistance-banner.png';
+const UNDERBANNER_NAME = 'underbanner.png';
 const BANNER_PATH = resolve(__dirname, '..', '..', 'assets', BANNER_NAME);
+const UNDERBANNER_PATH = resolve(__dirname, '..', '..', 'assets', UNDERBANNER_NAME);
 const PANEL_CHANNEL_ID = process.env.TICKET_PANEL_CHANNEL_ID || '1526034504953892925';
 const SUPPORT_ROLE_ID = process.env.SUPPORT_ROLE_ID || process.env.GENERAL_SUPPORT_ROLE_ID || '1523122697746382868';
 const INTERNAL_ROLE_ID = process.env.INTERNAL_AFFAIRS_ROLE_ID || '1521593407816990811';
@@ -54,7 +61,6 @@ const CATEGORIES = {
 } as const;
 
 type TicketType = keyof typeof CATEGORIES;
-
 type TicketMetadata = {
     ownerId: string;
     type: TicketType;
@@ -70,7 +76,7 @@ function isTicketType(value: string): value is TicketType {
 function metadata(topic?: string | null): TicketMetadata | null {
     if (!topic?.startsWith('larp-ticket:')) return null;
     try {
-        const parsed = JSON.parse(Buffer.from(topic.slice(12), 'base64url').toString('utf8')) as TicketMetadata;
+        const parsed = JSON.parse(Buffer.from(topic.slice('larp-ticket:'.length), 'base64url').toString('utf8')) as TicketMetadata;
         return parsed?.ownerId && isTicketType(parsed.type) ? parsed : null;
     } catch {
         return null;
@@ -83,6 +89,21 @@ function encodeMetadata(value: TicketMetadata): string {
 
 function cleanName(value: string): string {
     return value.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 22) || 'support';
+}
+
+function artwork(): AttachmentBuilder[] {
+    return [
+        new AttachmentBuilder(BANNER_PATH, { name: BANNER_NAME }),
+        new AttachmentBuilder(UNDERBANNER_PATH, { name: UNDERBANNER_NAME }),
+    ];
+}
+
+function media(name: string): MediaGalleryBuilder {
+    return new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(`attachment://${name}`));
+}
+
+function separator(): SeparatorBuilder {
+    return new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small);
 }
 
 function ticketSelectRow(): ActionRowBuilder<StringSelectMenuBuilder> {
@@ -98,31 +119,30 @@ function ticketSelectRow(): ActionRowBuilder<StringSelectMenuBuilder> {
     );
 }
 
-function launcherEmbed(): EmbedBuilder {
-    return new EmbedBuilder()
-        .setColor(BRAND.color)
-        .setTitle('🎫 Los Angeles Roleplay Support')
-        .setDescription([
-            'Select the option that best matches what you need.',
+function launcherPanel(): ContainerBuilder {
+    return new ContainerBuilder()
+        .setAccentColor(BRAND.color)
+        .addMediaGalleryComponents(media(BANNER_NAME))
+        .addSeparatorComponents(separator())
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+            '## 🎫 Los Angeles Roleplay Support',
+            'Welcome to the Los Angeles Roleplay support system. Select the option that best matches what you need.',
             '',
-            '🎫 **General Support** — General questions and normal assistance',
-            '📋 **Internal Affairs** — Reports and internal complaints',
-            '🏛️ **Management Support** — Partnerships, perks, transfers, management concerns',
-            '⭐ **Directorship / Ownership** — Ownership-level and high-rank matters',
-        ].join('\n'))
-        .setImage(`attachment://${BANNER_NAME}`)
-        .setFooter({ text: BRAND.footer });
-}
-
-function reviewEmbed(type: TicketType): EmbedBuilder {
-    const config = CATEGORIES[type];
-    const faq = SUPPORT_FAQ.length > 1800 ? `${SUPPORT_FAQ.slice(0, 1799)}…` : SUPPORT_FAQ;
-    const tos = TICKET_TERMS.length > 1800 ? `${TICKET_TERMS.slice(0, 1799)}…` : TICKET_TERMS;
-    return new EmbedBuilder()
-        .setColor(BRAND.color)
-        .setTitle(`${config.emoji} ${config.label}`)
-        .setDescription(`Before opening your ticket, review the information below.\n\n${faq}\n\n${tos}\n\n**Press Continue to open the form.**`)
-        .setImage(`attachment://${BANNER_NAME}`);
+            '### 🎫 General Support',
+            '> General questions • Server information • Normal assistance',
+            '### 📋 Internal Affairs Support',
+            '> Reports against staff or other members • Internal complaints',
+            '### 🏛️ Management Support',
+            '> Partnerships • Perks/prizes • Staff transfers • Fast passes • Management concerns',
+            '### ⭐ Directorship / Ownership',
+            '> Ownership-level concerns • Marketplace/payment issues • High-rank matters',
+            '',
+            '*Realism at its Finest*',
+        ].join('\n')))
+        .addSeparatorComponents(separator())
+        .addActionRowComponents(ticketSelectRow())
+        .addSeparatorComponents(separator())
+        .addMediaGalleryComponents(media(UNDERBANNER_NAME));
 }
 
 function continueRow(type: TicketType, userId: string): ActionRowBuilder<ButtonBuilder> {
@@ -133,6 +153,30 @@ function continueRow(type: TicketType, userId: string): ActionRowBuilder<ButtonB
             .setEmoji('🎫')
             .setStyle(ButtonStyle.Primary),
     );
+}
+
+function reviewPanel(type: TicketType, userId: string): ContainerBuilder {
+    const config = CATEGORIES[type];
+    return new ContainerBuilder()
+        .setAccentColor(BRAND.color)
+        .addMediaGalleryComponents(media(BANNER_NAME))
+        .addSeparatorComponents(separator())
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+            `## ${config.emoji} ${config.label}`,
+            'Before opening your ticket, review the FAQ and Ticket Terms of Service below.',
+            '',
+            SUPPORT_FAQ,
+        ].join('\n').slice(0, 3_800)))
+        .addSeparatorComponents(separator())
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+            TICKET_TERMS,
+            '',
+            '**Press Continue to open the ticket form.**',
+        ].join('\n').slice(0, 3_800)))
+        .addSeparatorComponents(separator())
+        .addActionRowComponents(continueRow(type, userId))
+        .addSeparatorComponents(separator())
+        .addMediaGalleryComponents(media(UNDERBANNER_NAME));
 }
 
 function input(id: string, label: string, style: TextInputStyle, required = true): ActionRowBuilder<TextInputBuilder> {
@@ -201,17 +245,65 @@ async function resolveExistingRole(guild: NonNullable<ModalSubmitInteraction['gu
     return guild.roles.cache.get(SUPPORT_ROLE_ID) || await guild.roles.fetch(SUPPORT_ROLE_ID).catch(() => null);
 }
 
+function optionalField(interaction: ModalSubmitInteraction, id: string): string {
+    try {
+        return interaction.fields.getTextInputValue(id).trim();
+    } catch {
+        return '';
+    }
+}
+
+function openTicketPanel(params: {
+    type: TicketType;
+    userId: string;
+    roleId?: string;
+    reason: string;
+    reportedUser?: string;
+    proof?: string;
+    details?: string;
+}): ContainerBuilder {
+    const config = CATEGORIES[params.type];
+    const lines = [
+        params.roleId ? `<@${params.userId}> • <@&${params.roleId}>` : `<@${params.userId}>`,
+        `## ${config.emoji} ${config.label} Ticket`,
+        'Welcome to **Los Angeles Roleplay**. A staff member will assist you shortly.',
+        '',
+        `**Opened By:** <@${params.userId}>`,
+        '**Reason:**',
+        params.reason.slice(0, 1_400),
+    ];
+    if (params.reportedUser) lines.push('', '**User Reported:**', params.reportedUser.slice(0, 500));
+    if (params.proof) lines.push('', '**Proof:**', params.proof.slice(0, 1_000));
+    if (params.details) lines.push('', '**Additional Details:**', params.details.slice(0, 1_000));
+
+    return new ContainerBuilder()
+        .setAccentColor(BRAND.color)
+        .addMediaGalleryComponents(media(BANNER_NAME))
+        .addSeparatorComponents(separator())
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(lines.join('\n').slice(0, 3_900)))
+        .addSeparatorComponents(separator())
+        .addActionRowComponents(actionRow())
+        .addSeparatorComponents(separator())
+        .addMediaGalleryComponents(media(UNDERBANNER_NAME));
+}
+
 async function createTicket(interaction: ModalSubmitInteraction, type: TicketType): Promise<void> {
     const guild = interaction.guild;
     if (!guild) {
-        await interaction.reply({ content: 'Tickets can only be opened inside the server.', flags: MessageFlags.Ephemeral });
+        if (interaction.deferred) await interaction.editReply('Tickets can only be opened inside the server.');
+        else await interaction.reply({ content: 'Tickets can only be opened inside the server.', flags: MessageFlags.Ephemeral });
         return;
     }
 
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    if (!interaction.deferred && !interaction.replied) {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    }
+
     const config = CATEGORIES[type];
-    const reason = interaction.fields.getTextInputValue('reason').trim() || 'support';
-    const details = interaction.fields.getTextInputValue('details').trim();
+    const reason = optionalField(interaction, 'reason') || 'support';
+    const details = optionalField(interaction, 'details');
+    const reportedUser = optionalField(interaction, 'reported_user');
+    const proof = optionalField(interaction, 'proof');
     const role = await resolveExistingRole(guild, config.roleId);
 
     const overwrites: any[] = [
@@ -241,30 +333,27 @@ async function createTicket(interaction: ModalSubmitInteraction, type: TicketTyp
             topic: encodeMetadata({ ownerId: interaction.user.id, type, createdAt: new Date().toISOString() }),
             reason: `${config.label} ticket opened by ${interaction.user.tag}`,
         });
+        logger.info(`[Tickets] CHANNEL_CREATED type=${type} channel=${channel.id} user=${interaction.user.id}`);
 
         const parent = guild.channels.cache.get(config.parentId) || await guild.channels.fetch(config.parentId).catch(() => null);
         if (parent?.type === ChannelType.GuildCategory) {
             await channel.setParent(parent.id, { lockPermissions: false, reason: `${config.label} ticket routing` }).catch(error => {
-                logger.warn(`[Tickets] Could not move ${channel?.id} to ${config.parentId}: ${error instanceof Error ? error.message : String(error)}`);
+                logger.warn(`[Tickets] MOVE_FAILED channel=${channel?.id} parent=${config.parentId}: ${error instanceof Error ? error.message : String(error)}`);
             });
         }
 
-        const lines = [
-            role ? `<@${interaction.user.id}> | <@&${role.id}>` : `<@${interaction.user.id}>`,
-            `## ${config.emoji} ${config.label} Ticket`,
-            `**Opened By:** <@${interaction.user.id}>`,
-            `**Reason:** ${reason.slice(0, 1500)}`,
-        ];
-        if (type === 'internal') {
-            lines.push(`**User Reported:** ${interaction.fields.getTextInputValue('reported_user').slice(0, 500)}`);
-            lines.push(`**Proof:** ${interaction.fields.getTextInputValue('proof').slice(0, 1000)}`);
-        }
-        if (details) lines.push(`**Additional Details:** ${details.slice(0, 1000)}`);
-        lines.push('', 'A staff member will assist you shortly.');
-
         const panel = await channel.send({
-            content: lines.join('\n'),
-            components: [actionRow()],
+            flags: MessageFlags.IsComponentsV2,
+            components: [openTicketPanel({
+                type,
+                userId: interaction.user.id,
+                roleId: role?.id,
+                reason,
+                reportedUser,
+                proof,
+                details,
+            })],
+            files: artwork(),
             allowedMentions: { parse: [], users: [interaction.user.id], roles: role ? [role.id] : [] },
         });
 
@@ -276,7 +365,7 @@ async function createTicket(interaction: ModalSubmitInteraction, type: TicketTyp
         }), 'Ticket metadata').catch(() => undefined);
 
         await interaction.editReply(`✅ Your ${config.label} ticket has been created: <#${channel.id}>`);
-        logger.info(`[Tickets] CREATED type=${type} channel=${channel.id} user=${interaction.user.id} role=${role?.id || 'fallback-none'}`);
+        logger.info(`[Tickets] COMPLETE type=${type} channel=${channel.id} user=${interaction.user.id} role=${role?.id || 'none'}`);
     } catch (error) {
         logger.error(`[Tickets] CREATE_FAILED type=${type} channel=${channel?.id || 'none'} error=${error instanceof Error ? error.stack || error.message : String(error)}`);
         if (channel) await interaction.editReply(`Your ticket channel exists but setup did not fully finish: <#${channel.id}>`).catch(() => undefined);
@@ -300,17 +389,23 @@ export async function handleTicketSelect(interaction: StringSelectMenuInteractio
     if (interaction.customId !== 'ticket:create-select') return false;
     const type = interaction.values[0] || '';
     if (!isTicketType(type)) {
-        await interaction.reply({ content: 'That ticket category is unavailable.', flags: MessageFlags.Ephemeral });
+        if (interaction.deferred) await interaction.editReply('That ticket category is unavailable.');
+        else await interaction.reply({ content: 'That ticket category is unavailable.', flags: MessageFlags.Ephemeral });
         return true;
     }
+
     const started = Date.now();
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    logger.info(`[Tickets] ACK_SELECT type=${type} user=${interaction.user.id} ms=${Date.now() - started}`);
+    if (!interaction.deferred && !interaction.replied) {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    }
+    logger.info(`[Tickets] ACK_SELECT type=${type} user=${interaction.user.id} ms=${Date.now() - started} preAck=${interaction.deferred}`);
+
     await interaction.editReply({
-        embeds: [reviewEmbed(type)],
-        components: [continueRow(type, interaction.user.id)],
-        files: [new AttachmentBuilder(BANNER_PATH, { name: BANNER_NAME })],
+        flags: MessageFlags.IsComponentsV2,
+        components: [reviewPanel(type, interaction.user.id)],
+        files: artwork(),
     });
+    logger.info(`[Tickets] REVIEW_READY type=${type} user=${interaction.user.id}`);
     return true;
 }
 
@@ -322,6 +417,7 @@ export async function handleTicketButton(interaction: ButtonInteraction): Promis
             return true;
         }
         await interaction.showModal(ticketModal(typeValue));
+        logger.info(`[Tickets] MODAL_OPEN type=${typeValue} user=${interaction.user.id}`);
         return true;
     }
 
@@ -339,7 +435,7 @@ export async function handleTicketButton(interaction: ButtonInteraction): Promis
     }
 
     if (interaction.customId === 'ticket:close-cancel') {
-        await interaction.update({ content: 'Ticket closure cancelled.', components: [], embeds: [] });
+        await interaction.update({ content: 'Ticket closure cancelled.', components: [] });
         return true;
     }
 
@@ -420,7 +516,8 @@ export async function handleTicketModal(interaction: ModalSubmitInteraction): Pr
     if (!interaction.customId.startsWith('ticket:create:')) return false;
     const type = interaction.customId.split(':')[2] || '';
     if (!isTicketType(type)) {
-        await interaction.reply({ content: 'That ticket category is unavailable.', flags: MessageFlags.Ephemeral });
+        if (interaction.deferred) await interaction.editReply('That ticket category is unavailable.');
+        else await interaction.reply({ content: 'That ticket category is unavailable.', flags: MessageFlags.Ephemeral });
         return true;
     }
     await createTicket(interaction, type);
@@ -428,13 +525,13 @@ export async function handleTicketModal(interaction: ModalSubmitInteraction): Pr
 }
 
 async function postLauncher(interaction: ChatInputCommandInteraction, ephemeral: boolean): Promise<void> {
-    const payload = {
-        embeds: [launcherEmbed()],
-        components: [ticketSelectRow()],
-        files: [new AttachmentBuilder(BANNER_PATH, { name: BANNER_NAME })],
-        ...(ephemeral ? { flags: MessageFlags.Ephemeral } : {}),
-    };
-    await interaction.reply(payload);
+    await interaction.reply({
+        flags: ephemeral
+            ? MessageFlags.Ephemeral | MessageFlags.IsComponentsV2
+            : MessageFlags.IsComponentsV2,
+        components: [launcherPanel()],
+        files: artwork(),
+    });
 }
 
 const ticketCommand = {
@@ -455,9 +552,9 @@ function panelCommand(name: 'ticket-panel' | 'ticketpanel') {
             const channel = interaction.guild?.channels.cache.get(PANEL_CHANNEL_ID);
             if (channel?.isTextBased() && 'send' in channel) {
                 await (channel as TextChannel).send({
-                    embeds: [launcherEmbed()],
-                    components: [ticketSelectRow()],
-                    files: [new AttachmentBuilder(BANNER_PATH, { name: BANNER_NAME })],
+                    flags: MessageFlags.IsComponentsV2,
+                    components: [launcherPanel()],
+                    files: artwork(),
                 });
                 await interaction.reply({ content: `✅ Ticket panel posted in <#${PANEL_CHANNEL_ID}>.`, flags: MessageFlags.Ephemeral });
             } else {
@@ -525,7 +622,7 @@ const unclaimCommand = {
         await current.channel.setTopic(encodeMetadata(next), 'Ticket unclaimed');
         if (next.panelMessageId) {
             const panel = await current.channel.messages.fetch(next.panelMessageId).catch(() => null);
-            if (panel) await panel.edit({ components: [actionRow()] }).catch(() => undefined);
+            if (panel) await panel.edit({ components: [openTicketPanel({ type: next.type, userId: next.ownerId, reason: 'Ticket remains open.' })], flags: MessageFlags.IsComponentsV2 }).catch(() => undefined);
         }
         await interaction.reply({ content: 'Ticket unclaimed.', flags: MessageFlags.Ephemeral });
     },
@@ -550,7 +647,11 @@ function memberPermissionCommand(name: 'add-member' | 'remove-member', add: bool
                 ReadMessageHistory: true,
                 AttachFiles: true,
             } : { ViewChannel: false });
-            await interaction.reply({ content: `${add ? 'Added' : 'Removed'} <@${user.id}> ${add ? 'to' : 'from'} this ticket.`, allowedMentions: { users: [] }, flags: MessageFlags.Ephemeral });
+            await interaction.reply({
+                content: `${add ? 'Added' : 'Removed'} <@${user.id}> ${add ? 'to' : 'from'} this ticket.`,
+                allowedMentions: { users: [] },
+                flags: MessageFlags.Ephemeral,
+            });
         },
     };
 }
