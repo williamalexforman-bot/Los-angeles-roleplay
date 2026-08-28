@@ -49,8 +49,6 @@ function restErrorMeta(error) {
   return `status=${status} code=${code} retryAfter=${retryAfter} message=${error?.message || String(error)}`;
 }
 
-// Log the real discord.js REST layer. These events do not make extra Discord
-// requests; they only expose failures/rate limits that used to be invisible.
 client.rest.on('rateLimited', info => {
   console.warn(
     `[DiscordREST] RATE_LIMITED global=${Boolean(info?.global)}`
@@ -151,6 +149,17 @@ try {
   console.log('[InteractionBridge] Stable router loaded.');
 } catch (error) {
   console.error('[InteractionBridge] Stable router failed to load:', error?.stack || error?.message || String(error));
+}
+
+// Production uses exactly one InteractionCreate listener. Some imported legacy
+// modules historically registered their own interaction listeners as side
+// effects, which caused intermittent double-acknowledgement / expired-token
+// failures. All component and slash-command routing now belongs to the stable
+// router below.
+const removedInteractionListeners = client.listenerCount(Events.InteractionCreate);
+if (removedInteractionListeners > 0) {
+  client.removeAllListeners(Events.InteractionCreate);
+  console.warn(`[InteractionBridge] Removed ${removedInteractionListeners} legacy InteractionCreate listener(s) before installing the stable router.`);
 }
 
 client.on(Events.InteractionCreate, async interaction => {
