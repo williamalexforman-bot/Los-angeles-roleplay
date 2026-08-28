@@ -87,9 +87,7 @@ function reviewRow(type: TicketType, userId: string): ActionRowBuilder<ButtonBui
 }
 
 function separator(): SeparatorBuilder {
-    return new SeparatorBuilder()
-        .setDivider(true)
-        .setSpacing(SeparatorSpacingSize.Small);
+    return new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small);
 }
 
 function banner(name: string): MediaGalleryBuilder {
@@ -130,10 +128,6 @@ function reviewPanel(type: TicketType, userId: string): ContainerBuilder {
 
 async function showReview(interaction: StringSelectMenuInteraction, type: TicketType): Promise<void> {
     const startedAt = Date.now();
-
-    // Acknowledge Discord immediately. Uploading the ~900 KB assistance banner
-    // inside the initial interaction callback was intermittently exceeding the
-    // interaction acknowledgement window and causing DiscordAPIError[10062].
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     logger.info(`[DirectTickets] Deferred ${type} ticket select for ${interaction.user.id} in ${Date.now() - startedAt}ms.`);
 
@@ -187,74 +181,83 @@ async function createTicket(interaction: ModalSubmitInteraction, type: TicketTyp
 
     const config = CATEGORIES[type];
     const reason = interaction.fields.getTextInputValue('reason');
-    const category = guild.channels.cache.get(config.parentId) || await guild.channels.fetch(config.parentId).catch(() => null);
-    const supportRole = guild.roles.cache.get(SUPPORT_ROLE_ID) || await guild.roles.fetch(SUPPORT_ROLE_ID).catch(() => null);
-    const categoryRole = guild.roles.cache.get(config.roleId) || await guild.roles.fetch(config.roleId).catch(() => null);
 
-    if (!category || category.type !== ChannelType.GuildCategory) {
-        await interaction.editReply(`Ticket category is missing or invalid for **${config.label}**.`);
-        logger.error(`[DirectTickets] Invalid parent category ${config.parentId} for ${type}.`);
-        return;
-    }
-    if (!supportRole) {
-        await interaction.editReply('The General Support role is missing.');
-        logger.error(`[DirectTickets] Missing support role ${SUPPORT_ROLE_ID}.`);
-        return;
+    // Do not abort a valid ticket because one configured category/role was
+    // renamed, deleted, or temporarily unavailable. Internal Affairs working
+    // while other types failed showed these hard validations were too brittle.
+    const configuredParent = guild.channels.cache.get(config.parentId)
+        || await guild.channels.fetch(config.parentId).catch(() => null);
+    const parentId = configuredParent?.type === ChannelType.GuildCategory ? configuredParent.id : undefined;
+
+    const supportRole = guild.roles.cache.get(SUPPORT_ROLE_ID)
+        || await guild.roles.fetch(SUPPORT_ROLE_ID).catch(() => null);
+    const categoryRole = guild.roles.cache.get(config.roleId)
+        || await guild.roles.fetch(config.roleId).catch(() => null);
+
+    if (!parentId) {
+        logger.warn(`[DirectTickets] Parent ${config.parentId} for ${type} is unavailable; creating the ticket without a parent instead of failing.`);
     }
     if (!categoryRole) {
-        await interaction.editReply(`The support role for **${config.label}** is missing.`);
-        logger.error(`[DirectTickets] Missing category role ${config.roleId} for ${type}.`);
-        return;
+        logger.warn(`[DirectTickets] Role ${config.roleId} for ${type} is unavailable; falling back to General Support access.`);
     }
+    if (!supportRole) {
+        logger.warn(`[DirectTickets] General Support role ${SUPPORT_ROLE_ID} is unavailable; opener and bot access will still be created.`);
+    }
+
+    const staffRoleIds = Array.from(new Set([
+        supportRole?.id,
+        categoryRole?.id,
+    ].filter((value): value is string => Boolean(value))));
+
+    const permissionOverwrites: Array<{
+        id: string;
+        allow?: bigint[];
+        deny?: bigint[];
+    }> = [
+        { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+        {
+            id: interaction.user.id,
+            allow: [
+                PermissionFlagsBits.ViewChannel,
+                PermissionFlagsBits.SendMessages,
+                PermissionFlagsBits.ReadMessageHistory,
+                PermissionFlagsBits.AttachFiles,
+                PermissionFlagsBits.EmbedLinks,
+            ],
+        },
+        ...staffRoleIds.map(id => ({
+            id,
+            allow: [
+                PermissionFlagsBits.ViewChannel,
+                PermissionFlagsBits.SendMessages,
+                PermissionFlagsBits.ReadMessageHistory,
+                PermissionFlagsBits.ManageMessages,
+                PermissionFlagsBits.AttachFiles,
+                PermissionFlagsBits.EmbedLinks,
+            ],
+        })),
+        {
+            id: interaction.client.user.id,
+            allow: [
+                PermissionFlagsBits.ViewChannel,
+                PermissionFlagsBits.SendMessages,
+                PermissionFlagsBits.ReadMessageHistory,
+                PermissionFlagsBits.ManageChannels,
+                PermissionFlagsBits.ManageMessages,
+                PermissionFlagsBits.AttachFiles,
+                PermissionFlagsBits.EmbedLinks,
+            ],
+        },
+    ];
 
     let channel: TextChannel | null = null;
     try {
         channel = await guild.channels.create({
             name: `${config.prefix}-${safeChannelPart(reason)}-${interaction.user.id.slice(-4)}`.slice(0, 40),
             type: ChannelType.GuildText,
-            parent: config.parentId,
+            ...(parentId ? { parent: parentId } : {}),
             topic: encodeMetadata(interaction.user.id, type),
-            permissionOverwrites: [
-                { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
-                {
-                    id: interaction.user.id,
-                    allow: [
-                        PermissionFlagsBits.ViewChannel,
-                        PermissionFlagsBits.SendMessages,
-                        PermissionFlagsBits.ReadMessageHistory,
-                        PermissionFlagsBits.AttachFiles,
-                        PermissionFlagsBits.EmbedLinks,
-                    ],
-                },
-                {
-                    id: SUPPORT_ROLE_ID,
-                    allow: [
-                        PermissionFlagsBits.ViewChannel,
-                        PermissionFlagsBits.SendMessages,
-                        PermissionFlagsBits.ReadMessageHistory,
-                        PermissionFlagsBits.ManageMessages,
-                    ],
-                },
-                ...(config.roleId === SUPPORT_ROLE_ID ? [] : [{
-                    id: config.roleId,
-                    allow: [
-                        PermissionFlagsBits.ViewChannel,
-                        PermissionFlagsBits.SendMessages,
-                        PermissionFlagsBits.ReadMessageHistory,
-                        PermissionFlagsBits.ManageMessages,
-                    ],
-                }]),
-                {
-                    id: interaction.client.user.id,
-                    allow: [
-                        PermissionFlagsBits.ViewChannel,
-                        PermissionFlagsBits.SendMessages,
-                        PermissionFlagsBits.ReadMessageHistory,
-                        PermissionFlagsBits.ManageChannels,
-                        PermissionFlagsBits.ManageMessages,
-                    ],
-                },
-            ],
+            permissionOverwrites,
             reason: `${config.label} ticket opened by ${interaction.user.tag}`,
         });
 
@@ -266,9 +269,12 @@ async function createTicket(interaction: ModalSubmitInteraction, type: TicketTyp
             ]
             : [];
 
+        const pingRoleId = categoryRole?.id || supportRole?.id;
         const panel = await channel.send({
             content: [
-                `<@${interaction.user.id}> | <@&${config.roleId}>`,
+                pingRoleId
+                    ? `<@${interaction.user.id}> | <@&${pingRoleId}>`
+                    : `<@${interaction.user.id}>`,
                 `## 🎫 ${config.label} Ticket`,
                 `**Opened By:** <@${interaction.user.id}>`,
                 '**Reason:**',
@@ -281,24 +287,24 @@ async function createTicket(interaction: ModalSubmitInteraction, type: TicketTyp
             allowedMentions: {
                 parse: [],
                 users: [interaction.user.id],
-                roles: [config.roleId],
+                roles: pingRoleId ? [pingRoleId] : [],
             },
         });
 
-        await channel.setTopic(encodeMetadata(interaction.user.id, type, panel.id), 'Ticket panel linked.');
+        await channel.setTopic(encodeMetadata(interaction.user.id, type, panel.id), 'Ticket panel linked.').catch(error => {
+            logger.warn(`[DirectTickets] Ticket ${channel?.id} was created but topic linking failed: ${error instanceof Error ? error.message : String(error)}`);
+        });
+
         await interaction.editReply(`✅ Your ${config.label} ticket has been created: <#${channel.id}>`);
-        logger.info(`[DirectTickets] Created ${type} ticket ${channel.id} for ${interaction.user.id}.`);
+        logger.info(`[DirectTickets] Created ${type} ticket ${channel.id} for ${interaction.user.id}; parent=${parentId || 'none'} role=${pingRoleId || 'none'}.`);
     } catch (error) {
         if (channel) await channel.delete('Ticket setup failed.').catch(() => undefined);
         logger.error(`[DirectTickets] Ticket creation failed for ${type}: ${error instanceof Error ? error.stack || error.message : String(error)}`);
-        await interaction.editReply('Unable to create your ticket. Please contact an administrator.').catch(() => undefined);
+        await interaction.editReply(`Unable to create your **${config.label}** ticket. Please contact an administrator.`).catch(() => undefined);
     }
 }
 
-/**
- * Handles the reliable FAQ/TOS ticket-opening path from the single stable
- * InteractionCreate router. No extra Discord interaction listener is used.
- */
+/** Handles all FAQ/TOS ticket opening from the single StableRouter. */
 export async function handleDirectTicketInteraction(interaction: Interaction): Promise<boolean> {
     if (interaction.isStringSelectMenu() && interaction.customId === 'ticket:create-select') {
         const typeValue = interaction.values[0] || '';
