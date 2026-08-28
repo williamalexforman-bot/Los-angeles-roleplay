@@ -14,6 +14,7 @@ import {
     type StringSelectMenuInteraction,
     type TextChannel,
 } from 'discord.js';
+import { SUPPORT_FAQ, TICKET_TERMS } from '../commands/supportContent';
 import { logger } from '../utils/logger';
 
 const registeredClients = new WeakSet<Client>();
@@ -62,6 +63,40 @@ function ticketModal(type: TicketType): ModalBuilder {
     );
 }
 
+function reviewRow(type: TicketType, userId: string): ActionRowBuilder<ButtonBuilder> {
+    return new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+            .setCustomId(`direct-ticket:continue:${type}:${userId}`)
+            .setLabel('Continue to Ticket Form')
+            .setEmoji('🎫')
+            .setStyle(ButtonStyle.Primary),
+    );
+}
+
+async function showReview(interaction: StringSelectMenuInteraction, type: TicketType): Promise<void> {
+    const config = CATEGORIES[type];
+    try {
+        await interaction.reply({
+            content: [
+                `## ${config.label}`,
+                'Before opening your ticket, please review the FAQ and Ticket Terms of Service below.',
+                '',
+                SUPPORT_FAQ,
+                '',
+                TICKET_TERMS,
+                '',
+                '**When you are finished reading, press Continue to Ticket Form.**',
+            ].join('\n').slice(0, 1_990),
+            components: [reviewRow(type, interaction.user.id)],
+            flags: MessageFlags.Ephemeral,
+            allowedMentions: { parse: [] },
+        });
+        logger.info(`[DirectTickets] Displayed FAQ/TOS for ${type} ticket to ${interaction.user.id}.`);
+    } catch (error) {
+        logger.error(`[DirectTickets] Could not display FAQ/TOS for ${type}: ${error instanceof Error ? error.stack || error.message : String(error)}`);
+    }
+}
+
 function safeChannelPart(value: string): string {
     return value
         .toLowerCase()
@@ -87,15 +122,6 @@ function actionRow(): ActionRowBuilder<ButtonBuilder> {
         new ButtonBuilder().setCustomId('ticket:close').setLabel('Close').setStyle(ButtonStyle.Danger),
         new ButtonBuilder().setCustomId('ticket:escalate').setLabel('Escalate').setStyle(ButtonStyle.Secondary),
     );
-}
-
-async function openModal(interaction: StringSelectMenuInteraction, type: TicketType): Promise<void> {
-    try {
-        await interaction.showModal(ticketModal(type));
-        logger.info(`[DirectTickets] Opened ${type} ticket modal for ${interaction.user.id}.`);
-    } catch (error) {
-        logger.error(`[DirectTickets] Could not open ${type} modal: ${error instanceof Error ? error.stack || error.message : String(error)}`);
-    }
 }
 
 async function createTicket(interaction: ModalSubmitInteraction, type: TicketType): Promise<void> {
@@ -226,11 +252,26 @@ export function registerDirectTicketOpen(client: Client): void {
             const type = interaction.values[0] as TicketType;
             if (!(type in CATEGORIES)) return;
 
-            // Hide this interaction from the legacy StableRouter synchronously.
-            // EventEmitter does not await async listeners, so this mutation must
-            // happen before the first await in our direct handler.
+            // Claim this interaction before the StableRouter can process it.
             (interaction as unknown as { customId: string }).customId = 'direct-ticket:handled-select';
-            void openModal(interaction, type);
+            void showReview(interaction, type);
+            return;
+        }
+
+        if (interaction.isButton() && interaction.customId.startsWith('direct-ticket:continue:')) {
+            const [, , typeValue, ownerId] = interaction.customId.split(':');
+            const type = typeValue as TicketType;
+            if (!(type in CATEGORIES)) return;
+
+            (interaction as unknown as { customId: string }).customId = 'direct-ticket:handled-continue';
+            if (ownerId !== interaction.user.id) {
+                void interaction.reply({ content: 'This ticket form belongs to another user.', flags: MessageFlags.Ephemeral }).catch(() => undefined);
+                return;
+            }
+
+            void interaction.showModal(ticketModal(type)).catch(error => {
+                logger.error(`[DirectTickets] Could not open ${type} modal after FAQ/TOS: ${error instanceof Error ? error.stack || error.message : String(error)}`);
+            });
             return;
         }
 
@@ -242,5 +283,5 @@ export function registerDirectTicketOpen(client: Client): void {
         }
     });
 
-    logger.info('[DirectTickets] Direct ticket opening flow enabled for General, Internal Affairs, Management, and High Rank.');
+    logger.info('[DirectTickets] Reliable ticket flow enabled with FAQ/TOS review before General, Internal Affairs, Management, and High Rank forms.');
 }
