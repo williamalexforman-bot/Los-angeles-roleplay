@@ -6,7 +6,6 @@ import { setDiscordClientForDm } from '../commands/punishment';
 import { configureApplicationSessionDatabaseAdapter } from '../database/applicationSessionAdapter';
 import { configureInfractionDatabaseAdapter } from '../database/infractionAdapter';
 import { logger } from '../utils/logger';
-import { registerDirectTicketOpen } from './directTicketOpen';
 import { handleMessageModeration } from './messageModeration';
 
 export type ProductionMessageRoute = 'application' | 'ban-appeal' | 'moderation' | 'ignored';
@@ -18,8 +17,7 @@ export function configureProductionRuntime(client: Client): void {
     setInfractionAppealClient(client);
     configureInfractionDatabaseAdapter();
     configureApplicationSessionDatabaseAdapter();
-    registerDirectTicketOpen(client);
-    logger.info('[Runtime] Command clients, durable application/infraction adapters, and direct ticket opening configured. Infraction recovery logging is disabled.');
+    logger.info('[Runtime] Command clients and durable application/infraction adapters configured. Ticket interactions are handled exclusively by the stable router; infraction recovery logging is disabled.');
 }
 
 /** Routes DM conversations before guild-message moderation. */
