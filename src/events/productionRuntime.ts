@@ -7,7 +7,6 @@ import { configureApplicationSessionDatabaseAdapter } from '../database/applicat
 import { configureInfractionDatabaseAdapter } from '../database/infractionAdapter';
 import { logger } from '../utils/logger';
 import { registerDirectTicketOpen } from './directTicketOpen';
-import { registerInfractionAudit } from './infractionAudit';
 import { handleMessageModeration } from './messageModeration';
 
 export type ProductionMessageRoute = 'application' | 'ban-appeal' | 'moderation' | 'ignored';
@@ -19,9 +18,8 @@ export function configureProductionRuntime(client: Client): void {
     setInfractionAppealClient(client);
     configureInfractionDatabaseAdapter();
     configureApplicationSessionDatabaseAdapter();
-    registerInfractionAudit(client);
     registerDirectTicketOpen(client);
-    logger.info('[Runtime] Command clients, durable application/infraction adapters, infraction verification, and direct ticket opening configured.');
+    logger.info('[Runtime] Command clients, durable application/infraction adapters, and direct ticket opening configured. Infraction recovery logging is disabled.');
 }
 
 /** Routes DM conversations before guild-message moderation. */
