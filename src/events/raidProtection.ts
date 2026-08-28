@@ -1,6 +1,5 @@
 import type { Client, Message } from 'discord.js';
 import { logger } from '../utils/logger';
-import { registerDuckPingProtection } from './duckPingProtection';
 
 // TEMPORARY OWNER SAFETY MODE
 // Raid protection is intentionally disabled until the owner explicitly asks
@@ -22,13 +21,9 @@ export async function handleRaidProtectionMessage(_message: Message): Promise<vo
     // Intentionally no-op while raid protection is disabled.
 }
 
-export function registerRaidProtection(client: Client): void {
-    // Duck ping protection is independent of raid protection, but this startup
-    // hook remains registered while raid protection itself is temporarily off.
-    registerDuckPingProtection(client);
-
+export function registerRaidProtection(_client: Client): void {
     if (!RAID_PROTECTION_ENABLED) {
-        logger.warn('[Raid Protection] DISABLED BY OWNER: no join actions, kicks, bans, timeouts, message deletions, or raid alerts will run.');
+        logger.warn('[Raid Protection] DISABLED BY OWNER: no join actions, kicks, bans, timeouts, message deletions, ping warnings, or raid alerts will run.');
         return;
     }
 }
