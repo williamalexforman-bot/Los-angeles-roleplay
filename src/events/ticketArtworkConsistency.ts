@@ -144,6 +144,48 @@ function legacyText(metadata: TicketMetadata, member: GuildMember | null, source
     ].join('\n').slice(0, 4_000);
 }
 
+function shortSlug(value: string): string {
+    const words = value
+        .normalize('NFKD')
+        .toLowerCase()
+        .replace(/https?:\/\/\S+/g, '')
+        .replace(/[^a-z0-9]+/g, ' ')
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean)
+        .filter(word => ![
+            'the', 'a', 'an', 'and', 'or', 'to', 'for', 'of', 'my', 'me', 'i', 'is', 'it',
+            'this', 'that', 'please', 'ticket', 'need', 'want', 'help', 'with', 'about', 'because',
+        ].includes(word))
+        .slice(0, 4);
+    return (words.length ? words : ['support']).join('-').slice(0, 34).replace(/-+$/g, '') || 'support';
+}
+
+function indicatorName(type: TicketType, reason: string): string {
+    const normalized = reason.toLowerCase();
+    if (/\b(?:i\s+need|need|needed|looking\s+for|speak\s+to|talk\s+to|contact|get|want)\s+(?:mr\.?\s*)?duck\b|\b(?:mr\.?\s*)?duck\s+(?:needed|required|please)\b/i.test(reason)) {
+        return '🐥-duck-needed';
+    }
+    if (/\b(?:merge|merging|server\s+merge|community\s+merge|ownership|owner\s+needed|need\s+(?:the\s+)?owner|need\s+ownership|speak\s+to\s+(?:the\s+)?owner|talk\s+to\s+(?:the\s+)?owner)\b/i.test(reason)) {
+        return '👑-ownership-needed';
+    }
+
+    let indicator = '🟢';
+    const activeEmergency = /\b(?:active|currently|right\s+now|happening|ongoing|in\s+progress)\b/i.test(normalized);
+    const attackLanguage = /\b(?:raid(?:ing|er|ers)?|hack(?:er|ing|ed)?|exploit(?:er|ing)?|doxx?(?:ing|ed)?)\b/i.test(normalized);
+    if ((attackLanguage && (activeEmergency || /\b(?:threat|attack|attacking)\b/i.test(normalized)))
+        || /\b(?:raid\s*threat|mass\s*raid|server\s*raid|doxx?|active\s+hacker|active\s+exploiter)\b/i.test(normalized)) {
+        indicator = '🆘';
+    } else if (type === 'highrank' || /\b(?:urgent|credible\s+threat|blackmail|compromised|stolen\s+account|serious\s+staff\s+misconduct)\b/i.test(normalized)) {
+        indicator = '🔴';
+    } else if (type === 'management' || type === 'internal'
+        || /\b(?:report|complaint|partnership|paid\s*ad|payment|purchase|transfer|fast\s*pass|marketplace)\b/i.test(normalized)) {
+        indicator = '🟠';
+    }
+
+    return `${indicator}-${shortSlug(reason)}`;
+}
+
 function legacyComponents(message: Message, text: string): RawComponent[] | null {
     const components = message.components.map(component => component.toJSON()) as unknown as RawComponent[];
     let replacedText = false;
@@ -200,8 +242,10 @@ async function restoreLegacyOpening(message: Message, channel: TextChannel): Pro
     const metadata = decodeMetadata(channel.topic);
     if (!metadata) return;
 
+    const sourceText = allText(message);
+    const reason = inquiryFrom(sourceText);
     const member = await channel.guild.members.fetch(metadata.ownerId).catch(() => null);
-    const text = legacyText(metadata, member, allText(message));
+    const text = legacyText(metadata, member, sourceText);
     const components = legacyComponents(message, text);
     if (!components) return;
 
@@ -210,22 +254,30 @@ async function restoreLegacyOpening(message: Message, channel: TextChannel): Pro
             components: components as never,
             flags: MessageFlags.IsComponentsV2,
         });
+
+        const desiredName = indicatorName(metadata.type, reason);
+        if (channel.name !== desiredName) {
+            await channel.setName(desiredName, 'Restore ticket priority indicator and reason-based naming.').catch(error => {
+                logger.warn(`[TicketPresentation] Could not rename ${channel.id} to ${desiredName}: ${error instanceof Error ? error.message : String(error)}`);
+            });
+        }
+
         formattedMessages.add(message.id);
-        logger.info(`[TicketPresentation] Restored legacy opening layout in ${channel.id}.`);
+        logger.info(`[TicketPresentation] Restored legacy opening layout and indicator name in ${channel.id}.`);
     } catch (error) {
         logger.warn(`[TicketPresentation] Could not restore legacy opening layout in ${channel.id}: ${error instanceof Error ? error.message : String(error)}`);
     }
 }
 
 async function findAndRestore(channel: TextChannel): Promise<void> {
-    for (let attempt = 0; attempt < 8; attempt += 1) {
+    for (let attempt = 0; attempt < 12; attempt += 1) {
         const recent = await channel.messages.fetch({ limit: 15 }).catch(() => null);
         const panel = recent?.find(message => message.author.id === channel.client.user.id && isTicketPanel(message));
         if (panel) {
             await restoreLegacyOpening(panel, channel);
             return;
         }
-        if (attempt < 7) await new Promise(resolve => setTimeout(resolve, 150));
+        if (attempt < 11) await new Promise(resolve => setTimeout(resolve, 100));
     }
 }
 
@@ -246,10 +298,8 @@ export function registerTicketArtworkConsistency(client: Client): void {
 
     client.on(Events.ChannelDelete, channel => {
         if (channel.type !== ChannelType.GuildText) return;
-        for (const messageId of formattedMessages) {
-            if (messageId.startsWith(channel.id)) formattedMessages.delete(messageId);
-        }
+        formattedMessages.clear();
     });
 
-    logger.info('[TicketPresentation] Legacy ticket opening layout enabled with Escalate / Claim / Close only.');
+    logger.info('[TicketPresentation] Legacy ticket opening layout enabled with instant indicators and Escalate / Claim / Close only.');
 }
