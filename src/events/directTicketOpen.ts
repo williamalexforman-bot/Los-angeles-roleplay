@@ -130,16 +130,23 @@ function reviewPanel(type: TicketType, userId: string): ContainerBuilder {
 
 async function showReview(interaction: StringSelectMenuInteraction, type: TicketType): Promise<void> {
     const startedAt = Date.now();
-    await interaction.reply({
+
+    // Acknowledge Discord immediately. Uploading the ~900 KB assistance banner
+    // inside the initial interaction callback was intermittently exceeding the
+    // interaction acknowledgement window and causing DiscordAPIError[10062].
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    logger.info(`[DirectTickets] Deferred ${type} ticket select for ${interaction.user.id} in ${Date.now() - startedAt}ms.`);
+
+    await interaction.editReply({
         components: [reviewPanel(type, interaction.user.id)],
         files: [
             { attachment: ASSISTANCE_BANNER_PATH, name: ASSISTANCE_BANNER_NAME },
             { attachment: UNDERBANNER_PATH, name: UNDERBANNER_NAME },
         ],
-        flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
+        flags: MessageFlags.IsComponentsV2,
         allowedMentions: { parse: [] },
     });
-    logger.info(`[DirectTickets] Displayed V2 FAQ/TOS panel for ${type} to ${interaction.user.id} in ${Date.now() - startedAt}ms.`);
+    logger.info(`[DirectTickets] Displayed V2 FAQ/TOS panel for ${type} to ${interaction.user.id} in ${Date.now() - startedAt}ms total.`);
 }
 
 function safeChannelPart(value: string): string {
