@@ -151,18 +151,7 @@ try {
   console.error('[InteractionBridge] Stable router failed to load:', error?.stack || error?.message || String(error));
 }
 
-// Production uses exactly one InteractionCreate listener. Some imported legacy
-// modules historically registered their own interaction listeners as side
-// effects, which caused intermittent double-acknowledgement / expired-token
-// failures. All component and slash-command routing now belongs to the stable
-// router below.
-const removedInteractionListeners = client.listenerCount(Events.InteractionCreate);
-if (removedInteractionListeners > 0) {
-  client.removeAllListeners(Events.InteractionCreate);
-  console.warn(`[InteractionBridge] Removed ${removedInteractionListeners} legacy InteractionCreate listener(s) before installing the stable router.`);
-}
-
-client.on(Events.InteractionCreate, async interaction => {
+async function stableInteractionListener(interaction) {
   const startedAt = Date.now();
   const isSlash = interaction.isChatInputCommand?.() === true;
   const name = isSlash ? interaction.commandName : interaction.customId || interaction.type;
@@ -187,12 +176,37 @@ client.on(Events.InteractionCreate, async interaction => {
     console.error(`[InteractionBridge] ROUTER ERROR ${name}: ${restErrorMeta(error)}`);
     if (error?.stack) console.error(error.stack);
   }
-});
+}
 
+function enforceSingleInteractionRouter(reason) {
+  const listeners = client.listeners(Events.InteractionCreate);
+  if (listeners.length === 1 && listeners[0] === stableInteractionListener) return;
+
+  const extraCount = listeners.filter(listener => listener !== stableInteractionListener).length;
+  client.removeAllListeners(Events.InteractionCreate);
+  client.on(Events.InteractionCreate, stableInteractionListener);
+  console.warn(
+    `[InteractionBridge] ENFORCED single stable router reason=${reason}`
+    + ` removedExtra=${extraCount} listenersNow=${client.listenerCount(Events.InteractionCreate)}.`,
+  );
+}
+
+enforceSingleInteractionRouter('startup');
 console.log(`[InteractionBridge] Single native command listener installed. listeners=${client.listenerCount(Events.InteractionCreate)}.`);
+
+// Keep enforcing the one-router invariant in case a late ready hook or future
+// module registers an interaction listener after startup.
+const interactionRouterGuard = setInterval(() => {
+  if (client.listenerCount(Events.InteractionCreate) !== 1
+      || client.listeners(Events.InteractionCreate)[0] !== stableInteractionListener) {
+    enforceSingleInteractionRouter('runtime-guard');
+  }
+}, 30_000);
+interactionRouterGuard.unref?.();
 
 client.once(Events.ClientReady, async readyClient => {
   console.log(`[Discord] READY as ${readyClient.user.tag} (${readyClient.user.id})`);
+  enforceSingleInteractionRouter('client-ready');
   console.log(`[InteractionBridge] READY listener count=${readyClient.listenerCount(Events.InteractionCreate)}.`);
   console.log('[DiscordREST] Passive logging only; startup canary disabled so READY does not make an extra REST request.');
 
@@ -206,7 +220,10 @@ client.once(Events.ClientReady, async readyClient => {
   try {
     const { onReady } = require('./src/events/ready.ts');
     void onReady(readyClient)
-      .then(() => console.log('[Discord] Ready hooks completed.'))
+      .then(() => {
+        enforceSingleInteractionRouter('ready-hooks-complete');
+        console.log('[Discord] Ready hooks completed.');
+      })
       .catch(error => console.error('[Discord] Ready hooks failed:', error?.stack || error?.message || String(error)));
   } catch (error) {
     console.error('[Discord] Could not load ready hooks:', error?.stack || error?.message || String(error));
