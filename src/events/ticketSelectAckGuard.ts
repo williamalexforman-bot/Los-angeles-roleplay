@@ -1,4 +1,4 @@
-import { Events, MessageFlags, type Client, type StringSelectMenuInteraction } from 'discord.js';
+import { Events, MessageFlags, type Client } from 'discord.js';
 import { logger } from '../utils/logger';
 
 const registeredClients = new WeakSet<Client>();
@@ -19,20 +19,21 @@ export function registerTicketSelectAckGuard(client: Client): void {
         if (!interaction.isStringSelectMenu() || interaction.customId !== TARGET_CUSTOM_ID) return;
         if (interaction.deferred || interaction.replied) return;
 
-        const select = interaction as StringSelectMenuInteraction & {
+        const select = interaction;
+        const originalReply = select.reply.bind(select);
+        const mutableSelect = select as unknown as {
             reply: (options: unknown) => Promise<unknown>;
         };
-        const originalReply = select.reply.bind(select);
 
         // Start the acknowledgement immediately. Do not wait for ticket module
         // loading, permission checks, artwork resolution, or any other work.
         const acknowledgement = select.deferReply({ flags: MessageFlags.Ephemeral });
 
-        select.reply = async (options: unknown): Promise<unknown> => {
+        mutableSelect.reply = async (options: unknown): Promise<unknown> => {
             await acknowledgement;
 
             if (select.deferred) {
-                const payload = options && typeof options === 'object'
+                const payload: Record<string, unknown> = options && typeof options === 'object'
                     ? { ...(options as Record<string, unknown>) }
                     : { content: String(options ?? '') };
 
