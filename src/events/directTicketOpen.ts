@@ -3,21 +3,18 @@ import {
     ButtonBuilder,
     ButtonStyle,
     ChannelType,
-    Events,
     MessageFlags,
     ModalBuilder,
     PermissionFlagsBits,
     TextInputBuilder,
     TextInputStyle,
-    type Client,
+    type Interaction,
     type ModalSubmitInteraction,
     type StringSelectMenuInteraction,
     type TextChannel,
 } from 'discord.js';
 import { SUPPORT_FAQ, TICKET_TERMS } from '../commands/supportContent';
 import { logger } from '../utils/logger';
-
-const registeredClients = new WeakSet<Client>();
 
 const SUPPORT_ROLE_ID = '1523122697746382868';
 const INTERNAL_ROLE_ID = '1521593407816990811';
@@ -32,6 +29,10 @@ const CATEGORIES = {
 } as const;
 
 type TicketType = keyof typeof CATEGORIES;
+
+function isTicketType(value: string): value is TicketType {
+    return Object.prototype.hasOwnProperty.call(CATEGORIES, value);
+}
 
 function modalInput(id: string, label: string, style: TextInputStyle, required = true): ActionRowBuilder<TextInputBuilder> {
     return new ActionRowBuilder<TextInputBuilder>().addComponents(
@@ -75,26 +76,22 @@ function reviewRow(type: TicketType, userId: string): ActionRowBuilder<ButtonBui
 
 async function showReview(interaction: StringSelectMenuInteraction, type: TicketType): Promise<void> {
     const config = CATEGORIES[type];
-    try {
-        await interaction.reply({
-            content: [
-                `## ${config.label}`,
-                'Before opening your ticket, please review the FAQ and Ticket Terms of Service below.',
-                '',
-                SUPPORT_FAQ,
-                '',
-                TICKET_TERMS,
-                '',
-                '**When you are finished reading, press Continue to Ticket Form.**',
-            ].join('\n').slice(0, 1_990),
-            components: [reviewRow(type, interaction.user.id)],
-            flags: MessageFlags.Ephemeral,
-            allowedMentions: { parse: [] },
-        });
-        logger.info(`[DirectTickets] Displayed FAQ/TOS for ${type} ticket to ${interaction.user.id}.`);
-    } catch (error) {
-        logger.error(`[DirectTickets] Could not display FAQ/TOS for ${type}: ${error instanceof Error ? error.stack || error.message : String(error)}`);
-    }
+    await interaction.reply({
+        content: [
+            `## ${config.label}`,
+            'Before opening your ticket, please review the FAQ and Ticket Terms of Service below.',
+            '',
+            SUPPORT_FAQ,
+            '',
+            TICKET_TERMS,
+            '',
+            '**When you are finished reading, press Continue to Ticket Form.**',
+        ].join('\n').slice(0, 1_990),
+        components: [reviewRow(type, interaction.user.id)],
+        flags: MessageFlags.Ephemeral,
+        allowedMentions: { parse: [] },
+    });
+    logger.info(`[DirectTickets] Displayed FAQ/TOS for ${type} ticket to ${interaction.user.id}.`);
 }
 
 function safeChannelPart(value: string): string {
@@ -127,11 +124,11 @@ function actionRow(): ActionRowBuilder<ButtonBuilder> {
 async function createTicket(interaction: ModalSubmitInteraction, type: TicketType): Promise<void> {
     const guild = interaction.guild;
     if (!guild) {
-        await interaction.reply({ content: 'Tickets can only be opened inside the server.', flags: MessageFlags.Ephemeral }).catch(() => undefined);
+        await interaction.reply({ content: 'Tickets can only be opened inside the server.', flags: MessageFlags.Ephemeral });
         return;
     }
 
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(() => undefined);
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     const config = CATEGORIES[type];
     const reason = interaction.fields.getTextInputValue('reason');
@@ -140,17 +137,17 @@ async function createTicket(interaction: ModalSubmitInteraction, type: TicketTyp
     const categoryRole = guild.roles.cache.get(config.roleId) || await guild.roles.fetch(config.roleId).catch(() => null);
 
     if (!category || category.type !== ChannelType.GuildCategory) {
-        await interaction.editReply(`Ticket category is missing or invalid for **${config.label}**.`).catch(() => undefined);
+        await interaction.editReply(`Ticket category is missing or invalid for **${config.label}**.`);
         logger.error(`[DirectTickets] Invalid parent category ${config.parentId} for ${type}.`);
         return;
     }
     if (!supportRole) {
-        await interaction.editReply('The General Support role is missing.').catch(() => undefined);
+        await interaction.editReply('The General Support role is missing.');
         logger.error(`[DirectTickets] Missing support role ${SUPPORT_ROLE_ID}.`);
         return;
     }
     if (!categoryRole) {
-        await interaction.editReply(`The support role for **${config.label}** is missing.`).catch(() => undefined);
+        await interaction.editReply(`The support role for **${config.label}** is missing.`);
         logger.error(`[DirectTickets] Missing category role ${config.roleId} for ${type}.`);
         return;
     }
@@ -243,45 +240,45 @@ async function createTicket(interaction: ModalSubmitInteraction, type: TicketTyp
     }
 }
 
-export function registerDirectTicketOpen(client: Client): void {
-    if (registeredClients.has(client)) return;
-    registeredClients.add(client);
-
-    client.prependListener(Events.InteractionCreate, interaction => {
-        if (interaction.isStringSelectMenu() && interaction.customId === 'ticket:create-select') {
-            const type = interaction.values[0] as TicketType;
-            if (!(type in CATEGORIES)) return;
-
-            // Claim this interaction before the StableRouter can process it.
-            (interaction as unknown as { customId: string }).customId = 'direct-ticket:handled-select';
-            void showReview(interaction, type);
-            return;
+/**
+ * Handles the reliable FAQ/TOS ticket-opening path from the single stable
+ * InteractionCreate router. No extra Discord interaction listener is used.
+ */
+export async function handleDirectTicketInteraction(interaction: Interaction): Promise<boolean> {
+    if (interaction.isStringSelectMenu() && interaction.customId === 'ticket:create-select') {
+        const typeValue = interaction.values[0] || '';
+        if (!isTicketType(typeValue)) {
+            await interaction.reply({ content: 'That ticket category is unavailable.', flags: MessageFlags.Ephemeral });
+            return true;
         }
+        await showReview(interaction, typeValue);
+        return true;
+    }
 
-        if (interaction.isButton() && interaction.customId.startsWith('direct-ticket:continue:')) {
-            const [, , typeValue, ownerId] = interaction.customId.split(':');
-            const type = typeValue as TicketType;
-            if (!(type in CATEGORIES)) return;
-
-            (interaction as unknown as { customId: string }).customId = 'direct-ticket:handled-continue';
-            if (ownerId !== interaction.user.id) {
-                void interaction.reply({ content: 'This ticket form belongs to another user.', flags: MessageFlags.Ephemeral }).catch(() => undefined);
-                return;
-            }
-
-            void interaction.showModal(ticketModal(type)).catch(error => {
-                logger.error(`[DirectTickets] Could not open ${type} modal after FAQ/TOS: ${error instanceof Error ? error.stack || error.message : String(error)}`);
-            });
-            return;
+    if (interaction.isButton() && interaction.customId.startsWith('direct-ticket:continue:')) {
+        const [, , typeValue, ownerId] = interaction.customId.split(':');
+        if (!isTicketType(typeValue)) {
+            await interaction.reply({ content: 'That ticket category is unavailable.', flags: MessageFlags.Ephemeral });
+            return true;
         }
-
-        if (interaction.isModalSubmit() && interaction.customId.startsWith('direct-ticket:create:')) {
-            const type = interaction.customId.split(':')[2] as TicketType;
-            if (!(type in CATEGORIES)) return;
-            (interaction as unknown as { customId: string }).customId = 'direct-ticket:handled-modal';
-            void createTicket(interaction, type);
+        if (ownerId !== interaction.user.id) {
+            await interaction.reply({ content: 'This ticket form belongs to another user.', flags: MessageFlags.Ephemeral });
+            return true;
         }
-    });
+        await interaction.showModal(ticketModal(typeValue));
+        logger.info(`[DirectTickets] Opened ${typeValue} ticket form for ${interaction.user.id} after FAQ/TOS review.`);
+        return true;
+    }
 
-    logger.info('[DirectTickets] Reliable ticket flow enabled with FAQ/TOS review before General, Internal Affairs, Management, and High Rank forms.');
+    if (interaction.isModalSubmit() && interaction.customId.startsWith('direct-ticket:create:')) {
+        const typeValue = interaction.customId.split(':')[2] || '';
+        if (!isTicketType(typeValue)) {
+            await interaction.reply({ content: 'That ticket category is unavailable.', flags: MessageFlags.Ephemeral });
+            return true;
+        }
+        await createTicket(interaction, typeValue);
+        return true;
+    }
+
+    return false;
 }
