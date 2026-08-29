@@ -4,7 +4,9 @@ import {
     MessageFlags,
     PermissionFlagsBits,
     type ButtonInteraction,
+    type ChatInputCommandInteraction,
     type Guild,
+    type GuildMember,
     type Interaction,
     type Role,
     type TextChannel,
@@ -14,6 +16,7 @@ import { logger } from '../utils/logger';
 const SUPPORT_ROLE_ID = process.env.SUPPORT_ROLE_ID
     || process.env.GENERAL_SUPPORT_ROLE_ID
     || '1523122697746382868';
+const INTERNAL_ROLE_ID = process.env.INTERNAL_AFFAIRS_ROLE_ID || '1521593407816990811';
 
 type RawComponent = {
     type?: number;
@@ -35,9 +38,7 @@ type TicketMetadata = {
 function decodeTicketMetadata(topic?: string | null): TicketMetadata | null {
     if (!topic?.startsWith('larp-ticket:')) return null;
     try {
-        return JSON.parse(
-            Buffer.from(topic.slice('larp-ticket:'.length), 'base64url').toString('utf8'),
-        ) as TicketMetadata;
+        return JSON.parse(Buffer.from(topic.slice('larp-ticket:'.length), 'base64url').toString('utf8')) as TicketMetadata;
     } catch {
         return null;
     }
@@ -47,27 +48,46 @@ function encodeTicketMetadata(metadata: TicketMetadata): string {
     return `larp-ticket:${Buffer.from(JSON.stringify(metadata), 'utf8').toString('base64url')}`;
 }
 
-function preserveV2AndMarkClaimed(interaction: ButtonInteraction): RawComponent[] {
-    const components = interaction.message.components.map(component => component.toJSON()) as unknown as RawComponent[];
+function ticketStaffRoleIds(): string[] {
+    return [
+        SUPPORT_ROLE_ID,
+        INTERNAL_ROLE_ID,
+        process.env.MANAGEMENT_ROLE_ID,
+        process.env.HIGH_RANK_ROLE_ID,
+        process.env.BOT_PERMISSIONS_ROLE_ID,
+        process.env.ADMIN_ROLE_ID,
+    ].filter((value): value is string => Boolean(value));
+}
 
+function isTicketStaff(interaction: ButtonInteraction | ChatInputCommandInteraction): boolean {
+    if (interaction.memberPermissions?.has(PermissionFlagsBits.ManageChannels)) return true;
+    const member = interaction.member as GuildMember | null;
+    if (!member?.roles || !('cache' in member.roles)) return false;
+    return ticketStaffRoleIds().some(roleId => member.roles.cache.has(roleId));
+}
+
+function mutateClaimButton(components: RawComponent[], claimedBy?: string): RawComponent[] {
     const visit = (node: RawComponent): void => {
         if (node.custom_id === 'ticket:claim') {
-            node.label = `Claimed by ${interaction.user.username}`.slice(0, 80);
+            node.label = claimedBy ? `Claimed by ${claimedBy}`.slice(0, 80) : 'Claim';
             node.style = ButtonStyle.Success;
-            node.disabled = true;
+            node.disabled = Boolean(claimedBy);
             return;
         }
         node.components?.forEach(visit);
     };
-
     components.forEach(visit);
     return components;
 }
 
+function preserveV2ClaimState(interaction: ButtonInteraction, claimedBy?: string): RawComponent[] {
+    const components = interaction.message.components.map(component => component.toJSON()) as unknown as RawComponent[];
+    return mutateClaimButton(components, claimedBy);
+}
+
 async function handleClaim(interaction: ButtonInteraction): Promise<boolean> {
     if (interaction.customId !== 'ticket:claim') return false;
-    if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageChannels)) return false;
-
+    if (!isTicketStaff(interaction)) return false;
     const channel = interaction.channel;
     if (!channel || channel.type !== ChannelType.GuildText) return false;
 
@@ -77,9 +97,68 @@ async function handleClaim(interaction: ButtonInteraction): Promise<boolean> {
         await channel.setTopic(encodeTicketMetadata(metadata), 'Ticket claimed').catch(() => undefined);
     }
 
-    const fullV2Tree = preserveV2AndMarkClaimed(interaction);
-    await interaction.update({ components: fullV2Tree as never });
+    await interaction.update({ components: preserveV2ClaimState(interaction, interaction.user.username) as never });
     logger.info(`[Tickets] CLAIMED channel=${channel.id} by=${interaction.user.id} v2Preserved=true`);
+    return true;
+}
+
+async function handleUnclaim(interaction: ChatInputCommandInteraction): Promise<boolean> {
+    if (interaction.commandName !== 'unclaim') return false;
+    const channel = interaction.channel;
+    if (!channel || channel.type !== ChannelType.GuildText) return false;
+    if (!isTicketStaff(interaction)) return false;
+
+    const data = decodeTicketMetadata(channel.topic);
+    if (!data) return false;
+    delete data.claimedBy;
+    await channel.setTopic(encodeTicketMetadata(data), 'Ticket unclaimed').catch(() => undefined);
+
+    if (data.panelMessageId) {
+        const panel = await channel.messages.fetch(data.panelMessageId).catch(() => null);
+        if (panel) {
+            const components = panel.components.map(component => component.toJSON()) as unknown as RawComponent[];
+            await panel.edit({ components: mutateClaimButton(components) as never }).catch(error => {
+                logger.warn(`[Tickets] UNCLAIM_PANEL_EDIT_FAILED channel=${channel.id}: ${error instanceof Error ? error.message : String(error)}`);
+            });
+        }
+    }
+
+    await interaction.reply({ content: '✅ Ticket unclaimed.', flags: MessageFlags.Ephemeral });
+    logger.info(`[Tickets] UNCLAIMED channel=${channel.id} by=${interaction.user.id} v2Preserved=true`);
+    return true;
+}
+
+async function handleMemberCommand(interaction: ChatInputCommandInteraction): Promise<boolean> {
+    const add = interaction.commandName === 'add-member';
+    const remove = interaction.commandName === 'remove-member';
+    if (!add && !remove) return false;
+
+    const channel = interaction.channel;
+    if (!channel || channel.type !== ChannelType.GuildText) return false;
+    if (!isTicketStaff(interaction)) return false;
+    if (!decodeTicketMetadata(channel.topic)) return false;
+
+    const user = interaction.options.getUser('member', true);
+    if (add) {
+        await channel.permissionOverwrites.edit(user.id, {
+            ViewChannel: true,
+            SendMessages: true,
+            ReadMessageHistory: true,
+            AttachFiles: true,
+            EmbedLinks: true,
+        });
+    } else {
+        await channel.permissionOverwrites.delete(user.id).catch(async () => {
+            await channel.permissionOverwrites.edit(user.id, { ViewChannel: false });
+        });
+    }
+
+    await interaction.reply({
+        content: `✅ ${add ? 'Added' : 'Removed'} <@${user.id}> ${add ? 'to' : 'from'} this ticket.`,
+        flags: MessageFlags.Ephemeral,
+        allowedMentions: { users: [] },
+    });
+    logger.info(`[Tickets] MEMBER_${add ? 'ADDED' : 'REMOVED'} channel=${channel.id} member=${user.id} by=${interaction.user.id}`);
     return true;
 }
 
@@ -102,33 +181,26 @@ async function escalationRoles(guild: Guild): Promise<Role[]> {
         roleByName(guild, /\b(owner|ownership|directorship|director|executive|high[ -]?rank)\b/i),
         roleByName(guild, /\b(management|manager|senior staff|leadership)\b/i),
     ];
-
     const unique = new Map<string, Role>();
-    for (const role of candidates) {
-        if (role) unique.set(role.id, role);
-    }
-
+    for (const role of candidates) if (role) unique.set(role.id, role);
     if (!unique.size) {
         const support = await fetchConfiguredRole(guild, SUPPORT_ROLE_ID);
         if (support) unique.set(support.id, support);
     }
-
     return [...unique.values()].slice(0, 2);
 }
 
 async function handleEscalate(interaction: ButtonInteraction): Promise<boolean> {
     if (interaction.customId !== 'ticket:escalate') return false;
-    if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageChannels)) return false;
-
+    if (!isTicketStaff(interaction)) return false;
     const channel = interaction.channel;
     const guild = interaction.guild;
     if (!guild || !channel || channel.type !== ChannelType.GuildText) return false;
 
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
     const roles = await escalationRoles(guild);
     if (!roles.length) {
-        await interaction.editReply('No valid escalation role could be found. Add MANAGEMENT_ROLE_ID or HIGH_RANK_ROLE_ID in Render.');
+        await interaction.editReply('No valid escalation role could be found.');
         logger.warn(`[Tickets] ESCALATE_NO_ROLE channel=${channel.id} by=${interaction.user.id}`);
         return true;
     }
@@ -138,33 +210,27 @@ async function handleEscalate(interaction: ButtonInteraction): Promise<boolean> 
             ViewChannel: true,
             SendMessages: true,
             ReadMessageHistory: true,
-        }).catch(error => {
-            logger.warn(`[Tickets] ESCALATE_PERMISSION_FAILED channel=${channel.id} role=${role.id}: ${error instanceof Error ? error.message : String(error)}`);
-        });
+        }).catch(error => logger.warn(`[Tickets] ESCALATE_PERMISSION_FAILED channel=${channel.id} role=${role.id}: ${error instanceof Error ? error.message : String(error)}`));
     }
 
-    const mentions = roles.map(role => `<@&${role.id}>`).join(' ');
     await channel.send({
-        content: `${mentions} 🚨 This ticket has been escalated by <@${interaction.user.id}>.`,
-        allowedMentions: {
-            roles: roles.map(role => role.id),
-            users: [interaction.user.id],
-        },
+        content: `${roles.map(role => `<@&${role.id}>`).join(' ')} 🚨 This ticket has been escalated by <@${interaction.user.id}>.`,
+        allowedMentions: { roles: roles.map(role => role.id), users: [interaction.user.id] },
     });
-
     await interaction.editReply(`Ticket escalated to ${roles.map(role => `@${role.name}`).join(' and ')}.`);
     logger.info(`[Tickets] ESCALATED channel=${channel.id} by=${interaction.user.id} roles=${roles.map(role => `${role.name}:${role.id}`).join(',')}`);
     return true;
 }
 
-/**
- * Small pre-router ticket fixes. Ticket opening/creation remains exclusively in
- * src/commands/tickets.ts; only claim/escalate are intercepted here so the V2
- * message can be preserved and escalation roles can be resolved dynamically.
- */
 export async function handleDirectTicketInteraction(interaction: Interaction): Promise<boolean> {
-    if (!interaction.isButton()) return false;
-    if (await handleClaim(interaction)) return true;
-    if (await handleEscalate(interaction)) return true;
+    if (interaction.isButton()) {
+        if (await handleClaim(interaction)) return true;
+        if (await handleEscalate(interaction)) return true;
+        return false;
+    }
+    if (interaction.isChatInputCommand()) {
+        if (await handleUnclaim(interaction)) return true;
+        if (await handleMemberCommand(interaction)) return true;
+    }
     return false;
 }
