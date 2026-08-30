@@ -5,9 +5,7 @@ import {
     ChatInputCommandInteraction,
     Client,
     EmbedBuilder,
-    GuildMember,
     MessageFlags,
-    PermissionFlagsBits,
     SlashCommandBuilder,
 } from 'discord.js';
 import { BRAND } from '../config/constants';
@@ -32,19 +30,6 @@ function brandedEmbed(title: string, color: number = BRAND.color): EmbedBuilder 
         .setThumbnail(LOGO_URL)
         .setFooter({ text: BRAND_FOOTER })
         .setTimestamp();
-}
-
-async function sendDm(userId: string, embed: EmbedBuilder): Promise<boolean> {
-    try {
-        const client = cachedClient;
-        if (!client) return false;
-        const user = await client.users.fetch(userId);
-        if (!user) return false;
-        await user.send(legacyEmbedToV2Message(embed));
-        return true;
-    } catch {
-        return false;
-    }
 }
 
 function generateCaseNumber(): string {
@@ -123,32 +108,18 @@ async function saveInfractionToDb(record: {
 }
 
 export const punishmentCommands = [
-    // ──────────────────────────────────────────────
-    //  /punish
-    // ──────────────────────────────────────────────
     {
         data: new SlashCommandBuilder()
             .setName('punish')
-            .setDescription('Punish a user (warn/kick/ban)')
+            .setDescription('Warn a user and create a punishment record')
             .addUserOption(option =>
                 option.setName('user')
-                    .setDescription('The user to punish')
+                    .setDescription('The user to warn')
                     .setRequired(true),
             )
             .addStringOption(option =>
-                option
-                    .setName('action')
-                    .setDescription('The punishment action')
-                    .setRequired(true)
-                    .addChoices(
-                        { name: 'Warn', value: 'warn' },
-                        { name: 'Kick', value: 'kick' },
-                        { name: 'Ban', value: 'ban' },
-                    ),
-            )
-            .addStringOption(option =>
                 option.setName('reason')
-                    .setDescription('Reason for the punishment')
+                    .setDescription('Reason for the warning')
                     .setRequired(true)
                     .setMaxLength(1024),
             ),
@@ -158,11 +129,7 @@ export const punishmentCommands = [
 
             try {
                 const targetUser = interaction.options.getUser('user', true);
-                const action = interaction.options.getString('action', true) as 'warn' | 'kick' | 'ban';
                 const reason = interaction.options.getString('reason', true);
-
-                // Determine the final action label
-                const finalAction = action === 'warn' ? 'Warning' : action.charAt(0).toUpperCase() + action.slice(1);
 
                 if (!interaction.guildId || !interaction.guild) {
                     await interaction.editReply('This command can only be used in a server.');
@@ -175,106 +142,67 @@ export const punishmentCommands = [
                     return;
                 }
 
-                // Permission check — staff can't punish themselves or higher roles
                 if (targetUser.id === interaction.user.id) {
                     await interaction.editReply('You cannot punish yourself.');
                     return;
                 }
-                const botMember = await interaction.guild.members.fetchMe();
-                if (!botMember) {
-                    await interaction.editReply('Unable to verify bot permissions.');
-                    return;
-                }
 
                 const caseNumber = generateCaseNumber();
+                const finalAction = 'Warning';
 
-                // Build the DM embed first
                 const dmEmbed = brandedEmbed(`Punishment Notice | ${caseNumber}`)
-                    .setDescription('You have received a punishment from the Los Angeles Roleplay staff team.')
+                    .setDescription('You have received a warning from the Los Angeles Roleplay staff team.')
                     .addFields(
                         { name: 'Action', value: finalAction, inline: true },
                         { name: 'Reason', value: reason },
                         { name: 'Case Number', value: caseNumber, inline: true },
                     );
 
-                // Send DM (best-effort) with appeal button for warn actions
                 let dmSent = false;
-                if (action === 'warn') {
-                    try {
-                        const client = cachedClient;
-                        if (client) {
-                            const user = await client.users.fetch(targetUser.id);
-                            if (user) {
-                                await user.send(legacyEmbedToV2Message(dmEmbed, {
-                                    actionRows: [
-                                        new ActionRowBuilder<ButtonBuilder>().addComponents(
-                                            new ButtonBuilder()
-                                                .setCustomId(`infraction-appeal:start:punishment-${caseNumber}`)
-                                                .setLabel('Appeal Infraction')
-                                                .setStyle(ButtonStyle.Primary)
-                                                .setEmoji('⚖️'),
-                                        ),
-                                    ],
-                                }));
-                                dmSent = true;
-                            }
+                try {
+                    const client = cachedClient;
+                    if (client) {
+                        const user = await client.users.fetch(targetUser.id);
+                        if (user) {
+                            await user.send(legacyEmbedToV2Message(dmEmbed, {
+                                actionRows: [
+                                    new ActionRowBuilder<ButtonBuilder>().addComponents(
+                                        new ButtonBuilder()
+                                            .setCustomId(`infraction-appeal:start:punishment-${caseNumber}`)
+                                            .setLabel('Appeal Infraction')
+                                            .setStyle(ButtonStyle.Primary)
+                                            .setEmoji('⚖️'),
+                                    ),
+                                ],
+                            }));
+                            dmSent = true;
                         }
-                    } catch {
-                        dmSent = false;
                     }
-                } else {
-                    dmSent = await sendDm(targetUser.id, dmEmbed);
+                } catch {
+                    dmSent = false;
                 }
 
-                // Execute the punishment action
-                let actionResult = '';
-                switch (action) {
-                    case 'warn': {
-                        // Save to MongoDB for history
-                        const saved = await saveInfractionToDb({
-                            caseNumber,
-                            guildId: interaction.guildId,
-                            memberId: targetUser.id,
-                            memberUsername: targetUser.username,
-                            issuedById: interaction.user.id,
-                            action: finalAction,
-                            reason,
-                            status: 'Active',
-                            appealable: true,
-                            createdAt: new Date(),
-                            updatedAt: new Date(),
-                        });
-                        actionResult = saved
-                            ? `has been warned (${finalAction}) (Case: ${caseNumber})`
-                            : `has been warned (${finalAction}) but the warning could not be saved to the database (Case: ${caseNumber})`;
-                        break;
-                    }
-                    case 'kick': {
-                        if (!member.kickable) {
-                            await interaction.editReply('I cannot kick that user. They may have higher permissions than me.');
-                            return;
-                        }
-                        await member.kick(reason);
-                        actionResult = `has been kicked (Case: ${caseNumber})`;
-                        break;
-                    }
-                    case 'ban': {
-                        if (!member.bannable) {
-                            await interaction.editReply('I cannot ban that user. They may have higher permissions than me.');
-                            return;
-                        }
-                        await member.ban({ reason });
-                        actionResult = `has been banned (Case: ${caseNumber})`;
-                        break;
-                    }
-                }
+                const saved = await saveInfractionToDb({
+                    caseNumber,
+                    guildId: interaction.guildId,
+                    memberId: targetUser.id,
+                    memberUsername: targetUser.username,
+                    issuedById: interaction.user.id,
+                    action: finalAction,
+                    reason,
+                    status: 'Active',
+                    appealable: true,
+                    createdAt: new Date(),
+                    updatedAt: new Date(),
+                });
 
-                const confirmEmbed = brandedEmbed('Punishment Issued')
-                    .setDescription(`${targetUser} ${actionResult}.`)
+                const confirmEmbed = brandedEmbed('Warning Issued')
+                    .setDescription(`${targetUser} has been warned (Case: ${caseNumber}).`)
                     .addFields(
                         { name: 'Action', value: finalAction, inline: true },
                         { name: 'Reason', value: reason },
                         { name: 'Case Number', value: caseNumber, inline: true },
+                        { name: 'Saved', value: saved ? '✅ Yes' : '❌ No', inline: true },
                         { name: 'DM Sent', value: dmSent ? '✅ Yes' : '❌ No (DMs may be closed)', inline: true },
                     );
 
@@ -282,14 +210,10 @@ export const punishmentCommands = [
             } catch (error) {
                 console.error('[Punishment] Command failed.', error);
                 markSlashCommandFailed(interaction, error);
-                await interaction.editReply('Unable to complete the punishment. Please check bot permissions and try again.');
+                await interaction.editReply('Unable to complete the warning. Please try again.');
             }
         },
     },
-
-    // ──────────────────────────────────────────────
-    //  /punishment view
-    // ──────────────────────────────────────────────
     {
         data: new SlashCommandBuilder()
             .setName('punishment')
