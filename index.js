@@ -27,6 +27,7 @@ const privilegedIntentsEnabled = String(process.env.ENABLE_PRIVILEGED_INTENTS ||
 const intents = [
   GatewayIntentBits.Guilds,
   GatewayIntentBits.GuildMessages,
+  GatewayIntentBits.GuildModeration,
   GatewayIntentBits.DirectMessages,
 ];
 if (messageModerationEnabled) intents.push(GatewayIntentBits.MessageContent);
