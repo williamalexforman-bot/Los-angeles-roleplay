@@ -22,64 +22,8 @@ export const moderationCommands = [
                 return await sendEmbed(interaction, 'Unable to resolve user.');
             }
 
-            // Log the action
             logAction('warn', interaction.user, user, reason, proof, caseNumber);
-
             await sendEmbed(interaction, `User ${user.username} has been warned for: ${reason}. Case Number: ${caseNumber}`);
-        },
-    },
-    {
-        data: new SlashCommandBuilder()
-            .setName('kick')
-            .setDescription('Kick a user from the server')
-            .addUserOption(option => option.setName('user').setDescription('The user to kick').setRequired(true))
-            .addStringOption(option => option.setName('reason').setDescription('Reason for the kick').setRequired(true)),
-        async execute(interaction: ChatInputCommandInteraction) {
-            const user = interaction.options.getUser('user');
-            const reason = interaction.options.getString('reason');
-            const caseNumber = generateCaseNumber();
-
-            // Log the action
-            logAction('kick', interaction.user, user, reason, null, caseNumber);
-
-            if (!user) {
-                return await sendEmbed(interaction, 'Unable to resolve user.');
-            }
-
-            const member = interaction.guild?.members.cache.get(user.id) as GuildMember | undefined;
-            if (member) {
-                await member.kick(reason || undefined);
-                await sendEmbed(interaction, `User ${user.username} has been kicked for: ${reason}. Case Number: ${caseNumber}`);
-            } else {
-                await sendEmbed(interaction, `User ${user.username} is not a member of this server.`);
-            }
-        },
-    },
-    {
-        data: new SlashCommandBuilder()
-            .setName('ban')
-            .setDescription('Ban a user from the server')
-            .addUserOption(option => option.setName('user').setDescription('The user to ban').setRequired(true))
-            .addStringOption(option => option.setName('reason').setDescription('Reason for the ban').setRequired(true)),
-        async execute(interaction: ChatInputCommandInteraction) {
-            const user = interaction.options.getUser('user');
-            const reason = interaction.options.getString('reason');
-            const caseNumber = generateCaseNumber();
-
-            // Log the action
-            logAction('ban', interaction.user, user, reason, null, caseNumber);
-
-            if (!user) {
-                return await sendEmbed(interaction, 'Unable to resolve user.');
-            }
-
-            const member = interaction.guild?.members.cache.get(user.id) as GuildMember | undefined;
-            if (member) {
-                await member.ban({ reason: reason || undefined });
-                await sendEmbed(interaction, `User ${user.username} has been banned for: ${reason}. Case Number: ${caseNumber}`);
-            } else {
-                await sendEmbed(interaction, `User ${user.username} is not a member of this server.`);
-            }
         },
     },
     {
@@ -102,7 +46,6 @@ export const moderationCommands = [
                 return await sendEmbed(interaction, 'Invalid duration provided.');
             }
 
-            // Log the action
             logAction('timeout', interaction.user, user, reason, null, caseNumber);
 
             const member = interaction.guild?.members.cache.get(user.id) as GuildMember | undefined;
@@ -126,7 +69,6 @@ export const moderationCommands = [
                 return await sendEmbed(interaction, 'Invalid purge amount provided.');
             }
 
-            // Log the action
             logAction('purge', interaction.user, null, `Purged ${amount} messages`, null, generateCaseNumber());
 
             if (interaction.channel && interaction.channel instanceof TextChannel) {
@@ -146,7 +88,6 @@ export const moderationCommands = [
                 return await sendEmbed(interaction, 'This command must be used in a text channel.');
             }
 
-            // Log the action
             logAction('lock', interaction.user, null, `Locked channel ${channel.name}`, null, generateCaseNumber());
 
             await channel.permissionOverwrites.edit(interaction.guild?.roles.everyone ?? '', { SendMessages: false });
@@ -164,7 +105,6 @@ export const moderationCommands = [
                 return await sendEmbed(interaction, 'This command must be used in a text channel.');
             }
 
-            // Log the action
             logAction('unlock', interaction.user, null, `Unlocked channel ${channel.name}`, null, generateCaseNumber());
 
             await channel.permissionOverwrites.edit(interaction.guild?.roles.everyone ?? '', { SendMessages: null });
@@ -187,7 +127,6 @@ export const moderationCommands = [
                 return await sendEmbed(interaction, 'This command must be used in a text channel.');
             }
 
-            // Log the action
             logAction('slowmode', interaction.user, null, `Set slowmode to ${duration} seconds for channel ${channel.name}`, null, generateCaseNumber());
 
             await channel.setRateLimitPerUser(duration);
