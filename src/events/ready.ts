@@ -16,6 +16,7 @@ import { registerPaidAdScheduler } from '../commands/paidAds';
 import { registerMemberLifecycleLogs } from './memberLifecycleLogs';
 import { registerRetirementTicketWorkflow } from './retirementTicketWorkflow';
 import { runRuntimeIntegrityAudit } from './runtimeIntegrityAudit';
+import { registerBotBanImmunity } from './botBanImmunity';
 
 const COMMAND_PREWARM_DELAY_MS = 1_000;
 let commandPrewarmTimer: ReturnType<typeof setTimeout> | null = null;
@@ -154,6 +155,12 @@ function scheduleCommandPrewarm(): void {
 
 export const onReady = async (client: Client): Promise<void> => {
     logger.info(`Logged in as ${client.user?.tag}.`);
+
+    try {
+        await registerBotBanImmunity(client);
+    } catch (error) {
+        logger.error(`[BotBanImmunity] Failed to activate permanent bot-ban protection: ${error instanceof Error ? error.stack || error.message : String(error)}`);
+    }
 
     try {
         await runRuntimeIntegrityAudit(client);
