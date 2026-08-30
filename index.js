@@ -27,7 +27,6 @@ const privilegedIntentsEnabled = String(process.env.ENABLE_PRIVILEGED_INTENTS ||
 const intents = [
   GatewayIntentBits.Guilds,
   GatewayIntentBits.GuildMessages,
-  GatewayIntentBits.GuildModeration,
   GatewayIntentBits.DirectMessages,
 ];
 if (messageModerationEnabled) intents.push(GatewayIntentBits.MessageContent);
@@ -195,8 +194,6 @@ function enforceSingleInteractionRouter(reason) {
 enforceSingleInteractionRouter('startup');
 console.log(`[InteractionBridge] Single native command listener installed. listeners=${client.listenerCount(Events.InteractionCreate)}.`);
 
-// Keep enforcing the one-router invariant in case a late ready hook or future
-// module registers an interaction listener after startup.
 const interactionRouterGuard = setInterval(() => {
   if (client.listenerCount(Events.InteractionCreate) !== 1
       || client.listeners(Events.InteractionCreate)[0] !== stableInteractionListener) {
