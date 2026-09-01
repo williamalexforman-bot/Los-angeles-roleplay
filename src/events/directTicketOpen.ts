@@ -1,8 +1,12 @@
 import {
+    ActionRowBuilder,
     ButtonStyle,
     ChannelType,
     MessageFlags,
+    ModalBuilder,
     PermissionFlagsBits,
+    TextInputBuilder,
+    TextInputStyle,
     type ButtonInteraction,
     type ChatInputCommandInteraction,
     type Guild,
@@ -17,6 +21,15 @@ const SUPPORT_ROLE_ID = process.env.SUPPORT_ROLE_ID
     || process.env.GENERAL_SUPPORT_ROLE_ID
     || '1523122697746382868';
 const INTERNAL_ROLE_ID = process.env.INTERNAL_AFFAIRS_ROLE_ID || '1521593407816990811';
+
+const TICKET_TYPES = {
+    general: 'General Support',
+    internal: 'Internal Affairs Support',
+    management: 'Management Support',
+    highrank: 'Directorship / Ownership',
+} as const;
+
+type TicketType = keyof typeof TICKET_TYPES;
 
 type RawComponent = {
     type?: number;
@@ -34,6 +47,10 @@ type TicketMetadata = {
     claimedBy?: string;
     panelMessageId?: string;
 };
+
+function isTicketType(value: string): value is TicketType {
+    return Object.prototype.hasOwnProperty.call(TICKET_TYPES, value);
+}
 
 function decodeTicketMetadata(topic?: string | null): TicketMetadata | null {
     if (!topic?.startsWith('larp-ticket:')) return null;
@@ -64,6 +81,60 @@ function isTicketStaff(interaction: ButtonInteraction | ChatInputCommandInteract
     const member = interaction.member as GuildMember | null;
     if (!member?.roles || !('cache' in member.roles)) return false;
     return ticketStaffRoleIds().some(roleId => member.roles.cache.has(roleId));
+}
+
+function modalInput(
+    id: string,
+    label: string,
+    style: TextInputStyle,
+    required = true,
+): ActionRowBuilder<TextInputBuilder> {
+    return new ActionRowBuilder<TextInputBuilder>().addComponents(
+        new TextInputBuilder()
+            .setCustomId(id)
+            .setLabel(label)
+            .setStyle(style)
+            .setRequired(required)
+            .setMaxLength(style === TextInputStyle.Short ? 100 : 1000),
+    );
+}
+
+function continueTicketModal(type: TicketType): ModalBuilder {
+    const modal = new ModalBuilder()
+        .setCustomId(`ticket:create:${type}`)
+        .setTitle(`${TICKET_TYPES[type]} Ticket`.slice(0, 45));
+
+    if (type === 'internal') {
+        return modal.addComponents(
+            modalInput('reported_user', 'Who are you reporting?', TextInputStyle.Short),
+            modalInput('reason', 'Reason for report', TextInputStyle.Paragraph),
+            modalInput('proof', 'Do you have proof?', TextInputStyle.Paragraph),
+            modalInput('details', 'Anything else?', TextInputStyle.Paragraph, false),
+        );
+    }
+
+    return modal.addComponents(
+        modalInput('reason', 'Reason for opening ticket', TextInputStyle.Paragraph),
+        modalInput('details', 'Additional details', TextInputStyle.Paragraph, false),
+    );
+}
+
+async function handleContinue(interaction: ButtonInteraction): Promise<boolean> {
+    if (!interaction.customId.startsWith('ticket:continue:')) return false;
+
+    const [, , typeValue, ownerId] = interaction.customId.split(':');
+    if (!isTicketType(typeValue)) {
+        await interaction.reply({ content: 'That ticket category is unavailable.', flags: MessageFlags.Ephemeral });
+        return true;
+    }
+    if (ownerId !== interaction.user.id) {
+        await interaction.reply({ content: 'This ticket form is not available to you.', flags: MessageFlags.Ephemeral });
+        return true;
+    }
+
+    await interaction.showModal(continueTicketModal(typeValue));
+    logger.info(`[Tickets] CONTINUE_MODAL_OPEN type=${typeValue} user=${interaction.user.id} direct=true`);
+    return true;
 }
 
 function mutateClaimButton(components: RawComponent[], claimedBy?: string): RawComponent[] {
@@ -224,6 +295,7 @@ async function handleEscalate(interaction: ButtonInteraction): Promise<boolean> 
 
 export async function handleDirectTicketInteraction(interaction: Interaction): Promise<boolean> {
     if (interaction.isButton()) {
+        if (await handleContinue(interaction)) return true;
         if (await handleClaim(interaction)) return true;
         if (await handleEscalate(interaction)) return true;
         return false;
