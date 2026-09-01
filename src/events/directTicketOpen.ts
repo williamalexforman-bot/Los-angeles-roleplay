@@ -1,22 +1,48 @@
+import { resolve } from 'path';
 import {
+    AttachmentBuilder,
+    ButtonBuilder,
     ButtonStyle,
     ChannelType,
+    ContainerBuilder,
+    MediaGalleryBuilder,
+    MediaGalleryItemBuilder,
     MessageFlags,
     PermissionFlagsBits,
+    SeparatorBuilder,
+    SeparatorSpacingSize,
+    TextDisplayBuilder,
     type ButtonInteraction,
     type ChatInputCommandInteraction,
     type Guild,
     type GuildMember,
     type Interaction,
     type Role,
+    type StringSelectMenuInteraction,
     type TextChannel,
 } from 'discord.js';
+import { BRAND } from '../config/constants';
+import { SUPPORT_FAQ, TICKET_TERMS } from '../commands/supportContent';
 import { logger } from '../utils/logger';
 
 const SUPPORT_ROLE_ID = process.env.SUPPORT_ROLE_ID
     || process.env.GENERAL_SUPPORT_ROLE_ID
     || '1523122697746382868';
 const INTERNAL_ROLE_ID = process.env.INTERNAL_AFFAIRS_ROLE_ID || '1521593407816990811';
+
+const BANNER_NAME = 'assistance-banner.png';
+const UNDERBANNER_NAME = 'underbanner.png';
+const BANNER_PATH = resolve(__dirname, '..', '..', 'assets', BANNER_NAME);
+const UNDERBANNER_PATH = resolve(__dirname, '..', '..', 'assets', UNDERBANNER_NAME);
+
+const TICKET_TYPES = {
+    general: { label: 'General Support', emoji: '🎫' },
+    internal: { label: 'Internal Affairs Support', emoji: '📋' },
+    management: { label: 'Management Support', emoji: '🏛️' },
+    highrank: { label: 'Directorship / Ownership', emoji: '⭐' },
+} as const;
+
+type TicketType = keyof typeof TICKET_TYPES;
 
 type RawComponent = {
     type?: number;
@@ -34,6 +60,10 @@ type TicketMetadata = {
     claimedBy?: string;
     panelMessageId?: string;
 };
+
+function isTicketType(value: string): value is TicketType {
+    return Object.prototype.hasOwnProperty.call(TICKET_TYPES, value);
+}
 
 function decodeTicketMetadata(topic?: string | null): TicketMetadata | null {
     if (!topic?.startsWith('larp-ticket:')) return null;
@@ -64,6 +94,95 @@ function isTicketStaff(interaction: ButtonInteraction | ChatInputCommandInteract
     const member = interaction.member as GuildMember | null;
     if (!member?.roles || !('cache' in member.roles)) return false;
     return ticketStaffRoleIds().some(roleId => member.roles.cache.has(roleId));
+}
+
+function artwork(): AttachmentBuilder[] {
+    return [
+        new AttachmentBuilder(BANNER_PATH, { name: BANNER_NAME }),
+        new AttachmentBuilder(UNDERBANNER_PATH, { name: UNDERBANNER_NAME }),
+    ];
+}
+
+function media(name: string): MediaGalleryBuilder {
+    return new MediaGalleryBuilder().addItems(
+        new MediaGalleryItemBuilder().setURL(`attachment://${name}`),
+    );
+}
+
+function separator(): SeparatorBuilder {
+    return new SeparatorBuilder()
+        .setDivider(true)
+        .setSpacing(SeparatorSpacingSize.Small);
+}
+
+function reviewPanel(type: TicketType, userId: string): ContainerBuilder {
+    const config = TICKET_TYPES[type];
+    const continueButton = new ButtonBuilder()
+        .setCustomId(`ticket:continue:${type}:${userId}`)
+        .setLabel('Continue to Ticket Form')
+        .setEmoji('🎫')
+        .setStyle(ButtonStyle.Primary);
+
+    return new ContainerBuilder()
+        .setAccentColor(BRAND.color)
+        .addMediaGalleryComponents(media(BANNER_NAME))
+        .addSeparatorComponents(separator())
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+            `## ${config.emoji} ${config.label}`,
+            'Before opening your ticket, review the FAQ and Ticket Terms of Service below.',
+            '',
+            SUPPORT_FAQ,
+        ].join('\n').slice(0, 3_800)))
+        .addSeparatorComponents(separator())
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+            TICKET_TERMS,
+            '',
+            '**Press Continue to open the ticket form.**',
+        ].join('\n').slice(0, 3_800)))
+        .addSeparatorComponents(separator())
+        .addActionRowComponents(row => row.addComponents(continueButton))
+        .addSeparatorComponents(separator())
+        .addMediaGalleryComponents(media(UNDERBANNER_NAME));
+}
+
+async function sendReview(
+    interaction: StringSelectMenuInteraction | ButtonInteraction,
+    type: TicketType,
+): Promise<boolean> {
+    if (interaction.replied || interaction.deferred) return false;
+    await interaction.reply({
+        flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
+        components: [reviewPanel(type, interaction.user.id)],
+        files: artwork(),
+    });
+    logger.info(`[Tickets] REVIEW_READY_SAFE type=${type} user=${interaction.user.id}`);
+    return true;
+}
+
+async function handleTicketCategorySelect(interaction: StringSelectMenuInteraction): Promise<boolean> {
+    if (interaction.customId !== 'ticket:create-select') return false;
+    const type = interaction.values[0] || '';
+    if (!isTicketType(type)) {
+        await interaction.reply({ content: 'That ticket category is unavailable.', flags: MessageFlags.Ephemeral });
+        return true;
+    }
+    return sendReview(interaction, type);
+}
+
+async function handleLegacyTicketCategoryButton(interaction: ButtonInteraction): Promise<boolean> {
+    const legacy: Record<string, TicketType> = {
+        'ticket-general': 'general',
+        'ticket-internal': 'internal',
+        'ticket-internal-affairs': 'internal',
+        'ticket-management': 'management',
+        'ticket-highrank': 'highrank',
+        'ticket-high-rank': 'highrank',
+        'ticket-directorship': 'highrank',
+        'ticket-ownership': 'highrank',
+    };
+    const type = legacy[interaction.customId];
+    if (!type) return false;
+    return sendReview(interaction, type);
 }
 
 function mutateClaimButton(components: RawComponent[], claimedBy?: string): RawComponent[] {
@@ -223,7 +342,12 @@ async function handleEscalate(interaction: ButtonInteraction): Promise<boolean> 
 }
 
 export async function handleDirectTicketInteraction(interaction: Interaction): Promise<boolean> {
+    if (interaction.isStringSelectMenu()) {
+        if (await handleTicketCategorySelect(interaction)) return true;
+        return false;
+    }
     if (interaction.isButton()) {
+        if (await handleLegacyTicketCategoryButton(interaction)) return true;
         if (await handleClaim(interaction)) return true;
         if (await handleEscalate(interaction)) return true;
         return false;
