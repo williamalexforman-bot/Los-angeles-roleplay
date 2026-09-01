@@ -13,6 +13,7 @@ import {
     type GuildMember,
     type Interaction,
     type Role,
+    type StringSelectMenuInteraction,
     type TextChannel,
 } from 'discord.js';
 import { logger } from '../utils/logger';
@@ -21,6 +22,7 @@ const SUPPORT_ROLE_ID = process.env.SUPPORT_ROLE_ID
     || process.env.GENERAL_SUPPORT_ROLE_ID
     || '1523122697746382868';
 const INTERNAL_ROLE_ID = process.env.INTERNAL_AFFAIRS_ROLE_ID || '1521593407816990811';
+const CONTINUE_PREFIX = 'larpTicketV4:continue:';
 
 const TICKET_TYPES = {
     general: 'General Support',
@@ -119,10 +121,49 @@ function continueTicketModal(type: TicketType): ModalBuilder {
     );
 }
 
-async function handleContinue(interaction: ButtonInteraction): Promise<boolean> {
-    if (!interaction.customId.startsWith('ticket:continue:')) return false;
+function mutateContinueButton(components: RawComponent[]): RawComponent[] {
+    const visit = (node: RawComponent): void => {
+        if (node.custom_id?.startsWith('ticket:continue:')) {
+            node.custom_id = `${CONTINUE_PREFIX}${node.custom_id.slice('ticket:continue:'.length)}`;
+            return;
+        }
+        node.components?.forEach(visit);
+    };
+    components.forEach(visit);
+    return components;
+}
 
-    const [, , typeValue, ownerId] = interaction.customId.split(':');
+async function handleCategorySelect(interaction: StringSelectMenuInteraction): Promise<boolean> {
+    if (interaction.customId !== 'ticket:create-select') return false;
+
+    const tickets = require('../commands/tickets.ts') as {
+        handleTicketSelect?: (i: StringSelectMenuInteraction) => Promise<boolean>;
+    };
+    if (typeof tickets.handleTicketSelect !== 'function') return false;
+
+    const handled = await tickets.handleTicketSelect(interaction);
+    if (!handled) return false;
+
+    try {
+        const reply = await interaction.fetchReply();
+        const components = reply.components.map(component => component.toJSON()) as unknown as RawComponent[];
+        await interaction.editReply({ components: mutateContinueButton(components) as never });
+        logger.info(`[Tickets] CONTINUE_BUTTON_ISOLATED user=${interaction.user.id} prefix=${CONTINUE_PREFIX}`);
+    } catch (error) {
+        logger.error(`[Tickets] CONTINUE_BUTTON_ISOLATION_FAILED user=${interaction.user.id}: ${error instanceof Error ? error.stack || error.message : String(error)}`);
+        throw error;
+    }
+    return true;
+}
+
+async function handleContinue(interaction: ButtonInteraction): Promise<boolean> {
+    if (!interaction.customId.startsWith(CONTINUE_PREFIX)) return false;
+
+    const remainder = interaction.customId.slice(CONTINUE_PREFIX.length);
+    const separatorIndex = remainder.indexOf(':');
+    const typeValue = separatorIndex >= 0 ? remainder.slice(0, separatorIndex) : '';
+    const ownerId = separatorIndex >= 0 ? remainder.slice(separatorIndex + 1) : '';
+
     if (!isTicketType(typeValue)) {
         await interaction.reply({ content: 'That ticket category is unavailable.', flags: MessageFlags.Ephemeral });
         return true;
@@ -133,7 +174,7 @@ async function handleContinue(interaction: ButtonInteraction): Promise<boolean> 
     }
 
     await interaction.showModal(continueTicketModal(typeValue));
-    logger.info(`[Tickets] CONTINUE_MODAL_OPEN type=${typeValue} user=${interaction.user.id} direct=true`);
+    logger.info(`[Tickets] CONTINUE_MODAL_OPEN type=${typeValue} user=${interaction.user.id} isolated=true`);
     return true;
 }
 
@@ -294,6 +335,10 @@ async function handleEscalate(interaction: ButtonInteraction): Promise<boolean> 
 }
 
 export async function handleDirectTicketInteraction(interaction: Interaction): Promise<boolean> {
+    if (interaction.isStringSelectMenu()) {
+        if (await handleCategorySelect(interaction)) return true;
+        return false;
+    }
     if (interaction.isButton()) {
         if (await handleContinue(interaction)) return true;
         if (await handleClaim(interaction)) return true;
