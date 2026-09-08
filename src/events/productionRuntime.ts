@@ -3,6 +3,7 @@ import { handleApplicationDmMessage } from '../commands/applications';
 import { handleAppealDmMessage, setBanAppealClient } from '../commands/banAppeal';
 import { setInfractionAppealClient } from '../commands/infractionAppeal';
 import { setDiscordClientForDm } from '../commands/punishment';
+import { registerRoleAdCreatorRuntime } from '../commands/roleAdCreator';
 import { configureApplicationSessionDatabaseAdapter } from '../database/applicationSessionAdapter';
 import { configureInfractionDatabaseAdapter } from '../database/infractionAdapter';
 import { logger } from '../utils/logger';
@@ -17,7 +18,8 @@ export function configureProductionRuntime(client: Client): void {
     setInfractionAppealClient(client);
     configureInfractionDatabaseAdapter();
     configureApplicationSessionDatabaseAdapter();
-    logger.info('[Runtime] Command clients and durable application/infraction adapters configured. Ticket interactions are handled exclusively by the stable router; infraction recovery logging is disabled.');
+    registerRoleAdCreatorRuntime(client);
+    logger.info('[Runtime] Command clients, durable application/infraction adapters, and role marketplace ad creation configured. Ticket interactions are handled exclusively by the stable router; infraction recovery logging is disabled.');
 }
 
 /** Routes DM conversations before guild-message moderation. */
