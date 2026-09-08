@@ -7,6 +7,7 @@ import { registerRoleAdCreatorRuntime } from '../commands/roleAdCreator';
 import { configureApplicationSessionDatabaseAdapter } from '../database/applicationSessionAdapter';
 import { configureInfractionDatabaseAdapter } from '../database/infractionAdapter';
 import { logger } from '../utils/logger';
+import { installLegacyTicketSubmitPatch } from './legacyTicketSubmitPatch';
 import { handleMessageModeration } from './messageModeration';
 
 export type ProductionMessageRoute = 'application' | 'ban-appeal' | 'moderation' | 'ignored';
@@ -19,7 +20,8 @@ export function configureProductionRuntime(client: Client): void {
     configureInfractionDatabaseAdapter();
     configureApplicationSessionDatabaseAdapter();
     registerRoleAdCreatorRuntime(client);
-    logger.info('[Runtime] Command clients, durable application/infraction adapters, and role marketplace ad creation configured. Ticket interactions are handled exclusively by the stable router; infraction recovery logging is disabled.');
+    installLegacyTicketSubmitPatch(client);
+    logger.info('[Runtime] Command clients, durable application/infraction adapters, role marketplace ad creation, and legacy ticket modal submission configured. Ticket interactions are handled exclusively by the stable router; infraction recovery logging is disabled.');
 }
 
 /** Routes DM conversations before guild-message moderation. */
