@@ -13,6 +13,7 @@ import { installBatchOneBannerAssets } from './bannerAssetInstaller';
 import { refreshPersistentPanels } from './persistentPanelRefresh';
 import { registerGiveawayScheduler } from '../commands/giveaway';
 import { registerPaidAdScheduler } from '../commands/paidAds';
+import { registerRoleAdCreatorRuntime } from '../commands/roleAdCreator';
 import { registerMemberLifecycleLogs } from './memberLifecycleLogs';
 import { registerRetirementTicketWorkflow } from './retirementTicketWorkflow';
 import { runRuntimeIntegrityAudit } from './runtimeIntegrityAudit';
@@ -202,6 +203,13 @@ export const onReady = async (client: Client): Promise<void> => {
         registerPaidAdScheduler(client);
     } catch (error) {
         logger.warn(`[PaidAds] Failed to register publishing scheduler: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    try {
+        registerRoleAdCreatorRuntime(client);
+        logger.info('[RoleAdCreator] /make-ad modal runtime enabled.');
+    } catch (error) {
+        logger.warn(`[RoleAdCreator] Failed to register /make-ad modal runtime: ${error instanceof Error ? error.message : String(error)}`);
     }
 
     try {
