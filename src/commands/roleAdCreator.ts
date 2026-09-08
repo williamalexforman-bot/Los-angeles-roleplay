@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
     ChatInputCommandInteraction,
+    Client,
     MessageFlags,
     ModalBuilder,
     ModalSubmitInteraction,
@@ -14,6 +15,7 @@ import { isPaidAdProduct, marketplaceProduct, paidAdProducts } from '../services
 import { logger } from '../utils/logger';
 
 const AD_CREATOR_ROLE_ID = '1521593407850680401';
+const registeredClients = new WeakSet<Client>();
 
 const SEND_DELAY_CHOICES = [
     { name: 'Send now', value: '0' },
@@ -163,6 +165,18 @@ export async function handleRoleAdModal(interaction: ModalSubmitInteraction): Pr
         else await interaction.reply({ content: message, flags: MessageFlags.Ephemeral }).catch(() => undefined);
     }
     return true;
+}
+
+export function registerRoleAdCreatorRuntime(client: Client): void {
+    if (registeredClients.has(client)) return;
+    registeredClients.add(client);
+    client.on('interactionCreate', interaction => {
+        if (!interaction.isModalSubmit() || !interaction.customId.startsWith('role-ad:')) return;
+        void handleRoleAdModal(interaction).catch(error => {
+            logger.error(`[RoleAdCreator] Modal router failed: ${error instanceof Error ? error.stack || error.message : String(error)}`);
+        });
+    });
+    logger.info(`[RoleAdCreator] Role ${AD_CREATOR_ROLE_ID} can create and schedule marketplace ads with /make-ad.`);
 }
 
 export const roleAdCreatorCommand = {
