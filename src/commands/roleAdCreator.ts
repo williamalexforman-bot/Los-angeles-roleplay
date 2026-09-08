@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
+    ActionRowBuilder,
     ChatInputCommandInteraction,
     Client,
     MessageFlags,
@@ -51,26 +52,32 @@ function creatorModal(productKey: string, delayMinutes: number): ModalBuilder {
         .setCustomId(`role-ad:create:${productKey}:${delayMinutes}`)
         .setTitle((product?.label || 'Create Marketplace Ad').slice(0, 45))
         .addComponents(
-            new TextInputBuilder()
-                .setCustomId('server_name')
-                .setLabel('Server name')
-                .setStyle(TextInputStyle.Short)
-                .setMaxLength(100)
-                .setRequired(true),
-            new TextInputBuilder()
-                .setCustomId('invite_link')
-                .setLabel('Discord invite link')
-                .setPlaceholder('https://discord.gg/example')
-                .setStyle(TextInputStyle.Short)
-                .setMaxLength(500)
-                .setRequired(true),
-            new TextInputBuilder()
-                .setCustomId('server_ad')
-                .setLabel('Full advertisement')
-                .setPlaceholder('Write the complete advertisement exactly how it should appear.')
-                .setStyle(TextInputStyle.Paragraph)
-                .setMaxLength(4_000)
-                .setRequired(true),
+            new ActionRowBuilder<TextInputBuilder>().addComponents(
+                new TextInputBuilder()
+                    .setCustomId('server_name')
+                    .setLabel('Server name')
+                    .setStyle(TextInputStyle.Short)
+                    .setMaxLength(100)
+                    .setRequired(true),
+            ),
+            new ActionRowBuilder<TextInputBuilder>().addComponents(
+                new TextInputBuilder()
+                    .setCustomId('invite_link')
+                    .setLabel('Discord invite link')
+                    .setPlaceholder('https://discord.gg/example')
+                    .setStyle(TextInputStyle.Short)
+                    .setMaxLength(500)
+                    .setRequired(true),
+            ),
+            new ActionRowBuilder<TextInputBuilder>().addComponents(
+                new TextInputBuilder()
+                    .setCustomId('server_ad')
+                    .setLabel('Full advertisement')
+                    .setPlaceholder('Write the complete advertisement exactly how it should appear.')
+                    .setStyle(TextInputStyle.Paragraph)
+                    .setMaxLength(4_000)
+                    .setRequired(true),
+            ),
         );
 }
 
@@ -212,6 +219,13 @@ export const roleAdCreatorCommand = {
             return;
         }
 
-        await interaction.showModal(creatorModal(productKey, delayMinutes));
+        try {
+            await interaction.showModal(creatorModal(productKey, delayMinutes));
+        } catch (error) {
+            logger.error(`[RoleAdCreator] Could not open /make-ad modal: ${error instanceof Error ? error.stack || error.message : String(error)}`);
+            if (!interaction.replied && !interaction.deferred) {
+                await interaction.reply({ content: 'I could not open the advertisement form. Please try again.', flags: MessageFlags.Ephemeral }).catch(() => undefined);
+            }
+        }
     },
 };
