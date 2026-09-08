@@ -35,6 +35,7 @@ const UNDERBANNER_NAME = 'underbanner.png';
 const ASSISTANCE_BANNER_PATH = resolve(__dirname, '..', '..', 'assets', ASSISTANCE_BANNER_NAME);
 const UNDERBANNER_PATH = resolve(__dirname, '..', '..', 'assets', UNDERBANNER_NAME);
 const registeredClients = new WeakSet<Client>();
+const RETIREMENT_PATTERN = /\b(retir(?:e|ement|ing|ed)?|resign(?:ation|ing|ed)?|step(?:ping)?\s*down|leav(?:e|ing)\s+staff)\b/iu;
 
 type TicketMetadata = {
     ownerId: string;
@@ -76,9 +77,13 @@ function encodeMetadata(metadata: TicketMetadata): string {
     return `larp-ticket:${Buffer.from(JSON.stringify(metadata), 'utf8').toString('base64url')}`;
 }
 
-function isRetirementTicket(channel: TextChannel): boolean {
-    const text = channel.name.replace(/-/g, ' ');
-    return /\b(retir(?:e|ement|ing)|resign(?:ation|ing)?|step(?:ping)? down|leav(?:e|ing) staff)\b/iu.test(text);
+function hasRetirementSignal(value: string | null | undefined): boolean {
+    if (!value) return false;
+    return RETIREMENT_PATTERN.test(value.replace(/[-_]/g, ' '));
+}
+
+function isRetirementTicket(channel: TextChannel, hint = ''): boolean {
+    return hasRetirementSignal(channel.name) || hasRetirementSignal(hint);
 }
 
 function memberHasRole(member: ButtonInteraction['member'], roleId: string): boolean {
@@ -183,13 +188,13 @@ function resultPanel(ownerId: string, approved: boolean, reviewerId: string): Co
         .addMediaGalleryComponents(media(UNDERBANNER_NAME));
 }
 
-async function prepareRetirementTicket(channel: TextChannel): Promise<void> {
-    // Let the main ticket creator finish linking its panel/topic first so our
-    // management routing cannot be overwritten by the creation transaction.
-    await new Promise(resolveDelay => setTimeout(resolveDelay, 1800));
+async function prepareRetirementTicket(channel: TextChannel, hint = ''): Promise<void> {
+    // Ticket creation/renaming is asynchronous. Re-check after the main ticket
+    // creator has had time to write metadata and apply its reason-based name.
+    await new Promise(resolveDelay => setTimeout(resolveDelay, 700));
 
     let metadata = decodeMetadata(channel.topic);
-    if (!metadata || metadata.retirementPrompted || !isRetirementTicket(channel)) return;
+    if (!metadata || metadata.retirementPrompted || !isRetirementTicket(channel, hint)) return;
 
     try {
         if (channel.parentId !== MANAGEMENT_CATEGORY_ID) {
@@ -207,6 +212,7 @@ async function prepareRetirementTicket(channel: TextChannel): Promise<void> {
         }, { reason: 'Management access for retirement request' });
 
         metadata = decodeMetadata(channel.topic) || metadata;
+        if (metadata.retirementPrompted) return;
         metadata.type = 'management';
         metadata.retirementPrompted = true;
         await channel.setTopic(encodeMetadata(metadata), 'Retirement ticket routed to Management Support');
@@ -221,6 +227,7 @@ async function prepareRetirementTicket(channel: TextChannel): Promise<void> {
             content: `<@&${MANAGEMENT_ROLE_ID}> This retirement ticket was automatically routed to Management Support.`,
             allowedMentions: { parse: [], roles: [MANAGEMENT_ROLE_ID] },
         });
+        logger.info(`[Retirement] Prepared retirement ticket ${channel.id} for ${metadata.ownerId}.`);
     } catch (error) {
         logger.warn(`[Retirement] Could not prepare ticket ${channel.id}: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -351,6 +358,24 @@ export function registerRetirementTicketWorkflow(client: Client): void {
         });
     });
 
+    client.on(Events.ChannelUpdate, (_oldChannel, newChannel) => {
+        if (newChannel.type !== ChannelType.GuildText) return;
+        if (!hasRetirementSignal(newChannel.name)) return;
+        void prepareRetirementTicket(newChannel).catch(error => {
+            logger.warn(`[Retirement] Renamed-ticket routing failed: ${error instanceof Error ? error.message : String(error)}`);
+        });
+    });
+
+    client.on(Events.MessageCreate, message => {
+        if (!message.guild || message.channel.type !== ChannelType.GuildText) return;
+        const componentText = JSON.stringify(message.components.map(component => component.toJSON()));
+        const hint = `${message.content}\n${componentText}`;
+        if (!hasRetirementSignal(hint)) return;
+        void prepareRetirementTicket(message.channel, hint).catch(error => {
+            logger.warn(`[Retirement] Opening-message routing failed: ${error instanceof Error ? error.message : String(error)}`);
+        });
+    });
+
     client.on(Events.InteractionCreate, interaction => {
         if (interaction.isButton()) {
             if (interaction.customId === 'ticket:claim') {
@@ -384,5 +409,5 @@ export function registerRetirementTicketWorkflow(client: Client): void {
         }
     });
 
-    logger.info('[Retirement] Management-only retirement ticket workflow enabled.');
+    logger.info('[Retirement] Management-only retirement ticket workflow enabled with rename/opening-message detection.');
 }
