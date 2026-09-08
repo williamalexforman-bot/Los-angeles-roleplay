@@ -125,8 +125,8 @@ async function createRoleAd(interaction: ModalSubmitInteraction, productKey: str
         adId,
         guildId: interaction.guildId,
         ownerDiscordId: interaction.user.id,
-        robloxUserId: 'role-created',
-        ticketChannelId: interaction.channelId,
+        robloxUserId: `role-created:${interaction.user.id}`,
+        ticketChannelId: interaction.channelId || 'role-created',
         baseClaimId: `role-ad:${adId}`,
         productKey: product.key,
         productLabel: `${product.label} • Staff Created`,
@@ -144,11 +144,30 @@ async function createRoleAd(interaction: ModalSubmitInteraction, productKey: str
     });
 
     logger.info(`[RoleAdCreator] ${interaction.user.id} scheduled ${adId} (${product.key}) for ${scheduledFor.toISOString()}.`);
+
+    let sentNow = false;
+    if (safeDelay === 0) {
+        try {
+            const paidAds = require('./paidAds.ts') as {
+                processDuePaidAds?: (client: Client) => Promise<number>;
+            };
+            if (typeof paidAds.processDuePaidAds === 'function') {
+                await paidAds.processDuePaidAds(interaction.client);
+                const refreshed = await PaidAd.findOne({ adId }).select({ status: 1 }).lean().exec();
+                sentNow = refreshed?.status === 'published';
+            }
+        } catch (error) {
+            logger.warn(`[RoleAdCreator] Immediate publish attempt for ${adId} failed; scheduler will retry: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
     await interaction.editReply([
-        '✅ **Marketplace advertisement created.**',
+        sentNow ? '✅ **Marketplace advertisement sent.**' : '✅ **Marketplace advertisement created.**',
         `**Type:** ${product.label}`,
         `**Server:** ${serverName}`,
-        `**Sends:** ${discordTimestamp(scheduledFor)}`,
+        safeDelay === 0
+            ? `**Status:** ${sentNow ? 'Sent now' : 'Queued for immediate automatic delivery'}`
+            : `**Sends:** ${discordTimestamp(scheduledFor)}`,
         `**Ad ID:** \`${adId}\``,
     ].join('\n'));
 }
@@ -166,8 +185,9 @@ export async function handleRoleAdModal(interaction: ModalSubmitInteraction): Pr
     try {
         await createRoleAd(interaction, productKey, delayMinutes);
     } catch (error) {
-        logger.error(`[RoleAdCreator] Could not create marketplace ad: ${error instanceof Error ? error.stack || error.message : String(error)}`);
-        const message = 'The marketplace advertisement could not be created. Please try again.';
+        const details = error instanceof Error ? error.stack || error.message : String(error);
+        logger.error(`[RoleAdCreator] Could not create marketplace ad: ${details}`);
+        const message = 'The marketplace advertisement could not be created. Nothing was sent or consumed. Please try again.';
         if (interaction.deferred || interaction.replied) await interaction.editReply(message).catch(() => undefined);
         else await interaction.reply({ content: message, flags: MessageFlags.Ephemeral }).catch(() => undefined);
     }
