@@ -28,23 +28,42 @@ try {
       writable: false,
     });
 
+    function componentUsesBlockedArtwork(component) {
+      if (!component || typeof component !== 'object') return false;
+      const directUrls = [];
+      if (typeof component?.media?.url === 'string') directUrls.push(component.media.url);
+      if (typeof component?.url === 'string') directUrls.push(component.url);
+      if (Array.isArray(component?.items)) {
+        for (const item of component.items) {
+          if (typeof item?.media?.url === 'string') directUrls.push(item.media.url);
+          if (typeof item?.url === 'string') directUrls.push(item.url);
+        }
+      }
+      return directUrls.some(url => url.includes('attachment://') && blockedArtwork.test(url));
+    }
+
     function scrubComponents(value) {
       if (!Array.isArray(value)) return value;
-      return value
-        .filter(component => {
-          try {
-            const raw = JSON.stringify(component);
-            return !(raw.includes('attachment://') && blockedArtwork.test(raw));
-          } catch {
-            return true;
-          }
-        })
-        .map(component => {
-          if (!component || typeof component !== 'object') return component;
-          const copy = { ...component };
-          if (Array.isArray(copy.components)) copy.components = scrubComponents(copy.components);
-          return copy;
-        });
+      const cleaned = [];
+      for (const component of value) {
+        if (!component || typeof component !== 'object') {
+          cleaned.push(component);
+          continue;
+        }
+
+        // Remove only the media node that directly references legacy artwork.
+        // Do not remove its parent Container, otherwise Components V2 messages
+        // such as tickets lose their text/buttons and Discord rejects the body.
+        if (componentUsesBlockedArtwork(component)) continue;
+
+        const copy = { ...component };
+        if (Array.isArray(copy.components)) copy.components = scrubComponents(copy.components);
+        if (Array.isArray(copy.items)) {
+          copy.items = copy.items.filter(item => !componentUsesBlockedArtwork(item));
+        }
+        cleaned.push(copy);
+      }
+      return cleaned;
     }
 
     function scrubEmbeds(embeds) {
@@ -87,7 +106,7 @@ try {
       return originalPatch.call(this, route, sanitizeOptions(options));
     };
 
-    console.log('[ArtworkReset] Legacy banners, emblems, and underbanners are globally suppressed until new CSRP artwork is installed.');
+    console.log('[ArtworkReset] Legacy banners, emblems, and underbanners are globally suppressed without removing their parent V2 containers.');
   }
 } catch (error) {
   console.error('[ArtworkReset] Could not install legacy artwork suppression:', errorText(error));
