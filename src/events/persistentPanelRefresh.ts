@@ -1,8 +1,11 @@
 import type { Client, Message, TextBasedChannel } from 'discord.js';
 import { logger } from '../utils/logger';
+import { findChannelByKey } from '../services/serverResourceResolver';
+
+type PanelChannelKey = 'dashboard' | 'assistance' | 'rules' | 'applications' | 'marketplace';
 
 type PersistentPanelSpec = {
-    channelId: string;
+    channelKey: PanelChannelKey;
     label: string;
     marker: string;
     modulePath: string;
@@ -11,42 +14,11 @@ type PersistentPanelSpec = {
 };
 
 const PANELS: readonly PersistentPanelSpec[] = [
-    {
-        channelId: '1526049604712529971',
-        label: 'Dashboard',
-        marker: 'dashboard:menu',
-        modulePath: '../commands/dashboard.ts',
-        builderName: 'buildDashboardRefreshPayload',
-    },
-    {
-        channelId: '1526034504953892925',
-        label: 'Assistance',
-        marker: 'ticket:create-select',
-        modulePath: '../commands/tickets.ts',
-        builderName: 'buildTicketPanelRefreshPayload',
-    },
-    {
-        channelId: '1526046592187105421',
-        label: 'Rules',
-        marker: 'rules:menu',
-        modulePath: '../commands/rules.ts',
-        builderName: 'buildRulesPanelRefreshPayload',
-    },
-    {
-        channelId: '1526035041593856182',
-        label: 'Applications',
-        marker: 'applications:type',
-        modulePath: '../commands/applications.ts',
-        builderName: 'buildApplicationsPanelRefreshPayload',
-        needsGuild: true,
-    },
-    {
-        channelId: '1526035127606706196',
-        label: 'Marketplace',
-        marker: 'marketplace:claim',
-        modulePath: '../commands/marketplace.ts',
-        builderName: 'buildMarketplacePanelRefreshPayload',
-    },
+    { channelKey: 'dashboard', label: 'Dashboard', marker: 'dashboard:menu', modulePath: '../commands/dashboard.ts', builderName: 'buildDashboardRefreshPayload' },
+    { channelKey: 'assistance', label: 'Assistance', marker: 'ticket:create-select', modulePath: '../commands/tickets.ts', builderName: 'buildTicketPanelRefreshPayload' },
+    { channelKey: 'rules', label: 'Rules', marker: 'rules:menu', modulePath: '../commands/rules.ts', builderName: 'buildRulesPanelRefreshPayload' },
+    { channelKey: 'applications', label: 'Applications', marker: 'applications:type', modulePath: '../commands/applications.ts', builderName: 'buildApplicationsPanelRefreshPayload', needsGuild: true },
+    { channelKey: 'marketplace', label: 'Marketplace', marker: 'marketplace:claim', modulePath: '../commands/marketplace.ts', builderName: 'buildMarketplacePanelRefreshPayload' },
 ];
 
 async function recentBotPanel(channel: TextBasedChannel, botId: string, marker: string): Promise<Message | null> {
@@ -60,25 +32,26 @@ async function recentBotPanel(channel: TextBasedChannel, botId: string, marker: 
 }
 
 async function refreshPanel(client: Client, spec: PersistentPanelSpec): Promise<void> {
+    const guild = client.guilds.cache.first();
+    if (!guild) throw new Error('No guild is available for panel discovery.');
+
+    const channel = await findChannelByKey(guild, spec.channelKey);
+    if (!channel?.isTextBased() || !('messages' in channel)) {
+        throw new Error(`Live ${spec.channelKey} channel could not be resolved.`);
+    }
+
     const loaded = require(spec.modulePath) as Record<string, unknown>;
     const builder = loaded[spec.builderName];
     if (typeof builder !== 'function') throw new Error(`${spec.builderName} is unavailable.`);
 
-    const channel = await client.channels.fetch(spec.channelId).catch(() => null);
-    if (!channel?.isTextBased() || !('messages' in channel)) {
-        throw new Error(`Channel ${spec.channelId} is unavailable.`);
-    }
     const message = await recentBotPanel(channel, client.user!.id, spec.marker);
-    if (!message) throw new Error(`No existing bot panel was found in ${spec.channelId}.`);
+    if (!message) throw new Error(`No existing bot panel was found in #${channel.name} (${channel.id}).`);
 
-    const guild = 'guild' in channel ? channel.guild : null;
     const payload = spec.needsGuild ? builder(guild) : builder();
     if (!payload || typeof payload !== 'object') throw new Error(`${spec.builderName} returned no payload.`);
 
-    // Clear old attachment IDs so attachment:// URLs cannot keep resolving to
-    // the previous low-resolution or obsolete banner files.
     await message.edit({ ...(payload as Record<string, unknown>), attachments: [] } as never);
-    logger.info(`[PersistentPanels] ${spec.label} panel rebuilt with the current banner files.`);
+    logger.info(`[PersistentPanels] ${spec.label} refreshed in #${channel.name} (${channel.id}) using live channel discovery.`);
 }
 
 export async function refreshPersistentPanels(client: Client): Promise<void> {
