@@ -17,6 +17,7 @@ import { registerRoleAdCreatorRuntime } from '../commands/roleAdCreator';
 import { registerMemberLifecycleLogs } from './memberLifecycleLogs';
 import { registerRetirementTicketWorkflow } from './retirementTicketWorkflow';
 import { runRuntimeIntegrityAudit } from './runtimeIntegrityAudit';
+import { registerLegacyChannelRemap } from '../runtime/legacyChannelRemap';
 
 const COMMAND_PREWARM_DELAY_MS = 1_000;
 let commandPrewarmTimer: ReturnType<typeof setTimeout> | null = null;
@@ -155,6 +156,12 @@ function scheduleCommandPrewarm(): void {
 
 export const onReady = async (client: Client): Promise<void> => {
     logger.info(`Logged in as ${client.user?.tag}.`);
+
+    try {
+        registerLegacyChannelRemap(client);
+    } catch (error) {
+        logger.warn(`[LegacyChannelRemap] Failed to register: ${error instanceof Error ? error.message : String(error)}`);
+    }
 
     try {
         await runRuntimeIntegrityAudit(client);
