@@ -1,7 +1,6 @@
 'use strict';
 
 require('./preload.js');
-require('./src/runtime/csrpOutboundSanitizer.js');
 require('ts-node').register({
   transpileOnly: true,
   project: require('path').join(__dirname, 'tsconfig.json'),
@@ -114,7 +113,7 @@ client.on('shardResume', (shardId, replayed) => {
   console.log(`[DiscordGateway] Shard ${shardId} resumed replayed=${replayed}.`);
 });
 client.on('shardReconnecting', shardId => {
-  console.warn(`[DiscordGateway] Shard ${shardId} reconnecting.`);
+  console.warn(`[Discord] Shard ${shardId} reconnecting.`);
 });
 
 client.on('raw', packet => {
