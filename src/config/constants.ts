@@ -12,6 +12,10 @@ export const BRAND = {
 
 const STATIC_CHANNEL_IDS = {
     rules: process.env.CSRP_RULES_CHANNEL_ID || '1526046592187105421',
+    dashboard: process.env.DASHBOARD_CHANNEL_ID || '',
+    assistance: process.env.ASSISTANCE_CHANNEL_ID || '',
+    applications: process.env.APPLICATIONS_CHANNEL_ID || '',
+    marketplace: process.env.MARKETPLACE_CHANNEL_ID || '',
     paidPartner: process.env.PAID_PARTNER_CHANNEL_ID || '1526035127606706196',
     profanityLog: process.env.PROFANITY_LOG_CHANNEL_ID || '1529289318152274000',
     erlcCommandLog: process.env.ERLC_COMMAND_LOG_CHANNEL_ID || '1528907187081183252',
@@ -42,10 +46,9 @@ function liveChannelId(key: ChannelKey): string | undefined {
 }
 
 /**
- * Backward-compatible channel IDs. Old commands can continue using
- * CHANNEL_IDS.someKey, but after startup they receive the currently discovered
- * Discord channel ID instead of a stale hard-coded ID whenever AutoFinder has
- * resolved that logical channel key.
+ * Backward-compatible channel IDs. Once AutoFinder has run, live IDs win.
+ * New panel-only keys intentionally have no legacy fallback so recreated
+ * channels can never silently send to an obsolete server location.
  */
 export const CHANNEL_IDS = new Proxy(STATIC_CHANNEL_IDS, {
     get(target, property: string | symbol) {
@@ -59,8 +62,8 @@ export const CHANNEL_IDS = new Proxy(STATIC_CHANNEL_IDS, {
 
 export const PARTNERSHIP_ROLE_ID = process.env.PARTNERSHIP_ROLE_ID || '1521593407783440394';
 export const SESSION_START_AUTHORIZED_ROLE_ID = process.env.SESSION_START_AUTHORIZED_ROLE_ID || '1521593407804280963';
-export const INFRACTION_AUTHORIZED_ROLE_ID = process.env.INFRACTION_AUTHORIZED_ROLE_ID || '1523121675007426692';
-export const PROMOTION_AUTHORIZED_ROLE_ID = process.env.PROMOTION_AUTHORIZED_ROLE_ID || '1523121617079767151';
+export const INFRACTION_AUTHORIZED_ROLE_ID = process.env.INFRACTION_AUTHORIZED_ROLE_ID || '1546570940165656648';
+export const PROMOTION_AUTHORIZED_ROLE_ID = process.env.PROMOTION_AUTHORIZED_ROLE_ID || '1546570940165656648';
 export const TRAINING_RESULTS_AUTHORIZED_ROLE_ID = process.env.TRAINING_RESULTS_AUTHORIZED_ROLE_ID || '1521593407795888330';
 
 const CSRP_GUILD_ID = process.env.GUILD_ID || '1521593407741362257';
