@@ -209,6 +209,13 @@ client.once(Events.ClientReady, async readyClient => {
   console.log('[DiscordREST] Passive logging only; startup canary disabled so READY does not make an extra REST request.');
 
   try {
+    const { registerServerResourceResolver } = require('./src/services/serverResourceResolver.ts');
+    await registerServerResourceResolver(readyClient);
+  } catch (error) {
+    console.error('[AutoFinder] Could not initialize automatic channel/role discovery:', error?.stack || error?.message || String(error));
+  }
+
+  try {
     const { registerTicketArtworkConsistency } = require('./src/events/ticketArtworkConsistency.ts');
     registerTicketArtworkConsistency(readyClient);
   } catch (error) {
