@@ -52,9 +52,8 @@ function liveChannelId(key: ChannelKey): string | undefined {
 }
 
 /**
- * Backward-compatible channel IDs. Once AutoFinder has run, live IDs win.
- * The explicit IDs above are the authoritative fallbacks for the current
- * California State Roleplay layout.
+ * Current CSRP IDs are authoritative. AutoFinder is only a fallback for keys
+ * that do not have a configured/current ID.
  */
 export const CHANNEL_IDS = new Proxy(STATIC_CHANNEL_IDS, {
     get(target, property: string | symbol) {
@@ -62,7 +61,7 @@ export const CHANNEL_IDS = new Proxy(STATIC_CHANNEL_IDS, {
             return Reflect.get(target, property);
         }
         const key = property as ChannelKey;
-        return liveChannelId(key) || target[key];
+        return target[key] || liveChannelId(key);
     },
 }) as typeof STATIC_CHANNEL_IDS;
 
