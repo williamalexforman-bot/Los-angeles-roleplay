@@ -17,11 +17,6 @@ const caches = new Map<string, GuildCache>();
 let registeredClient: Client | null = null;
 let refreshTimer: NodeJS.Timeout | null = null;
 
-/**
- * Canonical California State Roleplay staff-role aliases.
- * The resolver tries every listed name, so minor naming differences do not
- * force the bot back onto hard-coded IDs.
- */
 export const STAFF_ROLE_ALIASES = {
   staffTeam: ['Staff Team', 'CSRP | Staff Team', 'California State Roleplay | Staff Team'],
   moderator: ['Moderator', 'Mod', 'Moderation Team', 'CSRP | Moderator', 'CSRP | Moderation Team'],
@@ -32,12 +27,12 @@ export const STAFF_ROLE_ALIASES = {
   foundership: ['Foundership', 'Founder', 'Founder Team', 'CSRP | Foundership', 'CSRP | Founder'],
 } as const;
 
-/**
- * Logical channel keys used throughout the bot. Commands can keep referring to
- * their existing key while this resolver discovers the current Discord channel.
- */
 export const CHANNEL_ALIASES = {
+  dashboard: ['dashboard', 'server-dashboard', 'staff-dashboard'],
+  assistance: ['assistance', 'support', 'tickets', 'ticket-panel', 'support-panel'],
   rules: ['rules', 'server-rules', 'information-rules'],
+  applications: ['applications', 'application', 'application-panel'],
+  marketplace: ['marketplace', 'market-place', 'shop'],
   paidPartner: ['paid-partner', 'paid-partners', 'paid-partnerships'],
   profanityLog: ['profanity-logs', 'profanity-log', 'message-moderation-logs', 'chat-logs'],
   erlcCommandLog: ['erlc-command-logs', 'erlc-commands', 'game-command-logs', 'in-game-command-logs'],
@@ -77,19 +72,28 @@ function describeMatches(kind: ResourceKind, name: string, ids: string[]): strin
   return `[AutoFinder] Duplicate ${kind} name "${name}" matched ${ids.length} items: ${ids.join(', ')}`;
 }
 
-function findUniqueByAliases<T>(
-  map: Map<string, T[]>,
-  aliases: readonly string[],
-  kind: ResourceKind,
-  label: string,
-): T | null {
+function findUniqueByAliases<T>(map: Map<string, T[]>, aliases: readonly string[], kind: ResourceKind, label: string): T | null {
   const matches = new Map<string, T>();
-
   for (const alias of aliases) {
-    const items = map.get(normalizeName(alias)) ?? [];
-    for (const item of items) {
+    const normalizedAlias = normalizeName(alias);
+    const exactItems = map.get(normalizedAlias) ?? [];
+    for (const item of exactItems) {
       const id = (item as any)?.id;
       if (id) matches.set(id, item);
+    }
+  }
+
+  if (matches.size === 0) {
+    for (const [name, items] of map.entries()) {
+      const related = aliases.some(alias => {
+        const a = normalizeName(alias);
+        return name === a || name.includes(a) || a.includes(name);
+      });
+      if (!related) continue;
+      for (const item of items) {
+        const id = (item as any)?.id;
+        if (id) matches.set(id, item);
+      }
     }
   }
 
@@ -97,15 +101,11 @@ function findUniqueByAliases<T>(
     console.warn(describeMatches(kind, label, [...matches.keys()]));
     return null;
   }
-
   return matches.values().next().value ?? null;
 }
 
 async function buildGuildCache(guild: Guild): Promise<GuildCache> {
-  await Promise.allSettled([
-    guild.channels.fetch(),
-    guild.roles.fetch(),
-  ]);
+  await Promise.allSettled([guild.channels.fetch(), guild.roles.fetch()]);
 
   const channelsByName = new Map<string, GuildBasedChannel[]>();
   for (const channel of guild.channels.cache.values()) {
@@ -123,11 +123,7 @@ async function buildGuildCache(guild: Guild): Promise<GuildCache> {
     rolesByName.set(key, current);
   }
 
-  const result: GuildCache = {
-    channelsByName,
-    rolesByName,
-    refreshedAt: Date.now(),
-  };
+  const result: GuildCache = { channelsByName, rolesByName, refreshedAt: Date.now() };
   caches.set(guild.id, result);
 
   const dynamicChannelIds: Record<string, string> = {};
@@ -148,96 +144,54 @@ async function buildGuildCache(guild: Guild): Promise<GuildCache> {
   globalState.__serverChannelIdsByKey[guild.id] = dynamicChannelIds;
   globalState.__serverRoleIdsByKey[guild.id] = dynamicRoleIds;
   globalState.__primaryGuildId ??= guild.id;
+  globalState.__autoFinderReady = true;
 
-  console.log(
-    `[AutoFinder] Indexed ${guild.channels.cache.size} channels and ${guild.roles.cache.size} roles for ${guild.name} (${guild.id}).`,
-  );
-  console.log(
-    `[AutoFinder] Resolved ${Object.keys(dynamicChannelIds).length}/${Object.keys(CHANNEL_ALIASES).length} configured channel keys and `
-    + `${Object.keys(dynamicRoleIds).length}/${Object.keys(STAFF_ROLE_ALIASES).length} staff-role keys.`,
-  );
+  console.log(`[AutoFinder] Indexed ${guild.channels.cache.size} channels and ${guild.roles.cache.size} roles for ${guild.name} (${guild.id}).`);
+  console.log(`[AutoFinder] Resolved ${Object.keys(dynamicChannelIds).length}/${Object.keys(CHANNEL_ALIASES).length} configured channel keys and ${Object.keys(dynamicRoleIds).length}/${Object.keys(STAFF_ROLE_ALIASES).length} staff-role keys.`);
 
   return result;
 }
 
 export async function refreshGuildResources(guild: Guild): Promise<void> {
-  try {
-    await buildGuildCache(guild);
-  } catch (error: any) {
-    console.error(
-      `[AutoFinder] Failed to refresh resources for ${guild.name} (${guild.id}):`,
-      error?.stack || error?.message || String(error),
-    );
-  }
+  try { await buildGuildCache(guild); }
+  catch (error: any) { console.error(`[AutoFinder] Failed to refresh resources for ${guild.name} (${guild.id}):`, error?.stack || error?.message || String(error)); }
 }
 
 async function getGuildCache(guild: Guild): Promise<GuildCache> {
   return caches.get(guild.id) ?? buildGuildCache(guild);
 }
 
-export async function findChannelByName(
-  guild: Guild,
-  name: string,
-  options: ResolveOptions = {},
-): Promise<GuildBasedChannel | null> {
+export async function findChannelByName(guild: Guild, name: string, options: ResolveOptions = {}): Promise<GuildBasedChannel | null> {
   const { required = false, exact = true } = options;
   const cache = await getGuildCache(guild);
   const wanted = normalizeName(name);
-
   let matches: GuildBasedChannel[] = [];
-  if (exact) {
-    matches = cache.channelsByName.get(wanted) ?? [];
-  } else {
-    for (const [key, channels] of cache.channelsByName.entries()) {
-      if (key.includes(wanted)) matches.push(...channels);
-    }
-  }
-
-  if (matches.length > 1) {
-    console.warn(describeMatches('channel', name, matches.map(item => item.id)));
-    return null;
-  }
-
+  if (exact) matches = cache.channelsByName.get(wanted) ?? [];
+  else for (const [key, channels] of cache.channelsByName.entries()) if (key.includes(wanted)) matches.push(...channels);
+  if (matches.length > 1) { console.warn(describeMatches('channel', name, matches.map(item => item.id))); return null; }
   if (matches.length === 0) {
     const message = `[AutoFinder] Channel not found: "${name}" in ${guild.name} (${guild.id}).`;
     if (required) throw new Error(message);
     console.warn(message);
     return null;
   }
-
   return matches[0];
 }
 
-export async function findRoleByName(
-  guild: Guild,
-  name: string,
-  options: ResolveOptions = {},
-): Promise<Role | null> {
+export async function findRoleByName(guild: Guild, name: string, options: ResolveOptions = {}): Promise<Role | null> {
   const { required = false, exact = true } = options;
   const cache = await getGuildCache(guild);
   const wanted = normalizeName(name);
-
   let matches: Role[] = [];
-  if (exact) {
-    matches = cache.rolesByName.get(wanted) ?? [];
-  } else {
-    for (const [key, roles] of cache.rolesByName.entries()) {
-      if (key.includes(wanted)) matches.push(...roles);
-    }
-  }
-
-  if (matches.length > 1) {
-    console.warn(describeMatches('role', name, matches.map(item => item.id)));
-    return null;
-  }
-
+  if (exact) matches = cache.rolesByName.get(wanted) ?? [];
+  else for (const [key, roles] of cache.rolesByName.entries()) if (key.includes(wanted)) matches.push(...roles);
+  if (matches.length > 1) { console.warn(describeMatches('role', name, matches.map(item => item.id))); return null; }
   if (matches.length === 0) {
     const message = `[AutoFinder] Role not found: "${name}" in ${guild.name} (${guild.id}).`;
     if (required) throw new Error(message);
     console.warn(message);
     return null;
   }
-
   return matches[0];
 }
 
@@ -251,27 +205,15 @@ export async function findChannelByKey(guild: Guild, key: ChannelKey): Promise<G
   return findUniqueByAliases(cache.channelsByName, CHANNEL_ALIASES[key], 'channel', key) as GuildBasedChannel | null;
 }
 
-export async function findChannelIdByName(
-  guild: Guild,
-  name: string,
-  options: ResolveOptions = {},
-): Promise<string | null> {
+export async function findChannelIdByName(guild: Guild, name: string, options: ResolveOptions = {}): Promise<string | null> {
   return (await findChannelByName(guild, name, options))?.id ?? null;
 }
 
-export async function findRoleIdByName(
-  guild: Guild,
-  name: string,
-  options: ResolveOptions = {},
-): Promise<string | null> {
+export async function findRoleIdByName(guild: Guild, name: string, options: ResolveOptions = {}): Promise<string | null> {
   return (await findRoleByName(guild, name, options))?.id ?? null;
 }
 
-export async function memberHasRoleByName(
-  guild: Guild,
-  memberRoleIds: Iterable<string>,
-  roleName: string,
-): Promise<boolean> {
+export async function memberHasRoleByName(guild: Guild, memberRoleIds: Iterable<string>, roleName: string): Promise<boolean> {
   const role = await findRoleByName(guild, roleName);
   if (!role) return false;
   return new Set(memberRoleIds).has(role.id);
@@ -288,9 +230,7 @@ function scheduleRefresh(guild: Guild, reason: string): void {
   if (state[key]) clearTimeout(state[key]);
   state[key] = setTimeout(() => {
     delete state[key];
-    void refreshGuildResources(guild).then(() => {
-      console.log(`[AutoFinder] Refreshed ${guild.name} after ${reason}.`);
-    });
+    void refreshGuildResources(guild).then(() => console.log(`[AutoFinder] Refreshed ${guild.name} after ${reason}.`));
   }, 750);
   state[key].unref?.();
 }
@@ -298,43 +238,24 @@ function scheduleRefresh(guild: Guild, reason: string): void {
 export async function registerServerResourceResolver(client: Client): Promise<void> {
   if (registeredClient === client) return;
   registeredClient = client;
-
   (client as any).serverResourceResolver = {
-    refreshGuildResources,
-    findChannelByName,
-    findRoleByName,
-    findChannelByKey,
-    findStaffRole,
-    findChannelIdByName,
-    findRoleIdByName,
-    memberHasRoleByName,
-    memberHasStaffRole,
-    STAFF_ROLE_ALIASES,
-    CHANNEL_ALIASES,
+    refreshGuildResources, findChannelByName, findRoleByName, findChannelByKey, findStaffRole,
+    findChannelIdByName, findRoleIdByName, memberHasRoleByName, memberHasStaffRole,
+    STAFF_ROLE_ALIASES, CHANNEL_ALIASES,
   };
 
-  for (const guild of client.guilds.cache.values()) {
-    await refreshGuildResources(guild);
-  }
+  for (const guild of client.guilds.cache.values()) await refreshGuildResources(guild);
 
   client.on('guildCreate', guild => void refreshGuildResources(guild));
-  client.on('channelCreate', channel => {
-    if (channel.guild) scheduleRefresh(channel.guild, 'channelCreate');
-  });
-  client.on('channelUpdate', (_oldChannel, newChannel) => {
-    if (newChannel.guild) scheduleRefresh(newChannel.guild, 'channelUpdate');
-  });
-  client.on('channelDelete', channel => {
-    if (channel.guild) scheduleRefresh(channel.guild, 'channelDelete');
-  });
+  client.on('channelCreate', channel => { if (channel.guild) scheduleRefresh(channel.guild, 'channelCreate'); });
+  client.on('channelUpdate', (_oldChannel, newChannel) => { if (newChannel.guild) scheduleRefresh(newChannel.guild, 'channelUpdate'); });
+  client.on('channelDelete', channel => { if (channel.guild) scheduleRefresh(channel.guild, 'channelDelete'); });
   client.on('roleCreate', role => scheduleRefresh(role.guild, 'roleCreate'));
   client.on('roleUpdate', (_oldRole, newRole) => scheduleRefresh(newRole.guild, 'roleUpdate'));
   client.on('roleDelete', role => scheduleRefresh(role.guild, 'roleDelete'));
 
   refreshTimer = setInterval(() => {
-    for (const guild of client.guilds.cache.values()) {
-      void refreshGuildResources(guild);
-    }
+    for (const guild of client.guilds.cache.values()) void refreshGuildResources(guild);
   }, 15 * 60 * 1000);
   refreshTimer.unref?.();
 
