@@ -1,6 +1,7 @@
 'use strict';
 
 require('./preload.js');
+require('./src/runtime/outboundBrandSanitizer.js').installOutboundBrandSanitizer();
 require('ts-node').register({
   transpileOnly: true,
   project: require('path').join(__dirname, 'tsconfig.json'),
