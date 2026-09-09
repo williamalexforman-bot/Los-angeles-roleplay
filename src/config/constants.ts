@@ -11,25 +11,31 @@ export const BRAND = {
 } as const;
 
 const STATIC_CHANNEL_IDS = {
-    rules: process.env.CSRP_RULES_CHANNEL_ID || '1526046592187105421',
-    dashboard: process.env.DASHBOARD_CHANNEL_ID || '',
-    assistance: process.env.ASSISTANCE_CHANNEL_ID || '',
-    applications: process.env.APPLICATIONS_CHANNEL_ID || '',
-    marketplace: process.env.MARKETPLACE_CHANNEL_ID || '',
-    paidPartner: process.env.PAID_PARTNER_CHANNEL_ID || '1526035127606706196',
+    rules: process.env.CSRP_RULES_CHANNEL_ID || '1546571348220837948',
+    dashboard: process.env.DASHBOARD_CHANNEL_ID || '1546571345809121280',
+    assistance: process.env.ASSISTANCE_CHANNEL_ID || '1546571353459794000',
+    ticketPanel: process.env.TICKET_PANEL_CHANNEL_ID || '1546571353459794000',
+    generalSupportTickets: process.env.GENERAL_SUPPORT_TICKET_CHANNEL_ID || '1547380073609298030',
+    highRankTickets: process.env.HIGH_RANK_TICKET_CHANNEL_ID || '1547379897188618321',
+    internalAffairsTickets: process.env.INTERNAL_AFFAIRS_TICKET_CHANNEL_ID || '1547379811553509487',
+    applications: process.env.APPLICATIONS_CHANNEL_ID || '1546571350804660331',
+    marketplace: process.env.MARKETPLACE_CHANNEL_ID || '1546571372786884779',
+    paidPartner: process.env.PAID_PARTNER_CHANNEL_ID || '1546571378470424677',
+    paidAds: process.env.PAID_AD_CHANNEL_ID || '1546571378470424677',
+    partnershipRequests: process.env.PARTNERSHIP_REQUEST_CHANNEL_ID || '1546571375521693696',
+    sessionAnnouncements: process.env.SESSION_ANNOUNCEMENT_CHANNEL_ID || '1546571384451366982',
+    trainingResults: process.env.TRAINING_RESULTS_CHANNEL_ID || '1546571451669282979',
+    trainingRequests: process.env.TRAINING_REQUEST_CHANNEL_ID || '1546571450255941802',
+    promotions: process.env.PROMOTION_CHANNEL_ID || '1546571427170353262',
+    infractionParent: process.env.INFRACTION_PARENT_CHANNEL_ID || '1546571428663664810',
     profanityLog: process.env.PROFANITY_LOG_CHANNEL_ID || '1529289318152274000',
     erlcCommandLog: process.env.ERLC_COMMAND_LOG_CHANNEL_ID || '1528907187081183252',
     raidThreatLog: process.env.RAID_THREAT_LOG_CHANNEL_ID || '1529287167203872838',
     discordCommandLog: process.env.DISCORD_COMMAND_LOG_CHANNEL_ID || '1528917592604020917',
     erlcTeamChangeLog: process.env.ERLC_TEAM_CHANGE_LOG_CHANNEL_ID || '1528917232153923635',
     erlcPunishmentLog: process.env.ERLC_PUNISHMENT_LOG_CHANNEL_ID || '1528917189699043439',
-    sessionAnnouncements: process.env.SESSION_ANNOUNCEMENT_CHANNEL_ID || '1526036392147423404',
-    trainingResults: process.env.TRAINING_RESULTS_CHANNEL_ID || '1526490481398124614',
-    infractionParent: process.env.INFRACTION_PARENT_CHANNEL_ID || '1526044664975851642',
     staffFeedback: process.env.STAFF_FEEDBACK_CHANNEL_ID || '1526041844515868745',
-    partnershipRequests: process.env.PARTNERSHIP_REQUEST_CHANNEL_ID || '1527122924975165530',
     staffComplaints: process.env.STAFF_COMPLAINT_CHANNEL_ID || '1527139806797369504',
-    promotions: process.env.PROMOTION_CHANNEL_ID || '1526044978109743255',
     movieFeedback: process.env.MOVIE_FEEDBACK_CHANNEL_ID || '1528933044310904884',
     suggestions: process.env.SUGGESTION_CHANNEL_ID || '1538693259621044264',
     giveaways: process.env.GIVEAWAY_CHANNEL_ID || '1526036762848137318',
@@ -47,8 +53,8 @@ function liveChannelId(key: ChannelKey): string | undefined {
 
 /**
  * Backward-compatible channel IDs. Once AutoFinder has run, live IDs win.
- * New panel-only keys intentionally have no legacy fallback so recreated
- * channels can never silently send to an obsolete server location.
+ * The explicit IDs above are the authoritative fallbacks for the current
+ * California State Roleplay layout.
  */
 export const CHANNEL_IDS = new Proxy(STATIC_CHANNEL_IDS, {
     get(target, property: string | symbol) {
