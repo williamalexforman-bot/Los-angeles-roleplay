@@ -18,6 +18,7 @@ export const STAFF_ROLE_ALIASES = {
   administrator: ['Administrator', 'Admin', 'Administration Team', 'CSRP | Administrator', 'CSRP | Administration Team'],
   internalAffairs: ['Internal Affairs', 'IA', 'Internal Affairs Team', 'CSRP | Internal Affairs'],
   management: ['Management', 'Management Team', 'MGMT', 'CSRP | Management'],
+  highRank: ['High Rank', 'High Rank Team', 'HR', 'CSRP | High Rank', 'California State Roleplay | High Rank'],
   directive: ['Directive', 'Directive Team', 'CSRP | Directive'],
   foundership: ['Foundership', 'Founder', 'Founder Team', 'CSRP | Foundership', 'CSRP | Founder'],
 } as const;
