@@ -17,17 +17,91 @@ const caches = new Map<string, GuildCache>();
 let registeredClient: Client | null = null;
 let refreshTimer: NodeJS.Timeout | null = null;
 
+/**
+ * Canonical California State Roleplay staff-role aliases.
+ * The resolver tries every listed name, so minor naming differences do not
+ * force the bot back onto hard-coded IDs.
+ */
+export const STAFF_ROLE_ALIASES = {
+  staffTeam: ['Staff Team', 'CSRP | Staff Team', 'California State Roleplay | Staff Team'],
+  moderator: ['Moderator', 'Mod', 'Moderation Team', 'CSRP | Moderator', 'CSRP | Moderation Team'],
+  administrator: ['Administrator', 'Admin', 'Administration Team', 'CSRP | Administrator', 'CSRP | Administration Team'],
+  internalAffairs: ['Internal Affairs', 'IA', 'Internal Affairs Team', 'CSRP | Internal Affairs'],
+  management: ['Management', 'Management Team', 'MGMT', 'CSRP | Management'],
+  directive: ['Directive', 'Directive Team', 'CSRP | Directive'],
+  foundership: ['Foundership', 'Founder', 'Founder Team', 'CSRP | Foundership', 'CSRP | Founder'],
+} as const;
+
+/**
+ * Logical channel keys used throughout the bot. Commands can keep referring to
+ * their existing key while this resolver discovers the current Discord channel.
+ */
+export const CHANNEL_ALIASES = {
+  rules: ['rules', 'server-rules', 'information-rules'],
+  paidPartner: ['paid-partner', 'paid-partners', 'paid-partnerships'],
+  profanityLog: ['profanity-logs', 'profanity-log', 'message-moderation-logs', 'chat-logs'],
+  erlcCommandLog: ['erlc-command-logs', 'erlc-commands', 'game-command-logs', 'in-game-command-logs'],
+  raidThreatLog: ['raid-threat-logs', 'raid-logs', 'raid-alerts'],
+  discordCommandLog: ['discord-command-logs', 'command-logs', 'bot-command-logs'],
+  erlcTeamChangeLog: ['erlc-team-change-logs', 'team-change-logs', 'team-logs'],
+  erlcPunishmentLog: ['erlc-punishment-logs', 'punishment-logs', 'moderation-logs'],
+  sessionAnnouncements: ['session-announcements', 'sessions', 'session-information'],
+  trainingResults: ['training-results', 'trainings', 'training-logs'],
+  infractionParent: ['infractions', 'infraction-logs', 'staff-infractions'],
+  staffFeedback: ['staff-feedback', 'feedback'],
+  partnershipRequests: ['partnership-requests', 'partnerships'],
+  staffComplaints: ['staff-complaints', 'internal-affairs', 'ia-reports'],
+  promotions: ['promotions', 'promotion-logs'],
+  movieFeedback: ['movie-feedback'],
+  suggestions: ['suggestions', 'server-suggestions'],
+  giveaways: ['giveaways', 'giveaway'],
+  memberJoinLog: ['member-join-logs', 'join-logs', 'member-logs'],
+  privateAudit: ['private-audit', 'audit-logs', 'staff-audit-logs', 'discord-command-logs', 'command-logs'],
+} as const;
+
+type StaffRoleKey = keyof typeof STAFF_ROLE_ALIASES;
+type ChannelKey = keyof typeof CHANNEL_ALIASES;
+
 function normalizeName(value: string): string {
-  return value.trim().toLowerCase();
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[│┃｜|]/g, ' ')
+    .replace(/[・•·]/g, ' ')
+    .replace(/[_\s]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
 }
 
 function describeMatches(kind: ResourceKind, name: string, ids: string[]): string {
   return `[AutoFinder] Duplicate ${kind} name "${name}" matched ${ids.length} items: ${ids.join(', ')}`;
 }
 
+function findUniqueByAliases<T>(
+  map: Map<string, T[]>,
+  aliases: readonly string[],
+  kind: ResourceKind,
+  label: string,
+): T | null {
+  const matches = new Map<string, T>();
+
+  for (const alias of aliases) {
+    const items = map.get(normalizeName(alias)) ?? [];
+    for (const item of items) {
+      const id = (item as any)?.id;
+      if (id) matches.set(id, item);
+    }
+  }
+
+  if (matches.size > 1) {
+    console.warn(describeMatches(kind, label, [...matches.keys()]));
+    return null;
+  }
+
+  return matches.values().next().value ?? null;
+}
+
 async function buildGuildCache(guild: Guild): Promise<GuildCache> {
-  // Fetch from Discord instead of trusting only the local cache. This keeps the
-  // resolver correct after restarts and after channels/roles are recreated.
   await Promise.allSettled([
     guild.channels.fetch(),
     guild.roles.fetch(),
@@ -56,8 +130,31 @@ async function buildGuildCache(guild: Guild): Promise<GuildCache> {
   };
   caches.set(guild.id, result);
 
+  const dynamicChannelIds: Record<string, string> = {};
+  for (const [key, aliases] of Object.entries(CHANNEL_ALIASES)) {
+    const channel = findUniqueByAliases(channelsByName, aliases, 'channel', key) as GuildBasedChannel | null;
+    if (channel) dynamicChannelIds[key] = channel.id;
+  }
+
+  const dynamicRoleIds: Record<string, string> = {};
+  for (const [key, aliases] of Object.entries(STAFF_ROLE_ALIASES)) {
+    const role = findUniqueByAliases(rolesByName, aliases, 'role', key) as Role | null;
+    if (role) dynamicRoleIds[key] = role.id;
+  }
+
+  const globalState = globalThis as any;
+  globalState.__serverChannelIdsByKey ??= {};
+  globalState.__serverRoleIdsByKey ??= {};
+  globalState.__serverChannelIdsByKey[guild.id] = dynamicChannelIds;
+  globalState.__serverRoleIdsByKey[guild.id] = dynamicRoleIds;
+  globalState.__primaryGuildId ??= guild.id;
+
   console.log(
     `[AutoFinder] Indexed ${guild.channels.cache.size} channels and ${guild.roles.cache.size} roles for ${guild.name} (${guild.id}).`,
+  );
+  console.log(
+    `[AutoFinder] Resolved ${Object.keys(dynamicChannelIds).length}/${Object.keys(CHANNEL_ALIASES).length} configured channel keys and `
+    + `${Object.keys(dynamicRoleIds).length}/${Object.keys(STAFF_ROLE_ALIASES).length} staff-role keys.`,
   );
 
   return result;
@@ -144,6 +241,16 @@ export async function findRoleByName(
   return matches[0];
 }
 
+export async function findStaffRole(guild: Guild, key: StaffRoleKey): Promise<Role | null> {
+  const cache = await getGuildCache(guild);
+  return findUniqueByAliases(cache.rolesByName, STAFF_ROLE_ALIASES[key], 'role', key) as Role | null;
+}
+
+export async function findChannelByKey(guild: Guild, key: ChannelKey): Promise<GuildBasedChannel | null> {
+  const cache = await getGuildCache(guild);
+  return findUniqueByAliases(cache.channelsByName, CHANNEL_ALIASES[key], 'channel', key) as GuildBasedChannel | null;
+}
+
 export async function findChannelIdByName(
   guild: Guild,
   name: string,
@@ -170,9 +277,12 @@ export async function memberHasRoleByName(
   return new Set(memberRoleIds).has(role.id);
 }
 
+export function memberHasStaffRole(memberRoleIds: Iterable<string>, guildId: string, key: StaffRoleKey): boolean {
+  const id = (globalThis as any).__serverRoleIdsByKey?.[guildId]?.[key];
+  return Boolean(id && new Set(memberRoleIds).has(id));
+}
+
 function scheduleRefresh(guild: Guild, reason: string): void {
-  // Discord can emit several events during channel/category or role changes.
-  // Debouncing prevents unnecessary REST requests while still refreshing fast.
   const key = `__autofinder_${guild.id}`;
   const state = globalThis as any;
   if (state[key]) clearTimeout(state[key]);
@@ -189,14 +299,18 @@ export async function registerServerResourceResolver(client: Client): Promise<vo
   if (registeredClient === client) return;
   registeredClient = client;
 
-  // Make the resolver accessible to legacy command files while they are migrated.
   (client as any).serverResourceResolver = {
     refreshGuildResources,
     findChannelByName,
     findRoleByName,
+    findChannelByKey,
+    findStaffRole,
     findChannelIdByName,
     findRoleIdByName,
     memberHasRoleByName,
+    memberHasStaffRole,
+    STAFF_ROLE_ALIASES,
+    CHANNEL_ALIASES,
   };
 
   for (const guild of client.guilds.cache.values()) {
@@ -217,7 +331,6 @@ export async function registerServerResourceResolver(client: Client): Promise<vo
   client.on('roleUpdate', (_oldRole, newRole) => scheduleRefresh(newRole.guild, 'roleUpdate'));
   client.on('roleDelete', role => scheduleRefresh(role.guild, 'roleDelete'));
 
-  // Periodic safety refresh catches changes missed during gateway reconnects.
   refreshTimer = setInterval(() => {
     for (const guild of client.guilds.cache.values()) {
       void refreshGuildResources(guild);
