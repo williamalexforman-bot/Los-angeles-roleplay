@@ -3,15 +3,94 @@
 // Voice moderation was permanently removed. Message-content moderation is
 // configured by the active root client in index.js and is not controlled here.
 process.env.VOICE_MODERATION_ENABLED = 'false';
-
-// TEMPORARY OWNER SAFETY MODE.
-// Server Security was the separate join-protection system that removed bots
-// which were not allowlisted and then posted a security/unusual-join alert.
-// Keep it completely disabled until the owner explicitly asks to restore it.
 process.env.SECURITY_PROTECTION_ENABLED = 'false';
 
 function errorText(error) {
   return error instanceof Error ? (error.stack || error.message) : String(error);
+}
+
+// OWNER ARTWORK RESET MODE.
+// Until the new California State Roleplay artwork is supplied, prevent legacy
+// banners/emblems/underbanners from being sent even if an older feature module
+// still attaches them directly.
+try {
+  const { REST } = require('discord.js');
+  const artworkKey = Symbol.for('csrp.legacyArtworkSuppression');
+  if (!REST.prototype[artworkKey]) {
+    const originalPost = REST.prototype.post;
+    const originalPatch = REST.prototype.patch;
+    const blockedArtwork = /(banner|emblem|underbanner)/i;
+
+    Object.defineProperty(REST.prototype, artworkKey, {
+      value: true,
+      enumerable: false,
+      configurable: false,
+      writable: false,
+    });
+
+    function scrubComponents(value) {
+      if (!Array.isArray(value)) return value;
+      return value
+        .filter(component => {
+          try {
+            const raw = JSON.stringify(component);
+            return !(raw.includes('attachment://') && blockedArtwork.test(raw));
+          } catch {
+            return true;
+          }
+        })
+        .map(component => {
+          if (!component || typeof component !== 'object') return component;
+          const copy = { ...component };
+          if (Array.isArray(copy.components)) copy.components = scrubComponents(copy.components);
+          return copy;
+        });
+    }
+
+    function scrubEmbeds(embeds) {
+      if (!Array.isArray(embeds)) return embeds;
+      return embeds.map(embed => {
+        if (!embed || typeof embed !== 'object') return embed;
+        const copy = { ...embed };
+        const imageUrl = copy.image?.url || '';
+        const thumbUrl = copy.thumbnail?.url || '';
+        if (blockedArtwork.test(imageUrl)) delete copy.image;
+        if (blockedArtwork.test(thumbUrl)) delete copy.thumbnail;
+        return copy;
+      });
+    }
+
+    function sanitizeOptions(options) {
+      if (!options || typeof options !== 'object') return options;
+      const next = { ...options };
+      if (Array.isArray(next.files)) {
+        next.files = next.files.filter(file => {
+          const name = String(file?.name || file?.data?.name || file?.filename || '');
+          return !blockedArtwork.test(name);
+        });
+      }
+      if (next.body && typeof next.body === 'object') {
+        next.body = { ...next.body };
+        if (Array.isArray(next.body.components)) next.body.components = scrubComponents(next.body.components);
+        if (Array.isArray(next.body.embeds)) next.body.embeds = scrubEmbeds(next.body.embeds);
+        if (Array.isArray(next.body.attachments)) {
+          next.body.attachments = next.body.attachments.filter(att => !blockedArtwork.test(String(att?.filename || '')));
+        }
+      }
+      return next;
+    }
+
+    REST.prototype.post = function csrpArtworkSafePost(route, options) {
+      return originalPost.call(this, route, sanitizeOptions(options));
+    };
+    REST.prototype.patch = function csrpArtworkSafePatch(route, options) {
+      return originalPatch.call(this, route, sanitizeOptions(options));
+    };
+
+    console.log('[ArtworkReset] Legacy banners, emblems, and underbanners are globally suppressed until new CSRP artwork is installed.');
+  }
+} catch (error) {
+  console.error('[ArtworkReset] Could not install legacy artwork suppression:', errorText(error));
 }
 
 // Render has previously returned an HTML 429 for Discord's authenticated
@@ -56,13 +135,9 @@ try {
   console.error('[DiscordRecovery] Could not install gateway-discovery bypass:', errorText(error));
 }
 
-// TEMPORARY MODERATION LOCKDOWN.
-// Keep both false until the owner explicitly asks to turn Discord removals back on.
 const BAN_ACTIONS_ENABLED = false;
 const KICK_ACTIONS_ENABLED = false;
 
-// First layer: block the high-level discord.js APIs themselves. This prevents
-// server-security code, commands, and future handlers from ever reaching REST.
 try {
   const discord = require('discord.js');
   const highLevelKey = Symbol.for('larp.highLevelRemovalLockdown');
@@ -107,7 +182,6 @@ try {
   console.error('[RemovalLockdown] Could not install high-level member-removal guard:', errorText(error));
 }
 
-// Second layer: block the raw discord.js REST routes as a backstop.
 try {
   const { REST } = require('discord.js');
   const guardKey = Symbol.for('larp.memberRemovalLockdown');
@@ -184,7 +258,7 @@ async function sendRenderKeepAlive() {
     const response = await fetch(url, {
       method: 'GET',
       cache: 'no-store',
-      headers: { 'User-Agent': 'LARP-Discord-Bot-KeepAlive/1.0' },
+      headers: { 'User-Agent': 'CSRP-Discord-Bot-KeepAlive/1.0' },
       signal: AbortSignal.timeout(10_000),
     });
     lastRenderKeepAliveAt = Date.now();
