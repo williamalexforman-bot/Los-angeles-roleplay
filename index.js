@@ -1,7 +1,7 @@
 'use strict';
 
 require('./preload.js');
-require('./src/runtime/outboundBrandSanitizer.js').installOutboundBrandSanitizer();
+require('./src/runtime/csrpOutboundSanitizer.js');
 require('ts-node').register({
   transpileOnly: true,
   project: require('path').join(__dirname, 'tsconfig.json'),
@@ -13,6 +13,7 @@ const {
   Client,
   Events,
   GatewayIntentBits,
+  MessageFlags,
   Partials,
 } = require('discord.js');
 
@@ -152,6 +153,46 @@ try {
   console.error('[InteractionBridge] Stable router failed to load:', error?.stack || error?.message || String(error));
 }
 
+const HIGH_RANK_SESSION_COMMANDS = new Set([
+  'session-start',
+  'session-vote',
+  'session-end',
+  'session-boost',
+  'session-full',
+]);
+
+async function enforceHighRankSessionPermission(interaction) {
+  if (!interaction.isChatInputCommand?.() || !HIGH_RANK_SESSION_COMMANDS.has(interaction.commandName)) return true;
+  if (!interaction.guild) return false;
+
+  const resolver = interaction.client?.serverResourceResolver;
+  let highRankRole = null;
+  if (resolver?.findStaffRole) {
+    highRankRole = await resolver.findStaffRole(interaction.guild, 'highRank').catch(() => null);
+  }
+  if (!highRankRole) {
+    highRankRole = interaction.guild.roles.cache.find(role => {
+      const name = String(role.name || '').toLowerCase().replace(/[│┃｜|]/g, ' ').replace(/[_\s]+/g, '-');
+      return name === 'high-rank' || name === 'csrp-high-rank' || name.includes('high-rank');
+    }) || null;
+  }
+
+  const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
+  const allowed = Boolean(highRankRole && member?.roles.cache.has(highRankRole.id));
+  if (allowed) return true;
+
+  const message = highRankRole
+    ? `You need the <@&${highRankRole.id}> role to use session commands.`
+    : 'You need the **High Rank** role to use session commands. The bot could not find that role, so this command was blocked safely.';
+
+  if (!interaction.replied && !interaction.deferred) {
+    await interaction.reply({ content: message, flags: MessageFlags.Ephemeral }).catch(() => undefined);
+  } else {
+    await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral }).catch(() => undefined);
+  }
+  return false;
+}
+
 async function stableInteractionListener(interaction) {
   const startedAt = Date.now();
   const isSlash = interaction.isChatInputCommand?.() === true;
@@ -168,6 +209,10 @@ async function stableInteractionListener(interaction) {
   }
 
   try {
+    if (!(await enforceHighRankSessionPermission(interaction))) {
+      console.log(`[SessionPermission] BLOCKED /${name} for user=${interaction.user?.id || 'unknown'}; High Rank required.`);
+      return;
+    }
     await stableRouter(interaction);
     console.log(
       `[InteractionBridge] HANDLED ${name} in ${Date.now() - startedAt}ms`
