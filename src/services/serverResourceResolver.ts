@@ -1,12 +1,7 @@
 import type { Client, Guild, GuildBasedChannel, Role } from 'discord.js';
 
 type ResourceKind = 'channel' | 'role';
-
-type ResolveOptions = {
-  required?: boolean;
-  exact?: boolean;
-};
-
+type ResolveOptions = { required?: boolean; exact?: boolean };
 type GuildCache = {
   channelsByName: Map<string, GuildBasedChannel[]>;
   rolesByName: Map<string, Role[]>;
@@ -30,23 +25,29 @@ export const STAFF_ROLE_ALIASES = {
 export const CHANNEL_ALIASES = {
   dashboard: ['dashboard', 'server-dashboard', 'staff-dashboard'],
   assistance: ['assistance', 'support', 'tickets', 'ticket-panel', 'support-panel'],
+  ticketPanel: ['ticket-panel', 'tickets', 'support-panel', 'assistance'],
+  generalSupportTickets: ['general-support', 'general-support-tickets', 'support-tickets'],
+  highRankTickets: ['high-rank', 'high-rank-tickets', 'hr-tickets'],
+  internalAffairsTickets: ['internal-affairs', 'internal-affairs-tickets', 'ia-tickets'],
   rules: ['rules', 'server-rules', 'information-rules'],
   applications: ['applications', 'application', 'application-panel'],
   marketplace: ['marketplace', 'market-place', 'shop'],
-  paidPartner: ['paid-partner', 'paid-partners', 'paid-partnerships'],
+  paidPartner: ['paid-ad', 'paid-ads', 'paid-advertisement', 'advertisements'],
+  paidAds: ['paid-ad', 'paid-ads', 'paid-advertisement', 'advertisements'],
+  partnershipRequests: ['partnership', 'partnerships', 'partnership-requests'],
+  sessionAnnouncements: ['session', 'sessions', 'session-announcements', 'session-information'],
+  trainingResults: ['training-results', 'training-result', 'training-logs'],
+  trainingRequests: ['training-request', 'training-requests', 'request-training'],
+  infractionParent: ['infraction', 'infractions', 'infraction-logs', 'staff-infractions'],
+  promotions: ['promotion', 'promotions', 'promotion-logs'],
   profanityLog: ['profanity-logs', 'profanity-log', 'message-moderation-logs', 'chat-logs'],
   erlcCommandLog: ['erlc-command-logs', 'erlc-commands', 'game-command-logs', 'in-game-command-logs'],
   raidThreatLog: ['raid-threat-logs', 'raid-logs', 'raid-alerts'],
   discordCommandLog: ['discord-command-logs', 'command-logs', 'bot-command-logs'],
   erlcTeamChangeLog: ['erlc-team-change-logs', 'team-change-logs', 'team-logs'],
   erlcPunishmentLog: ['erlc-punishment-logs', 'punishment-logs', 'moderation-logs'],
-  sessionAnnouncements: ['session-announcements', 'sessions', 'session-information'],
-  trainingResults: ['training-results', 'trainings', 'training-logs'],
-  infractionParent: ['infractions', 'infraction-logs', 'staff-infractions'],
   staffFeedback: ['staff-feedback', 'feedback'],
-  partnershipRequests: ['partnership-requests', 'partnerships'],
   staffComplaints: ['staff-complaints', 'internal-affairs', 'ia-reports'],
-  promotions: ['promotions', 'promotion-logs'],
   movieFeedback: ['movie-feedback'],
   suggestions: ['suggestions', 'server-suggestions'],
   giveaways: ['giveaways', 'giveaway'],
@@ -58,14 +59,7 @@ type StaffRoleKey = keyof typeof STAFF_ROLE_ALIASES;
 type ChannelKey = keyof typeof CHANNEL_ALIASES;
 
 function normalizeName(value: string): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[│┃｜|]/g, ' ')
-    .replace(/[・•·]/g, ' ')
-    .replace(/[_\s]+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '');
+  return value.trim().toLowerCase().replace(/[│┃｜|]/g, ' ').replace(/[・•·]/g, ' ').replace(/[_\s]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
 }
 
 function describeMatches(kind: ResourceKind, name: string, ids: string[]): string {
@@ -75,14 +69,12 @@ function describeMatches(kind: ResourceKind, name: string, ids: string[]): strin
 function findUniqueByAliases<T>(map: Map<string, T[]>, aliases: readonly string[], kind: ResourceKind, label: string): T | null {
   const matches = new Map<string, T>();
   for (const alias of aliases) {
-    const normalizedAlias = normalizeName(alias);
-    const exactItems = map.get(normalizedAlias) ?? [];
+    const exactItems = map.get(normalizeName(alias)) ?? [];
     for (const item of exactItems) {
       const id = (item as any)?.id;
       if (id) matches.set(id, item);
     }
   }
-
   if (matches.size === 0) {
     for (const [name, items] of map.entries()) {
       const related = aliases.some(alias => {
@@ -96,7 +88,6 @@ function findUniqueByAliases<T>(map: Map<string, T[]>, aliases: readonly string[
       }
     }
   }
-
   if (matches.size > 1) {
     console.warn(describeMatches(kind, label, [...matches.keys()]));
     return null;
@@ -148,7 +139,6 @@ async function buildGuildCache(guild: Guild): Promise<GuildCache> {
 
   console.log(`[AutoFinder] Indexed ${guild.channels.cache.size} channels and ${guild.roles.cache.size} roles for ${guild.name} (${guild.id}).`);
   console.log(`[AutoFinder] Resolved ${Object.keys(dynamicChannelIds).length}/${Object.keys(CHANNEL_ALIASES).length} configured channel keys and ${Object.keys(dynamicRoleIds).length}/${Object.keys(STAFF_ROLE_ALIASES).length} staff-role keys.`);
-
   return result;
 }
 
@@ -243,9 +233,7 @@ export async function registerServerResourceResolver(client: Client): Promise<vo
     findChannelIdByName, findRoleIdByName, memberHasRoleByName, memberHasStaffRole,
     STAFF_ROLE_ALIASES, CHANNEL_ALIASES,
   };
-
   for (const guild of client.guilds.cache.values()) await refreshGuildResources(guild);
-
   client.on('guildCreate', guild => void refreshGuildResources(guild));
   client.on('channelCreate', channel => { if (channel.guild) scheduleRefresh(channel.guild, 'channelCreate'); });
   client.on('channelUpdate', (_oldChannel, newChannel) => { if (newChannel.guild) scheduleRefresh(newChannel.guild, 'channelUpdate'); });
@@ -253,12 +241,10 @@ export async function registerServerResourceResolver(client: Client): Promise<vo
   client.on('roleCreate', role => scheduleRefresh(role.guild, 'roleCreate'));
   client.on('roleUpdate', (_oldRole, newRole) => scheduleRefresh(newRole.guild, 'roleUpdate'));
   client.on('roleDelete', role => scheduleRefresh(role.guild, 'roleDelete'));
-
   refreshTimer = setInterval(() => {
     for (const guild of client.guilds.cache.values()) void refreshGuildResources(guild);
   }, 15 * 60 * 1000);
   refreshTimer.unref?.();
-
   console.log('[AutoFinder] Automatic channel and role discovery is active.');
 }
 
