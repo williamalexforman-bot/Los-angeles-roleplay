@@ -1,16 +1,16 @@
 import path from 'path';
 
 export const BRAND = {
-    name: 'Los Angeles Roleplay',
+    name: 'California State Roleplay',
     color: 0x247BF1 as number,
-    footer: 'Los Angeles Roleplay | Realism at its Finest',
+    footer: 'California State Roleplay | Realism at its Finest',
     panelFooter: 'Realism at its Finest',
     logoName: 'larp-logo.png',
     logoPath: path.resolve(process.cwd(), 'assets', 'larp-logo.png'),
     logoUrl: 'attachment://larp-logo.png',
 } as const;
 
-export const CHANNEL_IDS = {
+const STATIC_CHANNEL_IDS = {
     rules: process.env.CSRP_RULES_CHANNEL_ID || '1526046592187105421',
     paidPartner: process.env.PAID_PARTNER_CHANNEL_ID || '1526035127606706196',
     profanityLog: process.env.PROFANITY_LOG_CHANNEL_ID || '1529289318152274000',
@@ -33,16 +33,44 @@ export const CHANNEL_IDS = {
     privateAudit: process.env.PRIVATE_AUDIT_LOG_CHANNEL_ID || process.env.DISCORD_COMMAND_LOG_CHANNEL_ID || '1528917592604020917',
 } as const;
 
+type ChannelKey = keyof typeof STATIC_CHANNEL_IDS;
+
+function liveChannelId(key: ChannelKey): string | undefined {
+    const state = globalThis as any;
+    const guildId = state.__primaryGuildId || process.env.GUILD_ID;
+    return guildId ? state.__serverChannelIdsByKey?.[guildId]?.[key] : undefined;
+}
+
+/**
+ * Backward-compatible channel IDs. Old commands can continue using
+ * CHANNEL_IDS.someKey, but after startup they receive the currently discovered
+ * Discord channel ID instead of a stale hard-coded ID whenever AutoFinder has
+ * resolved that logical channel key.
+ */
+export const CHANNEL_IDS = new Proxy(STATIC_CHANNEL_IDS, {
+    get(target, property: string | symbol) {
+        if (typeof property !== 'string' || !(property in target)) {
+            return Reflect.get(target, property);
+        }
+        const key = property as ChannelKey;
+        return liveChannelId(key) || target[key];
+    },
+}) as typeof STATIC_CHANNEL_IDS;
+
 export const PARTNERSHIP_ROLE_ID = process.env.PARTNERSHIP_ROLE_ID || '1521593407783440394';
-export const SESSION_START_AUTHORIZED_ROLE_ID = '1521593407804280963';
-export const INFRACTION_AUTHORIZED_ROLE_ID = '1523121675007426692';
-export const PROMOTION_AUTHORIZED_ROLE_ID = '1523121617079767151';
-export const TRAINING_RESULTS_AUTHORIZED_ROLE_ID = '1521593407795888330';
+export const SESSION_START_AUTHORIZED_ROLE_ID = process.env.SESSION_START_AUTHORIZED_ROLE_ID || '1521593407804280963';
+export const INFRACTION_AUTHORIZED_ROLE_ID = process.env.INFRACTION_AUTHORIZED_ROLE_ID || '1523121675007426692';
+export const PROMOTION_AUTHORIZED_ROLE_ID = process.env.PROMOTION_AUTHORIZED_ROLE_ID || '1523121617079767151';
+export const TRAINING_RESULTS_AUTHORIZED_ROLE_ID = process.env.TRAINING_RESULTS_AUTHORIZED_ROLE_ID || '1521593407795888330';
 
 const CSRP_GUILD_ID = process.env.GUILD_ID || '1521593407741362257';
 
 export const SUPPORT_LINKS = {
-    rules: `https://discord.com/channels/${CSRP_GUILD_ID}/${CHANNEL_IDS.rules}`,
-    paidPartner: `https://discord.com/channels/${CSRP_GUILD_ID}/${CHANNEL_IDS.paidPartner}`,
+    get rules() {
+        return `https://discord.com/channels/${CSRP_GUILD_ID}/${CHANNEL_IDS.rules}`;
+    },
+    get paidPartner() {
+        return `https://discord.com/channels/${CSRP_GUILD_ID}/${CHANNEL_IDS.paidPartner}`;
+    },
     officialErlcCommunityGuidelines: 'https://support.policeroleplay.community/hc/en-us/articles/33683178225300-PRC-Community-Guidelines',
 } as const;
