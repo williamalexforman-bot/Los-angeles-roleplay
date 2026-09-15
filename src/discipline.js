@@ -24,9 +24,9 @@ function endDate(input) {
   if (!Number.isFinite(n) || new Date(n).toISOString().slice(0,16).replace('T',' ') !== input || n <= Date.now()) throw new Error('The suspension end must be a valid future date and time in UTC.');
   return n;
 }
-async function authorize(interaction, userId) {
+async function authorize(interaction, userId, kind = 'infraction') {
   const actor = await interaction.guild.members.fetch({ user: interaction.user.id, force: true });
-  if (!actor.permissions.has(D.PermissionFlagsBits.Administrator)) throw new Error('Administrator permission is required.');
+  if (!require('./access').allowed(actor,kind)) throw new Error('You do not have the required role for this action.');
   const target = await interaction.guild.members.fetch({ user: userId, force: true });
   const me = await interaction.guild.members.fetchMe();
   if (target.user.bot) throw new Error('Choose a human member rather than a bot account.');
@@ -71,7 +71,7 @@ async function logCase(guild, item) {
 }
 async function issue(interaction, data, reason, dateText) {
   return locked(`member:${interaction.guildId}:${data.userId}`, async () => {
-    const { actor, target, me } = await authorize(interaction, data.userId);
+    const { actor, target, me } = await authorize(interaction, data.userId, data.kind);
     await interaction.guild.roles.fetch();
     const prior = await collection('cases').findOne({ _id: interaction.id });
     if (prior) throw new Error('This submission was already recorded.');

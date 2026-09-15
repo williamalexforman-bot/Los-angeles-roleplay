@@ -16,7 +16,7 @@ http.createServer((req,res) => {
 }).listen(Number(process.env.PORT || 10000),'0.0.0.0');
 if (!token) console.warn('bot_token / BOT_TOKEN missing: Discord commands are offline.');
 else {
-  const client = new D.Client({ intents: [D.GatewayIntentBits.Guilds, D.GatewayIntentBits.GuildMessages, D.GatewayIntentBits.MessageContent] });
+  const client = new D.Client({ intents: [D.GatewayIntentBits.Guilds, D.GatewayIntentBits.GuildMembers, D.GatewayIntentBits.GuildMessages, D.GatewayIntentBits.MessageContent] });
   client.once('clientReady', async () => {
     discordReady = true;
     try { await store.connect(); databaseReady = true; }
@@ -30,6 +30,8 @@ else {
       console.log('Registered /config, /infraction, /promotion and /shift.');
     } catch { console.error('Command registration failed. Check Discord permissions.'); }
     if (databaseReady) {
+      await require('./quota').tickQuota(client);
+      setInterval(() => require('./quota').tickQuota(client),30000);
       await syncTicketAccess(client);
       setInterval(() => syncTicketAccess(client), 300000);
       await syncShifts(client);
@@ -39,5 +41,5 @@ else {
     }
   });
   client.on('interactionCreate',handleInteraction);
-  client.login(token).catch(e => console.error('Discord login failed. Check bot_token / BOT_TOKEN and enable Message Content Intent.', e.code || e.name));
+  client.login(token).catch(e => console.error('Discord login failed. Check bot_token / BOT_TOKEN and enable Server Members and Message Content intents.', e.code || e.name));
 }

@@ -36,7 +36,7 @@ function setup(state={}) {
     add:async id=>{assert.equal(data.cases?.[0]?.status,'prepared');cache.set(id,roles.get(id));},
     remove:async id=>{assert.ok(data.cases?.length);cache.delete(id);},
   }};
-  const actor={id:'owner',permissions:{has:()=>true}};
+  const actor={id:'owner',permissions:{has:()=>true},roles:{cache:new Set(['1538395177448644709']),highest:{comparePositionTo:()=>1}}};
   const me={permissions:{has:()=>true},roles:{highest:{comparePositionTo:()=>1}}};
   const channel={id:'log',isTextBased:()=>true,permissionsFor:()=>({has:()=>true}),send:async p=>log.push(p)};
   const guild={id:'guild',ownerId:'owner',roles:{cache:roles,fetch:async()=>roles},channels:{fetch:async()=>channel},members:{me,fetchMe:async()=>me,fetch:async o=>o.user==='owner'?actor:target}};
@@ -83,6 +83,7 @@ test('promotion replaces only selected rank and records reason',async()=>{
 
 test('owner may issue a warning on own record when the marker role is manageable',async()=>{
   const f=setup({strikes:0});
+  f.target.roles.cache.set('1538395177448644709',{id:'1538395177448644709'});
   f.target.id='owner';f.target.permissions={has:()=>true};f.target.user={bot:false,username:'Owner'};
   f.guild.members.fetch=async()=>f.target;
   await issue(f.i,{kind:'infraction',userId:'owner',type:'Warning'},'Self test','');

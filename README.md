@@ -6,7 +6,7 @@ No-banner Discord Components V2 panels, tickets, promotions and disciplinary rec
 
 Node 22.22.0; build `npm install`; start `node index.js`. Set BOT_TOKEN and either MONGODB_URI or the existing MONGODB_USERNAME, MONGODB_PASSWORD and MONGODB_HOST variables. MONGODB_DATABASE defaults to discordbot. New collections use the fresh_ prefix and do not modify old bot collections.
 
-Enable **Message Content Intent** in the Discord Developer Portal for complete ticket transcripts. The bot needs Manage Roles, Manage Channels, View Channels, Send Messages, Read Message History and Attach Files. Place its role above all roles it must manage. Discord-managed roles and @everyone cannot be removed. Durable storage is required before tickets or disciplinary actions can run. If the database is unavailable at startup, fix the environment and restart. The HTTP endpoint reports database and Discord status separately from process health.
+Enable **Server Members Intent** and **Message Content Intent** in the Discord Developer Portal for complete ticket transcripts. The bot needs Manage Roles, Manage Channels, View Channels, Send Messages, Read Message History and Attach Files. Place its role above all roles it must manage. Discord-managed roles and @everyone cannot be removed. Durable storage is required before tickets or disciplinary actions can run. If the database is unavailable at startup, fix the environment and restart. The HTTP endpoint reports database and Discord status separately from process health.
 
 ## Destinations
 
@@ -24,7 +24,7 @@ Enable **Message Content Intent** in the Discord Developer Portal for complete t
 
 ## Actions
 
-All configuration and disciplinary workflows require Administrator, enforced again on submission. `/infraction issue` collects member, action, reason, notes, appealability, optional evidence, optional DM notification and optional suspension end. `/promotion issue` collects member, old rank, new role, reason, approved-by and effective-date. The effective date is a display field; roles change immediately. Promotions remove the selected previous rank and give the selected new rank after checking role hierarchy and existing membership.
+Configuration requires Administrator. Promotion requires role 1538395177448644709. Infractions and suspension ending require either 1538395250312093768 or 1538395177448644709. Role checks fetch fresh membership and are enforced again on submission. Slash-command visibility does not require Administrator for these actions. `/infraction issue` collects member, action, reason, notes, appealability, optional evidence, optional DM notification and optional suspension end. `/promotion issue` collects member, old rank, new role, reason, approved-by and effective-date. The effective date is a display field; roles change immediately. Promotions remove the selected previous rank and give the selected new rank after checking role hierarchy and existing membership.
 
 Infraction options: Warning, Strike, Suspension, Demotion, Termination, Under Investigation, Blacklisted. Every action requires a reason. The last four options record the disciplinary status; no automatic role or ban behavior is guessed for them.
 
@@ -41,7 +41,7 @@ Saved original and utility bot backup branches are unchanged. Staff shift comman
 
 ## Staff shifts
 
-`/shift start`, `/shift end`, and `/shift status` manage your own shift. An administrator configures eligible staff with `/config shift-role role:@Staff`. Administrators can also start shifts. Suspended members cannot start a new shift. Members can always end their own active shift even if their staff role was removed.
+`/shift start`, `/shift end`, and `/shift status` manage your own shift. Every human member can start shifts for the server-wide quota; the legacy shift-role setting no longer restricts eligibility. Suspended members cannot start a new shift. Members can always end their own active shift even if their staff role was removed.
 
 `/config panel panel:shift channel:#staff` posts the no-banner V2 controls. The active-shifts board is created automatically in 1538399713378832426 and refreshed after changes and every 30 seconds. Larger teams use multiple V2 messages. Start/end notices go to 1538399655438581810; failed deliveries retry from MongoDB. An interrupted delivery can occasionally produce a duplicate notice with the same shift ID.
 
@@ -55,3 +55,12 @@ The original backup branch was inspected for its Staff Promotion, Staff Infracti
 Appeal buttons open an Internal Affairs request for staff review; they do not automatically reverse roles or counts. Claim and Escalate controls are available to ticket staff. Escalation marks the ticket High Rank and adds the configured High Rank support role, if one is set.
 
 Owner/self targets are no longer rejected just for their identity. Administrators still require appropriate role hierarchy, and the bot can only change roles below its own role. No Discord permission restrictions are bypassed.
+
+
+## Weekly quota
+
+Every human member must complete 30 minutes of ended shifts per quota period. Bots are excluded. Only saved shifts ended by the deadline count; open shifts must be ended first. Time is clipped to the current period so previous-week time is not counted twice. `/quota status` shows saved progress. Start/End buttons appear in the configured active-shifts channel.
+
+Quota is enabled by default, starting at the first successful startup of this version. The first period may be a partial week. Reports are due Friday at 10 AM America/New_York (daylight-saving aware); `/quota timezone zone:...` changes the IANA timezone and starts a new period. `/quota disable` pauses reports while shift tracking continues; `/quota enable` begins a fresh period, with no catch-up for disabled weeks. These management actions require role 1538395177448644709.
+
+At the deadline a V2 quota infraction list posts in the configured infractions channel, with the complete list as a text attachment and a preview in the message. It does not automatically issue punishments or change disciplinary counts. Reports and deadlines persist in MongoDB. Delivery retries after outages, with the saved list preserved. The scheduler checks every 30 seconds, so on-time delivery can be up to 30 seconds after 10 AM. A stopped or sleeping Render service cannot deliver on time; it catches up when running again. Current members who joined by the deadline are included, even if they never started a shift; departed members are not fetched in an overdue roster.

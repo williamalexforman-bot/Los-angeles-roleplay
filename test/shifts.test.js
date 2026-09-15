@@ -35,8 +35,8 @@ await shifts.changeShift(interaction('end2'),'end');assert.equal(rows.shifts[0].
 await shifts.syncShifts(client);assert.equal(logs.length,2);
 await shifts.syncShifts(client);assert.equal(logs.length,2);assert.equal(messages.size,1);
 });
-test('nonstaff and suspended members cannot start; staff losing role can still end',async()=>{
-reset();staff=false;await assert.rejects(()=>shifts.changeShift(interaction(),'start'),/staff role/);
+test('all members can shift; suspended members cannot start',async()=>{
+reset();staff=false;await shifts.changeShift(interaction(),'start'); await shifts.changeShift(interaction(),'end');
 staff=true;subjectRoles.add(ROLES.suspended);await assert.rejects(()=>shifts.changeShift(interaction(),'start'),/suspended/);
 subjectRoles.clear();await shifts.changeShift(interaction(),'start');staff=false;
 assert.match(await shifts.changeShift(interaction(),'end'),/Shift ended/);

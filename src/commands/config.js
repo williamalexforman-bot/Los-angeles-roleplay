@@ -1,5 +1,6 @@
 const D = require('discord.js');
 const { CHANNELS, TYPES, TICKETS } = require('../settings');
+const roleGated = cmd => cmd.setDMPermission(false);
 const admin = cmd => cmd.setDefaultMemberPermissions(D.PermissionFlagsBits.Administrator).setDMPermission(false);
 const configCommand = admin(new D.SlashCommandBuilder().setName('config').setDescription('Set channels, ticket access and post panels'))
 .addSubcommand(s => s.setName('view').setDescription('View configured destinations'))
@@ -15,7 +16,7 @@ const configCommand = admin(new D.SlashCommandBuilder().setName('config').setDes
 configCommand.addSubcommand(s => s.setName('shift-role').setDescription('Set the role allowed to start staff shifts').addRoleOption(o => o.setName('role').setDescription('Staff role').setRequired(true)));
 const shift = new D.SlashCommandBuilder().setName('shift').setDescription('Manage your staff shift').setDMPermission(false);
 for (const name of ['start','end','status']) shift.addSubcommand(s => s.setName(name).setDescription(`${name} your staff shift`));
-const infraction = admin(new D.SlashCommandBuilder().setName('infraction').setDescription('Manage staff infraction cases'))
+const infraction = roleGated(new D.SlashCommandBuilder().setName('infraction').setDescription('Manage staff infraction cases'))
 .addSubcommand(s => s.setName('issue').setDescription('Issue a staff infraction')
 .addUserOption(o => o.setName('member').setDescription('Member').setRequired(true))
 .addStringOption(o => o.setName('action').setDescription('Infraction action').setRequired(true).addChoices(...TYPES.map(value=>({name:value,value}))))
@@ -25,7 +26,7 @@ const infraction = admin(new D.SlashCommandBuilder().setName('infraction').setDe
 .addStringOption(o => o.setName('evidence').setDescription('Evidence link or details').setMaxLength(800))
 .addBooleanOption(o => o.setName('notify-member').setDescription('Send a DM (default: yes)'))
 .addStringOption(o => o.setName('suspension-end').setDescription('Optional expiry: YYYY-MM-DD HH:mm UTC; omit for indefinite').setMaxLength(16)));
-const promotion = admin(new D.SlashCommandBuilder().setName('promotion').setDescription('Manage staff promotions'))
+const promotion = roleGated(new D.SlashCommandBuilder().setName('promotion').setDescription('Manage staff promotions'))
 .addSubcommand(s => s.setName('issue').setDescription('Issue and publish a staff promotion')
 .addUserOption(o => o.setName('member').setDescription('Member').setRequired(true))
 .addRoleOption(o => o.setName('old-rank').setDescription('Current rank').setRequired(true))
@@ -33,5 +34,8 @@ const promotion = admin(new D.SlashCommandBuilder().setName('promotion').setDesc
 .addStringOption(o => o.setName('reason').setDescription('Reason').setRequired(true).setMaxLength(1024))
 .addUserOption(o => o.setName('approved-by').setDescription('Who approved this promotion').setRequired(true))
 .addStringOption(o => o.setName('effective-date').setDescription('Displayed effective date; roles change when submitted').setRequired(true).setMaxLength(100)));
-const suspension = admin(new D.SlashCommandBuilder().setName('suspension').setDescription('Manage saved suspensions')).addSubcommand(s=>s.setName('end').setDescription('End a suspension and restore saved roles').addUserOption(o=>o.setName('member').setDescription('Suspended member').setRequired(true)));
-module.exports = { configCommand, commands: [configCommand, infraction, promotion, shift, suspension] };
+const suspension = roleGated(new D.SlashCommandBuilder().setName('suspension').setDescription('Manage saved suspensions')).addSubcommand(s=>s.setName('end').setDescription('End a suspension and restore saved roles').addUserOption(o=>o.setName('member').setDescription('Suspended member').setRequired(true)));
+const quota = roleGated(new D.SlashCommandBuilder().setName('quota').setDescription('Weekly 30-minute shift quota'));
+for(const name of ['status','enable','disable'])quota.addSubcommand(s=>s.setName(name).setDescription(`${name} weekly quota`));
+quota.addSubcommand(s=>s.setName('timezone').setDescription('Set Friday 10 AM timezone and start a new period').addStringOption(o=>o.setName('zone').setDescription('IANA timezone, e.g. America/New_York').setRequired(true)));
+module.exports = { configCommand, commands: [configCommand, infraction, promotion, shift, suspension, quota] };

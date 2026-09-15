@@ -8,7 +8,7 @@ function duration(ms) {
   return `${Math.floor(minutes/60)}h ${minutes%60}m`;
 }
 function shiftPanel() {
-  return v2('Staff Shifts', 'Start your shift when you begin working and end it when you finish. Your time is saved automatically.', [button('shift:start','Start Shift',D.ButtonStyle.Success),button('shift:end','End Shift',D.ButtonStyle.Danger),button('shift:status','My Shift')]);
+  return v2('Staff Shifts', 'Start your shift when you begin working and end it when you finish. End your shift to save your time. Weekly quota: 30 minutes; use /quota status to check progress.', [button('shift:start','Start Shift',D.ButtonStyle.Success),button('shift:end','End Shift',D.ButtonStyle.Danger),button('shift:status','My Shift')]);
 }
 async function changeShift(i, action) {
   return locked(`shift:${i.guildId}:${i.user.id}`,async()=>{
@@ -24,7 +24,7 @@ async function changeShift(i, action) {
     if(action!=='start') throw new Error('Invalid shift action.');
     const member=await i.guild.members.fetch({user:i.user.id,force:true});
     const config=await settings(i.guildId);
-    if(!member.permissions.has(D.PermissionFlagsBits.Administrator) && !(config.shiftRole && member.roles.cache.has(config.shiftRole))) throw new Error('An administrator must set your staff role using /config shift-role before you can start shifts.');
+    // Every human member can log time toward the server-wide quota.
     const discipline=await collection('members').findOne({_id:`${i.guildId}:${i.user.id}`});
     if(discipline?.suspension || member.roles.cache.has(ROLES.suspended)) throw new Error('You cannot start a shift while suspended.');
     if(active) return `You already have an active shift, started <t:${Math.floor(active.started/1000)}:R>.`;
@@ -71,6 +71,8 @@ async function syncGuild(guild) {
     }
     const ids=board?.messages || [];
     const pages=activePages(active);
+    pages[0].components[0].addActionRowComponents(new D.ActionRowBuilder().addComponents(button('shift:start','Start Shift',D.ButtonStyle.Success),button('shift:end','End Shift',D.ButtonStyle.Danger),button('shift:status','My Shift')));
+    pages[0].components[0].addTextDisplayComponents(new D.TextDisplayBuilder().setContent('Weekly quota: 30 minutes. End shifts to save time. Use /quota status for your total.'));
     for(let n=0;n<pages.length;n++) {
       // Fetch failures other than a missing message must not create duplicates.
       let message;
