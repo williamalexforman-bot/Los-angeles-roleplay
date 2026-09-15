@@ -1,12 +1,12 @@
-# CSRP Clean Bot
+# California State Roleplay Bot
 
-This branch intentionally contains no commands, event responses, databases, or ER:LC integrations.
+This fresh bot includes an administrator-only `/config panel` command for posting Components V2 panels without banners.
 
-When `BOT_TOKEN` is configured, the bot logs in, deletes previously registered global and server slash commands, and remains idle. A minimal HTTP health endpoint listens on Render's `PORT` so the service can deploy successfully even when no Discord token is configured.
+Available panels are Infraction, Promotion, and Ticket. The Ticket panel opens private General Support, Internal Affairs, and High Rank ticket channels.
 
 ## Run
 
-1. Set `BOT_TOKEN` in the host environment if the process should connect to Discord and remove old commands.
+1. Set `BOT_TOKEN` in the host environment.
 2. Run `npm install`.
 3. Run `npm start`.
 
