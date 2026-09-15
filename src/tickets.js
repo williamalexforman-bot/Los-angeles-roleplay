@@ -87,8 +87,8 @@ async function closeTicket(i) {
       await log.send({ ...payload, files: [new D.AttachmentBuilder(Buffer.from(parts[n]), { name })] });
     }
     await collection('tickets').updateOne({ _id: i.channelId }, { $set: { transcriptSaved: Date.now() } });
-    await i.channel.send(v2('Closing ticket', 'This ticket will close in 5 seconds.'));
-    await new Promise(resolve => setTimeout(resolve, 5000));
+    await i.channel.send(v2('<:closing_ticket:1549440281638600854> Closing Ticket', 'This ticket will close in 10 seconds.'));
+    await new Promise(resolve => setTimeout(resolve, 10000));
     await i.channel.delete(`Ticket closed by ${i.user.id}; transcript saved`);
     await collection('tickets').updateOne({ _id: i.channelId }, { $set: { status: 'closed', closed: Date.now() } });
   });

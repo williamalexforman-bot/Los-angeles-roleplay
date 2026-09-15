@@ -1,5 +1,5 @@
 const MANAGER='1538395177448644709';
-const INFRACTION_ROLES=['1538395250312093768',MANAGER];
+const INFRACTION_ROLES=['1538395250312093768','1538393098185613352',MANAGER];
 function allowed(member,kind) {
   const ids=kind==='infraction'?INFRACTION_ROLES:[MANAGER];
   return ids.some(id=>member.roles?.cache?.has(id));

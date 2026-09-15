@@ -4,7 +4,7 @@ No-banner Discord Components V2 panels, tickets, promotions and disciplinary rec
 
 ## Deployment
 
-Node 22.22.0; build `npm install`; start `node index.js`. Set bot_token (BOT_TOKEN is also accepted) and either MONGODB_URI or the existing MONGODB_USERNAME, MONGODB_PASSWORD and MONGODB_HOST variables. MONGODB_DATABASE defaults to discordbot. New collections use the fresh_ prefix and do not modify old bot collections.
+Node 22.22.0; build `npm install`; start `node index.js`. Set BOT_TOKEN (lowercase bot_token is also accepted; BOT_TOKEN takes priority) and either MONGODB_URI or the existing MONGODB_USERNAME, MONGODB_PASSWORD and MONGODB_HOST variables. MONGODB_DATABASE defaults to discordbot. New collections use the fresh_ prefix and do not modify old bot collections.
 
 Enable **Server Members Intent** and **Message Content Intent** in the Discord Developer Portal for complete ticket transcripts. The bot needs Manage Roles, Manage Channels, View Channels, Send Messages, Read Message History and Attach Files. Place its role above all roles it must manage. Discord-managed roles and @everyone cannot be removed. Durable storage is required before tickets or disciplinary actions can run. If the database is unavailable at startup, fix the environment and restart. The HTTP endpoint reports database and Discord status separately from process health.
 
@@ -77,3 +77,5 @@ Hello Valenti, we have an active deployment going on so make sure to join game a
 Make that role mentionable or grant the bot Mention Everyone in the deployment channel. These commands require the same management role as say.
 
 Successful prefix commands delete the invoking message after posting. Give the bot Manage Messages in command channels. Failed commands retain the original message; deletion failures report separately without repeating the action.
+
+Role 1538393098185613352 additionally grants infraction access. Ticket closing posts <:closing_ticket:1549440281638600854> Closing Ticket in a bannerless V2 container and waits 10 seconds after the transcript is saved. Background job errors are caught and scheduled jobs retry at their normal intervals.

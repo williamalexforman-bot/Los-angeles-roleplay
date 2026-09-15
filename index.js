@@ -9,7 +9,8 @@ const { syncTicketAccess } = require('./src/tickets');
 const { syncShifts } = require('./src/shifts');
 const { tickQuota } = require('./src/quota');
 const { v2 } = require('./src/panels');
-const token = process.env.bot_token?.trim() || process.env.BOT_TOKEN?.trim();
+const { runTask, startTask } = require('./src/runtime');
+const token = process.env.BOT_TOKEN?.trim() || process.env.bot_token?.trim();
 let discordReady = false, databaseReady = false;
 http.createServer((req,res) => {
   res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -18,7 +19,11 @@ http.createServer((req,res) => {
 if (!token) console.warn('bot_token / BOT_TOKEN missing: Discord commands are offline.');
 else {
   const client = new D.Client({ intents: [D.GatewayIntentBits.Guilds, D.GatewayIntentBits.GuildMembers, D.GatewayIntentBits.GuildMessages, D.GatewayIntentBits.MessageContent] });
-  client.once('clientReady', async () => {
+  client.on('error', e => console.error('Discord client error:', e.code || e.name));
+  client.on('shardError', e => console.error('Discord connection error:', e.code || e.name));
+  client.on('shardDisconnect', () => { discordReady = false; });
+  client.on('shardResume', () => { discordReady = true; });
+  client.once('clientReady', () => runTask('Startup', async () => {
     discordReady = true;
     try { await store.connect(); databaseReady = true; }
     catch { console.error('Database unavailable: configure MongoDB for persistent records and suspension recovery.'); }
@@ -31,16 +36,12 @@ else {
       console.log('Registered commands: ' + commands.map(c => '/' + c.name).join(', '));
     } catch { console.error('Command registration failed. Check Discord permissions.'); }
     if (databaseReady) {
-      await tickQuota(client);
-      setInterval(() => tickQuota(client),30000);
-      await syncTicketAccess(client);
-      setInterval(() => syncTicketAccess(client), 300000);
-      await syncShifts(client);
-      setInterval(() => syncShifts(client), 30000);
-      await recover(client).catch(() => console.error('Recovery is pending.'));
-      setInterval(() => recover(client).catch(() => console.error('Recovery is pending.')),30000);
+      await startTask('Quota', () => tickQuota(client), 30000);
+      await startTask('Ticket access', () => syncTicketAccess(client), 300000);
+      await startTask('Shifts', () => syncShifts(client), 30000);
+      await startTask('Recovery', () => recover(client), 30000);
     }
-  });
+  }));
   client.on('interactionCreate',handleInteraction);
   client.on('messageCreate',require('./src/messages').handleMessage);
   client.login(token).catch(e => console.error('Discord login failed. Check bot_token / BOT_TOKEN and enable Server Members and Message Content intents.', e.code || e.name));
