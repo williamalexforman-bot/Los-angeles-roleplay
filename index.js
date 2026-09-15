@@ -8,12 +8,13 @@ const { recover, destination } = require('./src/discipline');
 const { syncTicketAccess } = require('./src/tickets');
 const { syncShifts } = require('./src/shifts');
 const { v2 } = require('./src/panels');
+const token = process.env.bot_token?.trim() || process.env.BOT_TOKEN?.trim();
 let discordReady = false, databaseReady = false;
 http.createServer((req,res) => {
   res.writeHead(200, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ service: 'running', discord: discordReady, database: databaseReady }));
 }).listen(Number(process.env.PORT || 10000),'0.0.0.0');
-if (!process.env.BOT_TOKEN) console.warn('BOT_TOKEN missing: Discord commands are offline.');
+if (!token) console.warn('bot_token / BOT_TOKEN missing: Discord commands are offline.');
 else {
   const client = new D.Client({ intents: [D.GatewayIntentBits.Guilds, D.GatewayIntentBits.GuildMessages, D.GatewayIntentBits.MessageContent] });
   client.once('clientReady', async () => {
@@ -38,5 +39,5 @@ else {
     }
   });
   client.on('interactionCreate',handleInteraction);
-  client.login(process.env.BOT_TOKEN).catch(e => console.error('Discord login failed. Check BOT_TOKEN and enable Message Content Intent.', e.code || e.name));
+  client.login(token).catch(e => console.error('Discord login failed. Check bot_token / BOT_TOKEN and enable Message Content Intent.', e.code || e.name));
 }
