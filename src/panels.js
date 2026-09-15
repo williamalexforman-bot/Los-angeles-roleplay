@@ -16,10 +16,11 @@ function panel(type) {
   const box = new D.ContainerBuilder().setAccentColor(0x247bf1)
     .addTextDisplayComponents(new D.TextDisplayBuilder().setContent('## Valenti Tickets\nIf you want to open a ticket in our server please select one of the following options based off of what they are meant to be used for.'))
     .addSeparatorComponents(new D.SeparatorBuilder())
-    .addTextDisplayComponents(new D.TextDisplayBuilder().setContent('# General Support <:general_support:1549472622365114448>\n\n> General Questions you have.\n>\n> Questions on how we work.'))
+    .addTextDisplayComponents(new D.TextDisplayBuilder().setContent('<:general_support:1549472622365114448> **General Support**\n\n• General questions you have.\n• Questions on how we work.'))
     .addSeparatorComponents(new D.SeparatorBuilder())
-    .addTextDisplayComponents(new D.TextDisplayBuilder().setContent('# Internal Affairs <:internal_affairs:1549472948002230393>\n\n> Report a member of our Mafia\n>\n> Questions that lower ranks cannot answer.'))
-    .addTextDisplayComponents(new D.TextDisplayBuilder().setContent('# Senior High Rank <:senior_high_rank:1549472448624464043>\n\n> Reports on an HR member.\n>\n> Raid Threat report\n>\n> SOS\n>\n> Anything that requires Immediate attention'))
+    .addTextDisplayComponents(new D.TextDisplayBuilder().setContent('<:internal_affairs:1549472948002230393> **Internal Affairs**\n\n• Report a member of our Mafia.\n• Questions that lower ranks cannot answer.'))
+    .addSeparatorComponents(new D.SeparatorBuilder())
+    .addTextDisplayComponents(new D.TextDisplayBuilder().setContent('<:senior_high_rank:1549472448624464043> **Senior High Rank**\n\n• Reports on an HR member.\n• Raid threat reports.\n• SOS.\n• Anything that requires immediate attention.'))
     .addActionRowComponents(row(new D.StringSelectMenuBuilder().setCustomId('ticket:create').setPlaceholder('Select the correct support category').addOptions(Object.entries(TICKETS).map(([value,label])=>({label,value,emoji:{id:emojis[value]}})))));
   return { components: [box], flags: D.MessageFlags.IsComponentsV2, allowedMentions: { parse: [] } };
 }
