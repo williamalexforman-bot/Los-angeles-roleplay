@@ -11,4 +11,5 @@ const ROLES = {
 };
 const TYPES = ['Warning', 'Strike', 'Suspension', 'Demotion', 'Termination', 'Under Investigation', 'Blacklisted'];
 const TICKETS = { general: 'General Support', affairs: 'Internal Affairs', high: 'High Rank' };
-module.exports = { CHANNELS, ROLES, TYPES, TICKETS };
+const TICKET_ACCESS_ROLE = '1538395250312093768';
+module.exports = { TICKET_ACCESS_ROLE, CHANNELS, ROLES, TYPES, TICKETS };

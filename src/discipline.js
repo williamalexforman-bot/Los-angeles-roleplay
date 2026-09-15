@@ -1,6 +1,7 @@
 const D = require('discord.js');
 const { collection, locked } = require('./store');
 const { CHANNELS, ROLES, TYPES } = require('./settings');
+const { caseNotice } = require('./legacy-layout');
 const { v2 } = require('./panels');
 async function settings(guildId) { return { ...CHANNELS, ...(await collection('config').findOne({ _id: guildId })) }; }
 async function destination(guild, key) {
@@ -28,9 +29,10 @@ async function authorize(interaction, userId) {
   if (!actor.permissions.has(D.PermissionFlagsBits.Administrator)) throw new Error('Administrator permission is required.');
   const target = await interaction.guild.members.fetch({ user: userId, force: true });
   const me = await interaction.guild.members.fetchMe();
-  if (target.id === actor.id || target.id === interaction.guild.ownerId || target.user.bot) throw new Error('Choose another eligible server member.');
-  if (!target.manageable || !me.permissions.has(D.PermissionFlagsBits.ManageRoles)) throw new Error('Move the bot role above the target and grant Manage Roles.');
-  if (actor.id !== interaction.guild.ownerId && actor.roles.highest.comparePositionTo(target.roles.highest) <= 0) throw new Error('You may only change members below your highest role.');
+  if (target.user.bot) throw new Error('Choose a human member rather than a bot account.');
+  if (target.id === interaction.guild.ownerId && actor.id !== interaction.guild.ownerId) throw new Error('Only the server owner may issue an action on the owner’s record.');
+  if (!me.permissions.has(D.PermissionFlagsBits.ManageRoles)) throw new Error('Move the bot role above the target and grant Manage Roles.');
+  if (actor.id !== target.id && actor.id !== interaction.guild.ownerId && actor.roles.highest.comparePositionTo(target.roles.highest) <= 0) throw new Error('You may only change members below your highest role.');
   return { actor, target, me };
 }
 function checkRole(role, actor, me, guild) {
@@ -47,7 +49,24 @@ async function applyCase(guild, item) {
 }
 async function logCase(guild, item) {
   const channel = await guild.channels.fetch(item.logChannel);
-  await channel.send(v2(item.kind === 'promotion' ? 'Promotion Recorded' : 'Infraction Recorded', item.summary + `\n**Case:** ${item._id}`));
+  let message;
+  if (item.messageId) message = await channel.messages.fetch(item.messageId).catch(e => { if(e.code!==10008) throw e; return null; });
+  if (!message) {
+    message = await channel.send(caseNotice(item));
+    await collection('cases').updateOne({ _id: item._id }, { $set: { messageId: message.id } });
+    item.messageId = message.id;
+  }
+  if (item.kind === 'infraction' && !item.threadId && message.startThread) {
+    try {
+      const thread = message.thread || await message.startThread({name:`INF-${item._id} | ${item.username || item.userId} | ${item.type}`.slice(0,100), autoArchiveDuration:1440});
+      await collection('cases').updateOne({_id:item._id},{$set:{threadId:thread.id}});
+    } catch { console.error('Infraction posted; case thread unavailable:',item._id); }
+  }
+  if (item.notifyMember !== false && !item.dmAttempted) {
+    let delivered = false;
+    try { const user = await guild.client.users.fetch(item.userId); await user.send(caseNotice(item, message.url)); delivered = true; } catch {}
+    await collection('cases').updateOne({_id:item._id},{$set:{dmAttempted:true,dmDelivered:delivered}});
+  }
   await collection('cases').updateOne({ _id: item._id }, { $set: { status: 'logged' } });
 }
 async function issue(interaction, data, reason, dateText) {
@@ -76,12 +95,12 @@ async function issue(interaction, data, reason, dateText) {
       const counts = advance(state, data.type);
       next = { ...next, warnings: counts.warnings, strikes: counts.strikes, total: (state.total || 0) + 1 };
       if (counts.suspend) {
-        const ends = endDate(dateText);
+        const ends = dateText?.trim() ? endDate(dateText.trim()) : undefined;
         const roles = target.roles.cache.filter(r => r.id !== interaction.guildId && !r.managed);
         for (const role of roles.values()) checkRole(role, actor, me, interaction.guild);
         for (const id of [ROLES.retained, ROLES.suspended]) checkRole(interaction.guild.roles.cache.get(id), actor, me, interaction.guild);
         // Save the full removable-role snapshot before any role is removed.
-        next.suspension = { ends, roles: roles.map(r => r.id), caseId: interaction.id };
+        next.suspension = { ...(ends ? { ends } : {}), roles: roles.map(r => r.id), caseId: interaction.id };
         remove.push(...roles.filter(r => r.id !== ROLES.retained).map(r => r.id));
         add.push(ROLES.retained, ROLES.suspended);
       } else if (data.type === 'Warning' || data.type === 'Strike') {
@@ -93,10 +112,10 @@ async function issue(interaction, data, reason, dateText) {
       }
       summary = `**Member:** <@${target.id}>\n**Type:** ${data.type}\n**Infraction count:** ${next.total}\n**Warnings:** ${next.warnings}/3\n**Strikes:** ${next.strikes}`;
       if (data.type === 'Warning' && counts.warnings === 0) summary += '\n**Escalation:** Third warning converted to a strike.';
-      if (next.suspension) summary += `\n**Suspended until:** <t:${Math.floor(next.suspension.ends / 1000)}:F>`;
+      if (next.suspension?.ends) summary += `\n**Suspended until:** <t:${Math.floor(next.suspension.ends / 1000)}:F>`;
     }
     summary += `\n**Reason:** ${D.escapeMarkdown(reason)}\n**Issued by:** <@${interaction.user.id}>`;
-    const item = { _id: interaction.id, guildId: interaction.guildId, userId: data.userId, kind: data.kind, type: data.type || null, reason, actorId: actor.id, created: Date.now(), next, add, remove, summary, logChannel: log.id, status: 'prepared' };
+    const item = { username: target.user.username || data.userId, notes: data.notes || '', evidence: data.evidence || '', appealable: Boolean(data.appealable), approvedBy: data.approvedBy || actor.id, effectiveDate: data.effectiveDate || new Date().toISOString().slice(0,10), previous: data.previous || null, newRole: data.next || null, newRoleName: data.kind === 'promotion' ? interaction.guild.roles.cache.get(data.next)?.name : null, notifyMember: data.notifyMember !== false, _id: interaction.id, guildId: interaction.guildId, userId: data.userId, kind: data.kind, type: data.type || null, reason, actorId: actor.id, created: Date.now(), next, add, remove, summary, logChannel: log.id, status: 'prepared' };
     await collection('cases').insertOne(item);
     try { await applyCase(interaction.guild, item); }
     catch { throw new Error(`Case ${item._id} is saved. A role update failed and will retry automatically; do not issue it again.`); }
@@ -122,7 +141,7 @@ async function recover(client) {
     for (const state of await collection('members').find({ 'suspension.ends': { $lte: Date.now() } }).toArray()) {
       try { await locked(`member:${state.guildId}:${state.userId}`, async () => {
         const fresh = await collection('members').findOne({ _id: state._id });
-        if (!fresh.suspension || fresh.suspension.ends > Date.now()) return;
+        if (!fresh.suspension || !Number.isFinite(fresh.suspension.ends) || fresh.suspension.ends > Date.now()) return;
         const guild = await client.guilds.fetch(state.guildId);
         const member = await guild.members.fetch({ user: state.userId, force: true });
         const me = await guild.members.fetchMe(); await guild.roles.fetch();
@@ -139,3 +158,14 @@ async function recover(client) {
   } finally { busy = false; }
 }
 module.exports = { settings, destination, advance, endDate, authorize, issue, recover };
+
+async function endSuspension(i,userId) {
+  return locked(`member:${i.guildId}:${userId}`,async()=>{
+    await authorize(i,userId);
+    const state=await collection('members').findOne({_id:`${i.guildId}:${userId}`});
+    if(!state?.suspension)throw new Error('This member is not suspended.');
+    await collection('members').updateOne({_id:state._id},{$set:{suspension:{...state.suspension,ends:Date.now(),endedBy:i.user.id}}});
+    return 'Suspension end saved. Role restoration will run within 30 seconds; missing roles or permissions will keep it pending for retry.';
+  });
+}
+module.exports.endSuspension=endSuspension;

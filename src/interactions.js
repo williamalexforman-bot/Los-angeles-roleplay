@@ -3,16 +3,8 @@ const D = require('discord.js');
 const { collection } = require('./store');
 const { CHANNELS, TYPES, TICKETS } = require('./settings');
 const { v2, panel, row, button } = require('./panels');
-const { settings, destination, advance, issue } = require('./discipline');
-const { openTicket, closeTicket, ticketAccess } = require('./tickets');
-const flows = new Map();
-function makeFlow(i, data) { const id = require('node:crypto').randomUUID(); flows.set(id, { ...data, actor: i.user.id, guild: i.guildId, expires: Date.now()+900000 }); return id; }
-function flow(i, id) {
-  const data = flows.get(id);
-  if (!data || data.actor !== i.user.id || data.guild !== i.guildId || data.expires < Date.now()) throw new Error('This form expired. Please start again.');
-  return data;
-}
-setInterval(() => { for (const [id, f] of flows) if (f.expires < Date.now()) flows.delete(id); }, 60000).unref();
+const { settings, destination, advance, issue, endSuspension } = require('./discipline');
+const { openTicket, closeTicket, ticketAccess, ticketAction } = require('./tickets');
 async function admin(i) {
   const m = await i.guild.members.fetch({ user: i.user.id, force: true });
   if (!m.permissions.has(D.PermissionFlagsBits.Administrator)) throw new Error('Administrator permission is required.');
@@ -21,16 +13,6 @@ function textInput(id, label, required = true, placeholder) {
   const t = new D.TextInputBuilder().setCustomId(id).setLabel(label).setRequired(required).setStyle(id === 'reason' ? D.TextInputStyle.Paragraph : D.TextInputStyle.Short).setMaxLength(id === 'reason' ? 1200 : 200);
   if (placeholder) t.setPlaceholder(placeholder);
   return row(t);
-}
-async function reasonModal(i, id) {
-  const data = flow(i, id);
-  const modal = new D.ModalBuilder().setCustomId(`submit:${id}`).setTitle(data.kind === 'promotion' ? 'Promotion Reason' : 'Infraction Details').addComponents(textInput('reason','Reason'));
-  if (data.kind === 'infraction') {
-    const state = await collection('members').findOne({ _id: `${i.guildId}:${data.userId}` }) || {};
-    const required = advance(state, data.type).suspend;
-    modal.addComponents(textInput('ends', 'Suspension end (UTC)', required, 'YYYY-MM-DD HH:mm'));
-  }
-  await i.showModal(modal);
 }
 async function config(i) {
   await admin(i);
@@ -59,6 +41,7 @@ async function config(i) {
     return i.editReply(v2('Ticket Access Saved', `New ${TICKETS[type]} tickets will allow <@&${role.id}>. Existing tickets retain their access.`, [], true));
   }
   const type = i.options.getString('panel',true);
+  if (!['ticket','shift'].includes(type)) throw new Error('Use /infraction issue or /promotion issue. Those do not have launcher panels.');
   let channel = i.options.getChannel('channel');
   if (!channel) {
     if (type === 'ticket' || type === 'shift') channel = i.channel;
@@ -72,18 +55,28 @@ async function handleInteraction(i) {
     if (!i.inGuild()) return;
     if (i.isButton() && i.customId.startsWith('shift:')) return await handleShift(i, i.customId.split(':')[1]);
     if (i.isChatInputCommand()) {
+      if(i.commandName === 'suspension') { await i.deferReply({flags:D.MessageFlags.Ephemeral}); return await i.editReply(v2('Suspension',await endSuspension(i,i.options.getUser('member',true).id),[],true)); }
       if (i.commandName === 'shift') return await handleShift(i, i.options.getSubcommand());
       if (i.commandName === 'config') return await config(i);
       if (!['infraction','promotion'].includes(i.commandName)) return;
       await admin(i);
+      await i.deferReply({ flags: D.MessageFlags.Ephemeral });
       const data = { kind: i.commandName, userId: i.options.getUser('member',true).id };
-      if (data.kind === 'infraction') data.type = i.options.getString('type',true);
-      else { data.previous = i.options.getRole('previous-rank',true).id; data.next = i.options.getRole('new-rank',true).id; }
-      return await reasonModal(i, makeFlow(i, data));
+      if(data.kind === 'infraction') {
+        data.type=i.options.getString('action',true); data.notes=i.options.getString('notes',true);
+        data.appealable=i.options.getBoolean('appealable',true); data.evidence=i.options.getString('evidence') || '';
+        data.notifyMember=i.options.getBoolean('notify-member') ?? true;
+      } else {
+        data.previous=i.options.getRole('old-rank',true).id;data.next=i.options.getRole('new-role',true).id;
+        data.approvedBy=i.options.getUser('approved-by',true).id;data.effectiveDate=i.options.getString('effective-date',true);
+      }
+      const result=await issue(i,data,i.options.getString('reason',true), data.kind === 'infraction' ? i.options.getString('suspension-end') || '' : '');
+      return await i.editReply(v2('Action Recorded',result,[],true));
     }
     if (i.isStringSelectMenu() && i.customId === 'ticket:create') {
       const type = i.values[0]; if (!TICKETS[type]) throw new Error('Repost the ticket panel using /config panel.');
       const modal = new D.ModalBuilder().setCustomId(`ticket-reason:${type}`).setTitle(`${TICKETS[type]} Ticket`).addComponents(textInput('reason','Why do you want to open a ticket?'));
+      modal.addComponents(textInput('details','Additional details',false));
       if (type === 'affairs') modal.addComponents(textInput('reported','Who are you reporting?'),textInput('evidence','Evidence or explanation'));
       return await i.showModal(modal);
     }
@@ -91,7 +84,7 @@ async function handleInteraction(i) {
       await i.deferReply({ flags: D.MessageFlags.Ephemeral });
       const type = i.customId.split(':')[1], reason = i.fields.getTextInputValue('reason').trim();
       if (!reason) throw new Error('A reason is required.');
-      const extra = type === 'affairs' ? `Reported: ${i.fields.getTextInputValue('reported')}\nEvidence: ${i.fields.getTextInputValue('evidence')}` : '';
+      const extra = (type === 'affairs' ? `User Reported: ${i.fields.getTextInputValue('reported')}\nProof: ${i.fields.getTextInputValue('evidence')}\n` : '') + `Additional Details: ${i.fields.getTextInputValue('details') || 'None'}`;
       return await i.editReply(v2('Ticket Created', await openTicket(i, type, reason, extra), [], true));
     }
     if (i.isButton() && i.customId === 'ticket:close') {
@@ -102,37 +95,22 @@ async function handleInteraction(i) {
       await i.deferUpdate();
       await closeTicket(i); return;
     }
-    if (i.isButton() && i.customId.startsWith('staff:')) {
-      await admin(i);
-      const kind = i.customId.split(':')[1];
-      const id = makeFlow(i, { kind });
-      return await i.reply(v2('Select Member', 'Choose the member for this action.', [new D.UserSelectMenuBuilder().setCustomId(`member:${id}`).setPlaceholder('Select member')], true));
+    if (i.isButton() && ['ticket:claim','ticket:escalate'].includes(i.customId)) {
+      await i.deferReply({flags:D.MessageFlags.Ephemeral});
+      return await i.editReply(v2('Ticket Updated',await ticketAction(i,i.customId.split(':')[1]),[],true));
     }
-    if (i.isUserSelectMenu() && i.customId.startsWith('member:')) {
-      await admin(i); const id = i.customId.split(':')[1], f = flow(i,id); f.userId = i.values[0];
-      const control = f.kind === 'infraction' ? new D.StringSelectMenuBuilder().setCustomId(`type:${id}`).setPlaceholder('Infraction type').addOptions(TYPES.map(value => ({label:value,value}))) : new D.RoleSelectMenuBuilder().setCustomId(`previous:${id}`).setPlaceholder('Previous rank');
-      return await i.update(v2('Action Details', `**Member:** <@${f.userId}>\n${f.kind === 'infraction' ? 'Choose the infraction type.' : 'Select the rank the member currently holds.'}`, [control], true));
+    if (i.isButton() && i.customId.startsWith('staff:')) return await i.reply(v2('Use the Slash Command','Use `/infraction issue` or `/promotion issue`; launcher panels are no longer used.',[],true));
+    if (i.isButton() && i.customId.startsWith('appeal:')) {
+      const record=await collection('cases').findOne({_id:i.customId.split(':')[1],guildId:i.guildId});
+      if(!record || !record.appealable || record.userId!==i.user.id) throw new Error('Only the recipient of an appealable infraction may submit an appeal.');
+      return await i.showModal(new D.ModalBuilder().setCustomId(`appeal-submit:${record._id}`).setTitle('Appeal Infraction').addComponents(textInput('reason','Why should this infraction be appealed?')));
     }
-    if (i.isStringSelectMenu() && i.customId.startsWith('type:')) {
-      await admin(i); const id=i.customId.split(':')[1]; flow(i,id).type=i.values[0]; return await reasonModal(i,id);
-    }
-    if (i.isRoleSelectMenu() && i.customId.startsWith('previous:')) {
-      await admin(i); const id=i.customId.split(':')[1]; flow(i,id).previous=i.values[0];
-      return await i.update(v2('New Rank','Choose the rank the member should receive.',[new D.RoleSelectMenuBuilder().setCustomId(`next:${id}`).setPlaceholder('New rank')],true));
-    }
-    if (i.isRoleSelectMenu() && i.customId.startsWith('next:')) {
-      await admin(i); const id=i.customId.split(':')[1]; flow(i,id).next=i.values[0]; return await reasonModal(i,id);
-    }
-    if (i.isModalSubmit() && i.customId.startsWith('submit:')) {
-      await i.deferReply({ flags: D.MessageFlags.Ephemeral });
-      await admin(i); const id=i.customId.split(':')[1], f=flow(i,id);
-      if (f.submitting) throw new Error('This form has already been submitted.');
-      const reason=i.fields.getTextInputValue('reason').trim(); if (!reason) throw new Error('A reason is required.');
-      f.submitting=true;
-      try {
-        const result=await issue(i,f,reason,f.kind === 'infraction' ? i.fields.getTextInputValue('ends').trim() : '');
-        flows.delete(id); return await i.editReply(v2('Action Recorded',result,[],true));
-      } catch(e) { flows.delete(id); throw e; }
+    if(i.isModalSubmit() && i.customId.startsWith('appeal-submit:')) {
+      await i.deferReply({flags:D.MessageFlags.Ephemeral});
+      const record=await collection('cases').findOne({_id:i.customId.split(':')[1],guildId:i.guildId});
+      if(!record || !record.appealable || record.userId!==i.user.id) throw new Error('This appeal is not available to you.');
+      const reason=i.fields.getTextInputValue('reason').trim();if(!reason)throw new Error('An appeal reason is required.');
+      return await i.editReply(v2('Infraction Appeal',await openTicket(i,'affairs',reason,`Infraction: INF-${record._id}`),[],true));
     }
   } catch(e) {
     console.error('Interaction failed:', e.code || e.name);

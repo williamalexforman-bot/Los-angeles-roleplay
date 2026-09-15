@@ -18,3 +18,12 @@ test('ticket is deleted only after V2 transcript is saved',async()=>{
   await closeTicket(interaction());
   assert.equal(deleted,true);assert.ok(updated[0].$set.transcriptSaved);assert.equal(updated[1].$set.status,'closed');
 });
+test('shared ticket role grants access even for another department',async()=>{
+  const {ticketAccess}=require('../src/tickets');
+  const {TICKET_ACCESS_ROLE}=require('../src/settings');
+  const i=interaction();i.user.id='staff';
+  i.guild.members.fetch=async()=>({permissions:{has:()=>false},roles:{cache:{has:id=>id===TICKET_ACCESS_ROLE}}});
+  assert.equal((await ticketAccess(i))._id,'ticket');
+  i.guild.members.fetch=async()=>({permissions:{has:()=>false},roles:{cache:{has:()=>false}}});
+  await assert.rejects(()=>ticketAccess(i),/Only/);
+});

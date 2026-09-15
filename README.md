@@ -1,4 +1,4 @@
-# California State Roleplay
+# Valenti Crime Family
 
 No-banner Discord Components V2 panels, tickets, promotions and disciplinary records.
 
@@ -20,17 +20,17 @@ Enable **Message Content Intent** in the Discord Developer Portal for complete t
 | Active shifts | 1538399713378832426 |
 | Ticket transcripts | 1538594354137141260 |
 
-`/config view` shows saved destinations. `/config channel` changes one. `/config panel` posts an interactive panel. Infraction and promotion panels default to their configured channels; ticket panels default to the command channel (tickets themselves always use the configured category). `/config ticket-access` assigns a department support role for new tickets. Until configured, tickets are visible only to the requester, bot and server administrators.
+`/config view` shows saved destinations. `/config channel` changes one. `/config panel` posts a Ticket or Shift launcher. Infractions and promotions have no launcher panels; `/infraction issue` and `/promotion issue` post their completed notices to the configured channels. `/config ticket-access` assigns a department support role for new tickets. Role 1538395250312093768 always has access to every ticket. The bot refreshes that access on recorded open tickets at startup and every five minutes. Department support roles add access rather than replacing the shared role.
 
 ## Actions
 
-All configuration and disciplinary workflows require Administrator, enforced again on submission. Panel buttons let staff select a member and then a type or rank. `/infraction` and `/promotion` also open the forms directly. Promotions remove the selected previous rank and give the selected new rank after checking role hierarchy and existing membership.
+All configuration and disciplinary workflows require Administrator, enforced again on submission. `/infraction issue` collects member, action, reason, notes, appealability, optional evidence, optional DM notification and optional suspension end. `/promotion issue` collects member, old rank, new role, reason, approved-by and effective-date. The effective date is a display field; roles change immediately. Promotions remove the selected previous rank and give the selected new rank after checking role hierarchy and existing membership.
 
 Infraction options: Warning, Strike, Suspension, Demotion, Termination, Under Investigation, Blacklisted. Every action requires a reason. The last four options record the disciplinary status; no automatic role or ban behavior is guessed for them.
 
 Warning 1: 1538589408016470077. Warning 2: 1538589426656219177. Warning 3 resets the warning cycle and adds one strike. Strike 1: 1538589320976535763. Strike 2: 1538589385413632031. Only the current warning and strike tier markers are applied, replacing the previous tier.
 
-Strike 3 (including warning escalation) or a direct suspension requires a future end time in `YYYY-MM-DD HH:mm` UTC. Submission is rejected before any action if the date is missing. The form shows this requirement based on the stored count, and submission checks it again.
+Strike 3 (including warning escalation) or a direct suspension accepts an optional future end time in `YYYY-MM-DD HH:mm` UTC. Omit it for an indefinite suspension; `/suspension end member:@Member` schedules restoration. Use the suspension-end option; submission validates it against the current saved count before changing roles.
 
 Suspensions save removable roles before changing them, retain/grant 1538401039684866143, and grant suspended role 1538589270795882516. Other removable roles are removed. At expiry, saved roles are restored and the suspended role removed; infraction counts and history remain. Only Discord-removable roles can be changed. Missing roles or hierarchy changes keep restoration pending for retry. The bot must be running to restore roles; after downtime it processes overdue suspensions at startup and then every 30 seconds. Staff cannot issue a new role-changing action during an active suspension. Uncompleted role operations are saved and retried; do not reissue a case after a retry notice.
 
@@ -46,3 +46,12 @@ Saved original and utility bot backup branches are unchanged. Staff shift comman
 `/config panel panel:shift channel:#staff` posts the no-banner V2 controls. The active-shifts board is created automatically in 1538399713378832426 and refreshed after changes and every 30 seconds. Larger teams use multiple V2 messages. Start/end notices go to 1538399655438581810; failed deliveries retry from MongoDB. An interrupted delivery can occasionally produce a duplicate notice with the same shift ID.
 
 One active shift per member is enforced. MongoDB retains start/end timestamps and completed durations across restarts. Time continues until the member ends the shift; restarting the bot does not reset or automatically end it. There are no automatic ER:LC permissions or game actions attached to shifts.
+
+
+## Restored presentation
+
+The original backup branch was inspected for its Staff Promotion, Staff Infraction and ticket presentation. These notices now use the same headings and field layout, adapted to Valenti Crime Family and excluding banners and underbanners. Infraction posts attempt to create a case thread and notify the member by DM; promotions also notify by DM. If thread permissions are unavailable the case remains posted in the configured channel. Give the bot Create Public Threads and Send Messages in Threads to enable threads.
+
+Appeal buttons open an Internal Affairs request for staff review; they do not automatically reverse roles or counts. Claim and Escalate controls are available to ticket staff. Escalation marks the ticket High Rank and adds the configured High Rank support role, if one is set.
+
+Owner/self targets are no longer rejected just for their identity. Administrators still require appropriate role hierarchy, and the bot can only change roles below its own role. No Discord permission restrictions are bypassed.

@@ -5,6 +5,7 @@ const store = require('./src/store');
 const { commands } = require('./src/commands/config');
 const { handleInteraction } = require('./src/interactions');
 const { recover, destination } = require('./src/discipline');
+const { syncTicketAccess } = require('./src/tickets');
 const { syncShifts } = require('./src/shifts');
 const { v2 } = require('./src/panels');
 let discordReady = false, databaseReady = false;
@@ -28,6 +29,8 @@ else {
       console.log('Registered /config, /infraction, /promotion and /shift.');
     } catch { console.error('Command registration failed. Check Discord permissions.'); }
     if (databaseReady) {
+      await syncTicketAccess(client);
+      setInterval(() => syncTicketAccess(client), 300000);
       await syncShifts(client);
       setInterval(() => syncShifts(client), 30000);
       await recover(client).catch(() => console.error('Recovery is pending.'));

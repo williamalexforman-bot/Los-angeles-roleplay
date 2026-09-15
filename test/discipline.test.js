@@ -53,15 +53,15 @@ test('invalid or past suspension dates are rejected',()=>{
   for(const date of ['', '2026-02-30 12:00','2001-01-01 12:00','tomorrow']) assert.throws(()=>endDate(date));
 });
 test('all panels serialize as V2 without image components',()=>{
-  for(const type of ['ticket','infraction','promotion']) {
+  for(const type of ['ticket']) {
     const p=panel(type); assert.equal(p.flags,D.MessageFlags.IsComponentsV2);
     const json=p.components[0].toJSON(); assert.equal(json.type,17);
     assert.ok(!JSON.stringify(json).includes('http'));
   }
 });
-test('third strike requires date before any mutation; suspension snapshot survives for recovery',async()=>{
+test('invalid expiry changes nothing; suspension snapshot survives for recovery',async()=>{
   let f=setup();
-  await assert.rejects(()=>issue(f.i,{kind:'infraction',userId:'member',type:'Strike'},'Reason',''),/YYYY/);
+  await assert.rejects(()=>issue(f.i,{kind:'infraction',userId:'member',type:'Strike'},'Reason','invalid'),/YYYY/);
   assert.equal(data.cases.length,0); assert.ok(f.target.roles.cache.has('rank'));
   f=setup();
   await issue(f.i,{kind:'infraction',userId:'member',type:'Strike'},'Reason','2099-01-01 12:00');
@@ -79,4 +79,30 @@ test('promotion replaces only selected rank and records reason',async()=>{
   await issue(f.i,{kind:'promotion',userId:'member',previous:'rank',next:'newrank'},'Excellent work','');
   assert.ok(f.target.roles.cache.has('newrank')); assert.ok(!f.target.roles.cache.has('rank'));
   assert.ok(f.target.roles.cache.has(ROLES.retained)); assert.equal(data.cases[0].reason,'Excellent work');
+});
+
+test('owner may issue a warning on own record when the marker role is manageable',async()=>{
+  const f=setup({strikes:0});
+  f.target.id='owner';f.target.permissions={has:()=>true};f.target.user={bot:false,username:'Owner'};
+  f.guild.members.fetch=async()=>f.target;
+  await issue(f.i,{kind:'infraction',userId:'owner',type:'Warning'},'Self test','');
+  assert.ok(f.target.roles.cache.has(ROLES.warnings[0]));
+});
+test('case layouts preserve saved fields and include no image assets',()=>{
+  const {caseNotice,ticketNotice}=require('../src/legacy-layout');
+  const common={_id:'1',userId:'2',actorId:'3',created:Date.now(),reason:'Reason',username:'User',next:{warnings:1,strikes:0,total:1}};
+  for(const payload of [caseNotice({...common,kind:'infraction',type:'Warning',notes:'Rule',appealable:true}),caseNotice({...common,kind:'promotion',previous:'4',newRole:'5',newRoleName:'Staff',approvedBy:'3',effectiveDate:'Today'}),ticketNotice({type:'general',owner:'2',reason:'Help'})]) {
+    const text=JSON.stringify(payload.components[0].toJSON());assert.ok(!text.includes('attachment://'));assert.equal(payload.flags,D.MessageFlags.IsComponentsV2);
+  }
+  const cmds=require('../src/commands/config').commands.map(c=>c.toJSON());
+  const panels=cmds.find(c=>c.name==='config').options.find(o=>o.name==='panel').options[0].choices.map(c=>c.value);
+  assert.deepEqual(panels,['ticket','shift']);
+});
+
+test('blank suspension expiry creates an indefinite suspension',async()=>{
+ const f=setup(); await issue(f.i,{kind:'infraction',userId:'member',type:'Strike'},'Reason','');
+ assert.equal(data.members[0].suspension.ends,undefined);
+ f.target.roles.add=async id=>f.target.roles.cache.set(id,{id});
+ await recover({guilds:{fetch:async()=>f.guild}});
+ assert.ok(data.members[0].suspension);assert.ok(f.target.roles.cache.has(ROLES.suspended));
 });
