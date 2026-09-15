@@ -35,6 +35,7 @@ else {
       if (!databaseReady) { await store.connect(); databaseReady = true; }
       if (jobsStarted) return;
       jobsStarted = true;
+      void startTask('Ticket opening panels', () => require('./src/tickets').recoverTicketPanels(client), 15000);
       await startTask('Quota', () => tickQuota(client), 30000);
       await startTask('Ticket access', () => syncTicketAccess(client), 300000);
       await startTask('Shifts', () => syncShifts(client), 30000);

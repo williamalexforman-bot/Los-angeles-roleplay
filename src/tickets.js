@@ -4,11 +4,11 @@ const { collection, locked } = require('./store');
 const { settings, destination } = require('./discipline');
 const { TICKETS, TICKET_ACCESS_ROLE } = require('./settings');
 const { v2, button } = require('./panels');
-async function ensureOpeningPanel(channel, record) {
+async function ensureOpeningPanel(channel, record, newlyCreated = false) {
   return locked(`ticket-close:${record._id}`, async () => {
     let message;
     if(record.panelId) message=await channel.messages.fetch(record.panelId).catch(e=>{if(e.code===10008)return null;throw e;});
-    if(!message) {
+    if(!message && !newlyCreated) {
       let before;
       for (;;) {
         const page=await channel.messages.fetch({limit:100,...(before?{before}:{})});
@@ -17,9 +17,9 @@ async function ensureOpeningPanel(channel, record) {
         before=page.last().id;
       }
     }
-    if(message)await message.edit(ticketNotice(record));
-    else message=await channel.send({...ticketNotice(record),nonce:record._id,enforceNonce:true});
-    await collection('tickets').updateOne({_id:record._id},{$set:{panelId:message.id,panelPending:false}});
+    const delivery=await require('./ticket-panel-delivery').deliver(channel,record,message);
+    message=delivery.message;
+    await collection('tickets').updateOne({_id:record._id},{$set:{panelId:message.id,panelPending:false,emojiFallback:delivery.emojiFallback},$unset:{panelErrorCode:''}});
     return message;
   });
 }
@@ -55,9 +55,10 @@ async function openTicket(i, type, reason, extra = '') {
     const record={ _id:channel.id, guildId:i.guildId, owner:i.user.id, type, reason, extra, support, status:'open', opened:Date.now(), panelPending:true };
     try { await collection('tickets').insertOne(record); }
     catch(error) { await channel.delete('Ticket record could not be saved').catch(()=>{}); throw error; }
-    try { await ensureOpeningPanel(channel,record); }
+    try { await ensureOpeningPanel(channel,record,true); }
     catch(error) {
       console.error('Ticket opening panel pending:',channel.id,error.code||error.name);
+      await collection('tickets').updateOne({_id:channel.id},{$set:{panelPending:true,panelErrorCode:String(error.code||error.name)}}).catch(()=>{});
       return `Your ticket was created: <#${channel.id}>. Its opening panel could not be posted yet; the bot will retry automatically.`;
     }
     return `Your ${TICKETS[type]} ticket is ready: <#${channel.id}>.`;
@@ -114,7 +115,7 @@ async function closeTicket(i) {
     await collection('tickets').updateOne({ _id: i.channelId }, { $set: { status: 'closed', closed: Date.now() } });
   });
 }
-module.exports = { ensureOpeningPanel, syncTicketAccess, ticketAction, openTicket, ticketAccess, closeTicket, transcriptLine };
+module.exports = { recoverTicketPanels, ensureOpeningPanel, syncTicketAccess, ticketAction, openTicket, ticketAccess, closeTicket, transcriptLine };
 
 async function ticketAction(i, action) {
   return locked(`ticket-close:${i.channelId}`, async () => {
@@ -150,10 +151,25 @@ async function syncTicketAccess(client) {
       for (const record of records) {
         try {
           const channel = await guild.channels.fetch(record._id);
-          await channel.permissionOverwrites.edit(TICKET_ACCESS_ROLE,permission);
+          await channel.permissionOverwrites.edit(TICKET_ACCESS_ROLE,permission).catch(e=>console.error('Ticket permission update pending:',record._id,e.code||e.name));
           await ensureOpeningPanel(channel,record);
         } catch(e) { console.error('Ticket access refresh pending:', record._id,e.code || e.name); }
       }
     } catch(e) { console.error('Shared ticket role refresh pending:',guild.id,e.code || e.name); }
+  }
+}
+
+async function recoverTicketPanels(client) {
+  const records=await collection('tickets').find({status:'open',$or:[{panelPending:true},{panelId:{$exists:false}}]}).toArray();
+  for(const record of records){
+    try {
+      const guild=await client.guilds.fetch(record.guildId);
+      const channel=await guild.channels.fetch(record._id);
+      if(!channel){await collection('tickets').updateOne({_id:record._id,status:'open'},{$set:{status:'missing'}});continue;}
+      await ensureOpeningPanel(channel,record);
+    }catch(e){
+      if(e.code===10003)await collection('tickets').updateOne({_id:record._id,status:'open'},{$set:{status:'missing'}});
+      else {console.error('Opening panel retry pending:',record._id,e.code||e.name);await collection('tickets').updateOne({_id:record._id},{$set:{panelErrorCode:String(e.code||e.name)}}).catch(()=>{});}
+    }
   }
 }
