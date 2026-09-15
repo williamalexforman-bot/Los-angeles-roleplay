@@ -40,4 +40,8 @@ for(const name of ['status','enable','disable'])quota.addSubcommand(s=>s.setName
 quota.addSubcommand(s=>s.setName('timezone').setDescription('Set Friday 10 AM timezone and start a new period').addStringOption(o=>o.setName('zone').setDescription('IANA timezone, e.g. America/New_York').setRequired(true)));
 const say = roleGated(new D.SlashCommandBuilder().setName('say').setDescription('Send a message as the bot').addStringOption(o=>o.setName('message').setDescription('Message to send').setRequired(true).setMaxLength(2000)));
 const deployment = roleGated(new D.SlashCommandBuilder().setName('deployment').setDescription('Announce an active deployment and ping the deployment role'));
-module.exports = { configCommand, commands: [configCommand, infraction, promotion, shift, suspension, quota, say, deployment] };
+const close = roleGated(new D.SlashCommandBuilder().setName('close').setDescription('Save the transcript and close this ticket'));
+const closerequest = roleGated(new D.SlashCommandBuilder().setName('closerequest').setDescription('Ask the ticket opener to close this ticket').addStringOption(o=>o.setName('reason').setDescription('Why should this ticket close?').setRequired(true).setMaxLength(1000)));
+const purge = roleGated(new D.SlashCommandBuilder().setName('purge').setDescription('Delete recent messages in this channel').addIntegerOption(o=>o.setName('amount').setDescription('Number of messages, from 1 to 100').setRequired(true).setMinValue(1).setMaxValue(100)));
+const ticketpanel = roleGated(new D.SlashCommandBuilder().setName('ticketpanel').setDescription('Post the ticket panel in this channel'));
+module.exports = { configCommand, commands: [configCommand, infraction, promotion, shift, suspension, quota, say, deployment, close, closerequest, purge, ticketpanel] };

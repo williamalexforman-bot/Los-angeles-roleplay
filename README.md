@@ -78,6 +78,12 @@ Make that role mentionable or grant the bot Mention Everyone in the deployment c
 
 Successful prefix commands delete the invoking message after posting. Give the bot Manage Messages in command channels. Failed commands retain the original message; deletion failures report separately without repeating the action.
 
-Role 1538393098185613352 additionally grants infraction access. Ticket closing posts <:closing_ticket:1549440281638600854> Closing Ticket in a bannerless V2 container and waits 10 seconds after the transcript is saved. Background job errors are caught and scheduled jobs retry at their normal intervals.
+Role 1538393098185613352 additionally grants infraction access. Ticket closing posts <:closing_ticket:1549440281638600854> Closing Ticket as plain text and waits 10 seconds after the transcript is saved. Background job errors are caught and scheduled jobs retry at their normal intervals.
 
 Welcome messages use custom emoji 1549441219774382080 and the exact Valenti greeting, with a mention of the joining member. They post in the system channel by default. Set `/config channel destination:welcome channel:#welcome` to override. Requires Server Members Intent, working MongoDB configuration lookup, and channel send permissions. Joins missed while the bot is offline are not replayed. Render Free may sleep or restart; code does not guarantee continuous hosting.
+
+## Ticket and cleanup commands
+
+`-close` / `/close` save the transcript, send a plain-text custom-emoji Closing Ticket notice, wait 10 seconds, then delete the ticket. Existing requester/support/admin ticket access applies. `-closerequest reason` / `/closerequest reason:...` ask the opener to accept or keep the ticket open. Only the opener can answer.
+
+`-purge 10` / `/purge amount:10` remove 1–100 recent messages (excluding the prefix invocation), skipping those older than 14 days. `-ticketpanel` / `/ticketpanel` post the V2 ticket panel. Purge and ticketpanel require management role 1538395177448644709; purge additionally requires bot Manage Messages and Read Message History. Successful prefix invocations are removed. Infraction, promotion and deployment notices remain bannerless Components V2.

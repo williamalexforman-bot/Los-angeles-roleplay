@@ -5,7 +5,7 @@ const DEPLOYMENT_CHANNEL='1538399056986906715';
 const DEPLOYMENT_ROLE='1538395272986755173';
 const DEPLOYMENT_TEXT='Hello Valenti, we have an active deployment going on so make sure to join game and start shift and get playing!';
 function parsePrefix(content) {
-  const match=/^-(say|deployment)(?:\s+([\s\S]*))?$/i.exec(content);
+  const match=/^-(say|deployment|close|closerequest|purge|ticketpanel)(?:\s+([\s\S]*))?$/i.exec(content);
   return match?{command:match[1].toLowerCase(),text:(match[2]||'').trim()}:null;
 }
 async function say(context,text) {
@@ -30,10 +30,15 @@ async function handleMessage(message) {
   if(!message.guild||message.author.bot||message.webhookId)return;
   const parsed=parsePrefix(message.content);
   if(!parsed)return;
-  const context={guild:message.guild,user:message.author,channel:message.channel};
+  const context={guild:message.guild,user:message.author,channel:message.channel,guildId:message.guild.id,channelId:message.channel.id,sourceMessageId:message.id};
   try {
     if(parsed.command==='say')await say(context,parsed.text);
-    else {
+    else if(require('./utilities').COMMANDS.includes(parsed.command)) {
+      if(['close','ticketpanel'].includes(parsed.command)&&parsed.text)throw new Error('This command does not take extra text.');
+      const result=await require('./utilities').execute(context,parsed.command,parsed.text);
+      if(result==='closed')return;
+      if(parsed.command==='purge')await message.channel.send(v2('Messages Deleted',result));
+    } else {
       if(parsed.text)throw new Error('Use -deployment without additional text.');
       const sent=await deployment(context);
       if(message.channel.id!==DEPLOYMENT_CHANNEL)await message.channel.send({...v2('Deployment Posted',`Sent to <#${DEPLOYMENT_CHANNEL}>.\n[View message](${sent.url})`),allowedMentions:{parse:[],repliedUser:false}});
