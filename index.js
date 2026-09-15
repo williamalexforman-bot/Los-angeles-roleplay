@@ -6,11 +6,6 @@ const { Client, GatewayIntentBits } = require('discord.js');
 const token = process.env.BOT_TOKEN;
 const port = Number(process.env.PORT || 10000);
 
-if (!token) {
-  console.error('BOT_TOKEN is required.');
-  process.exit(1);
-}
-
 const client = new Client({
   intents: [GatewayIntentBits.Guilds],
 });
@@ -47,7 +42,10 @@ client.once('ready', async () => {
   }
 });
 
-client.login(token).catch((error) => {
-  console.error('Failed to log in:', error);
-  process.exit(1);
-});
+if (token) {
+  client.login(token).catch((error) => {
+    console.error('Failed to log in:', error);
+  });
+} else {
+  console.warn('BOT_TOKEN is not set. Running as an empty health service without connecting to Discord.');
+}
