@@ -11,6 +11,6 @@ const ROLES = {
   retained: '1538401039684866143', suspended: '1538589270795882516',
 };
 const TYPES = ['Warning', 'Strike', 'Suspension', 'Demotion', 'Termination', 'Under Investigation', 'Blacklisted'];
-const TICKETS = { general: 'General Support', affairs: 'Internal Affairs', high: 'High Rank' };
+const TICKETS = { general: 'General Support', affairs: 'Internal Affairs', high: 'Senior High Rank' };
 const TICKET_ACCESS_ROLE = '1538395250312093768';
 module.exports = { TICKET_ACCESS_ROLE, CHANNELS, ROLES, TYPES, TICKETS };
