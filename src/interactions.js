@@ -55,6 +55,7 @@ async function handleInteraction(i) {
     if (!i.inGuild()) return;
     if (i.isButton() && i.customId.startsWith('shift:')) return await handleShift(i, i.customId.split(':')[1]);
     if (i.isChatInputCommand()) {
+      if(['say','deployment'].includes(i.commandName)) return await require('./messages').handleMessageCommand(i);
       if(i.commandName === 'suspension') { await i.deferReply({flags:D.MessageFlags.Ephemeral}); return await i.editReply(v2('Suspension',await endSuspension(i,i.options.getUser('member',true).id),[],true)); }
       if (i.commandName === 'quota') return await require('./quota').quotaCommand(i);
       if (i.commandName === 'shift') return await handleShift(i, i.options.getSubcommand());

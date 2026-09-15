@@ -38,4 +38,6 @@ const suspension = roleGated(new D.SlashCommandBuilder().setName('suspension').s
 const quota = roleGated(new D.SlashCommandBuilder().setName('quota').setDescription('Weekly 30-minute shift quota'));
 for(const name of ['status','enable','disable'])quota.addSubcommand(s=>s.setName(name).setDescription(`${name} weekly quota`));
 quota.addSubcommand(s=>s.setName('timezone').setDescription('Set Friday 10 AM timezone and start a new period').addStringOption(o=>o.setName('zone').setDescription('IANA timezone, e.g. America/New_York').setRequired(true)));
-module.exports = { configCommand, commands: [configCommand, infraction, promotion, shift, suspension, quota] };
+const say = roleGated(new D.SlashCommandBuilder().setName('say').setDescription('Send a message as the bot').addStringOption(o=>o.setName('message').setDescription('Message to send').setRequired(true).setMaxLength(2000)));
+const deployment = roleGated(new D.SlashCommandBuilder().setName('deployment').setDescription('Announce an active deployment and ping the deployment role'));
+module.exports = { configCommand, commands: [configCommand, infraction, promotion, shift, suspension, quota, say, deployment] };

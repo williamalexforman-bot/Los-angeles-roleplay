@@ -4,7 +4,7 @@ No-banner Discord Components V2 panels, tickets, promotions and disciplinary rec
 
 ## Deployment
 
-Node 22.22.0; build `npm install`; start `node index.js`. Set BOT_TOKEN and either MONGODB_URI or the existing MONGODB_USERNAME, MONGODB_PASSWORD and MONGODB_HOST variables. MONGODB_DATABASE defaults to discordbot. New collections use the fresh_ prefix and do not modify old bot collections.
+Node 22.22.0; build `npm install`; start `node index.js`. Set bot_token (BOT_TOKEN is also accepted) and either MONGODB_URI or the existing MONGODB_USERNAME, MONGODB_PASSWORD and MONGODB_HOST variables. MONGODB_DATABASE defaults to discordbot. New collections use the fresh_ prefix and do not modify old bot collections.
 
 Enable **Server Members Intent** and **Message Content Intent** in the Discord Developer Portal for complete ticket transcripts. The bot needs Manage Roles, Manage Channels, View Channels, Send Messages, Read Message History and Attach Files. Place its role above all roles it must manage. Discord-managed roles and @everyone cannot be removed. Durable storage is required before tickets or disciplinary actions can run. If the database is unavailable at startup, fix the environment and restart. The HTTP endpoint reports database and Discord status separately from process health.
 
@@ -64,3 +64,14 @@ Every human member must complete 30 minutes of ended shifts per quota period. Bo
 Quota is enabled by default, starting at the first successful startup of this version. The first period may be a partial week. Reports are due Friday at 10 AM America/New_York (daylight-saving aware); `/quota timezone zone:...` changes the IANA timezone and starts a new period. `/quota disable` pauses reports while shift tracking continues; `/quota enable` begins a fresh period, with no catch-up for disabled weeks. These management actions require role 1538395177448644709.
 
 At the deadline a V2 quota infraction list posts in the configured infractions channel, with the complete list as a text attachment and a preview in the message. It does not automatically issue punishments or change disciplinary counts. Reports and deadlines persist in MongoDB. Delivery retries after outages, with the saved list preserved. The scheduler checks every 30 seconds, so on-time delivery can be up to 30 seconds after 10 AM. A stopped or sleeping Render service cannot deliver on time; it catches up when running again. Current members who joined by the deadline are included, even if they never started a shift; departed members are not fetched in an overdue roster.
+
+
+## Message commands
+
+Role 1538395177448644709 can use `-say your message` or `/say message:your message` to post as the bot in the current channel. Message Content Intent must be enabled for prefix commands. Say messages do not ping mentions.
+
+`-deployment` and `/deployment` post a bannerless V2 announcement in 1538399056986906715, pinging only role 1538395272986755173, with this exact message:
+
+Hello Valenti, we have an active deployment going on so make sure to join game and start shift and get playing!
+
+Make that role mentionable or grant the bot Mention Everyone in the deployment channel. These commands require the same management role as say.

@@ -41,5 +41,6 @@ else {
     }
   });
   client.on('interactionCreate',handleInteraction);
+  client.on('messageCreate',require('./src/messages').handleMessage);
   client.login(token).catch(e => console.error('Discord login failed. Check bot_token / BOT_TOKEN and enable Server Members and Message Content intents.', e.code || e.name));
 }
