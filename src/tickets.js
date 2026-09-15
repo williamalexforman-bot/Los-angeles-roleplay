@@ -4,6 +4,25 @@ const { collection, locked } = require('./store');
 const { settings, destination } = require('./discipline');
 const { TICKETS, TICKET_ACCESS_ROLE } = require('./settings');
 const { v2, button } = require('./panels');
+async function ensureOpeningPanel(channel, record) {
+  return locked(`ticket-close:${record._id}`, async () => {
+    let message;
+    if(record.panelId) message=await channel.messages.fetch(record.panelId).catch(e=>{if(e.code===10008)return null;throw e;});
+    if(!message) {
+      let before;
+      for (;;) {
+        const page=await channel.messages.fetch({limit:100,...(before?{before}:{})});
+        message=page.find(m=>m.author?.id===channel.client.user.id && JSON.stringify(m.components.map(c=>c.toJSON())).includes('ticket:close'));
+        if(message || page.size<100)break;
+        before=page.last().id;
+      }
+    }
+    if(message)await message.edit(ticketNotice(record));
+    else message=await channel.send({...ticketNotice(record),nonce:record._id,enforceNonce:true});
+    await collection('tickets').updateOne({_id:record._id},{$set:{panelId:message.id,panelPending:false}});
+    return message;
+  });
+}
 async function openTicket(i, type, reason, extra = '') {
   if (!TICKETS[type]) throw new Error('Invalid ticket department.');
   return locked(`ticket:${i.guildId}:${i.user.id}`, async () => {
@@ -11,7 +30,7 @@ async function openTicket(i, type, reason, extra = '') {
     const previous = await collection('tickets').findOne({ guildId: i.guildId, owner: i.user.id, status: 'open' });
     if (previous) {
       const channel = await i.guild.channels.fetch(previous._id).catch(e => { if(e.code===10003) return null; throw e; });
-      if (channel) return `You already have an open ticket: <#${channel.id}>.`;
+      if (channel) { await ensureOpeningPanel(channel, previous); return `You already have an open ticket: <#${channel.id}>.`; }
       await collection('tickets').updateOne({ _id: previous._id }, { $set: { status: 'missing' } });
     }
     const category = await i.guild.channels.fetch(config.tickets);
@@ -30,14 +49,13 @@ async function openTicket(i, type, reason, extra = '') {
       overwrites.push({ id: support, type: D.OverwriteType.Role, allow });
     }
     const channel = await i.guild.channels.create({ name: `${type}-${i.user.id}`, type: D.ChannelType.GuildText, parent: category.id, topic: `ticket-owner:${i.user.id}`, permissionOverwrites: overwrites });
-    try {
-      await collection('tickets').insertOne({ _id: channel.id, guildId: i.guildId, owner: i.user.id, type, reason, extra, support, status: 'open', opened: Date.now() });
-      const notice = await channel.send(ticketNotice({ type, owner: i.user.id, reason, extra }));
-      await collection('tickets').updateOne({ _id: channel.id }, { $set: { panelId: notice.id } });
-    } catch (error) {
-      await channel.delete('Ticket creation did not complete').catch(() => {});
-      await collection('tickets').updateOne({ _id: channel.id }, { $set: { status: 'failed' } });
-      throw error;
+    const record={ _id:channel.id, guildId:i.guildId, owner:i.user.id, type, reason, extra, support, status:'open', opened:Date.now(), panelPending:true };
+    try { await collection('tickets').insertOne(record); }
+    catch(error) { await channel.delete('Ticket record could not be saved').catch(()=>{}); throw error; }
+    try { await ensureOpeningPanel(channel,record); }
+    catch(error) {
+      console.error('Ticket opening panel pending:',channel.id,error.code||error.name);
+      return `Your ticket was created: <#${channel.id}>. Its opening panel could not be posted yet; the bot will retry automatically.`;
     }
     return `Your ${TICKETS[type]} ticket is ready: <#${channel.id}>.`;
   });
@@ -93,7 +111,7 @@ async function closeTicket(i) {
     await collection('tickets').updateOne({ _id: i.channelId }, { $set: { status: 'closed', closed: Date.now() } });
   });
 }
-module.exports = { syncTicketAccess, ticketAction, openTicket, ticketAccess, closeTicket, transcriptLine };
+module.exports = { ensureOpeningPanel, syncTicketAccess, ticketAction, openTicket, ticketAccess, closeTicket, transcriptLine };
 
 async function ticketAction(i, action) {
   return locked(`ticket-close:${i.channelId}`, async () => {
@@ -124,19 +142,13 @@ async function syncTicketAccess(client) {
       const config = await settings(guild.id);
       const category = await guild.channels.fetch(config.tickets);
       const permission = { ViewChannel:true, SendMessages:true, ReadMessageHistory:true, AttachFiles:true, EmbedLinks:true };
-      await category.permissionOverwrites.edit(TICKET_ACCESS_ROLE,permission);
+      await category.permissionOverwrites.edit(TICKET_ACCESS_ROLE,permission).catch(e=>console.error('Category access refresh pending:',e.code||e.name));
       const records = await collection('tickets').find({guildId:guild.id,status:'open'}).toArray();
       for (const record of records) {
         try {
           const channel = await guild.channels.fetch(record._id);
           await channel.permissionOverwrites.edit(TICKET_ACCESS_ROLE,permission);
-          let panelMessage;
-          if(record.panelId) panelMessage=await channel.messages.fetch(record.panelId).catch(()=>null);
-          if(!panelMessage) {
-            const recent=await channel.messages.fetch({limit:100});
-            panelMessage=recent.find(m=>m.author?.id===client.user.id && JSON.stringify(m.components.map(c=>c.toJSON())).includes('ticket:close'));
-          }
-          if(panelMessage) { await panelMessage.edit(ticketNotice(record)); await collection('tickets').updateOne({_id:record._id},{$set:{panelId:panelMessage.id}}); }
+          await ensureOpeningPanel(channel,record);
         } catch(e) { console.error('Ticket access refresh pending:', record._id,e.code || e.name); }
       }
     } catch(e) { console.error('Shared ticket role refresh pending:',guild.id,e.code || e.name); }
