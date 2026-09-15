@@ -32,6 +32,6 @@ client.ssuVotes = new Collection();
     loadCommands(client);
     loadSlashCommands(client);
     loadEvents(client);
-    registerSlashCommands(client);
-    client.login(process.env.BOT_TOKEN);
+    await client.login(process.env.BOT_TOKEN);
+    await registerSlashCommands(client);
 })();

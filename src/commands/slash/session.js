@@ -16,7 +16,7 @@ async function buildSSUPayload() {
     } catch (_) {}
     
     // SERVER_OWNER_ID can be set via /config or .env and is public.
-    const publicOwnerId = getSetting('SERVER_OWNER_ID', process.env.OWNER_ID);
+    const publicOwnerId = getSetting('SERVER_OWNER_ID', process.env.SERVER_OWNER_ID || process.env.OWNER_ID);
     const ownerMention = publicOwnerId ? `<@${publicOwnerId}>` : 'N/A';
 
     const container = buildContainer({

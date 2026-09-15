@@ -3,7 +3,7 @@ const { tickets, giveaways, getNextId, getSetting } = require('../utils/database
 const { createTranscript } = require('../utils/transcript');
 const { buildContainer, v2Msg, env, tpl, color, logo, banner } = require('../utils/v2');
 const { getServerInfo, getPlayers } = require('../utils/erlcApi');
-const { checkRateLimit, hasPermission, OWNER_ID } = require('../utils/security');
+const { checkRateLimit, hasPermission, ownerId } = require('../utils/security');
 const logger = require('../utils/logger');
 
 module.exports = {
@@ -21,9 +21,9 @@ module.exports = {
             if (!command) return;
 
             // Security check for /config and other restricted commands
-            const publicOwnerId = getSetting('SERVER_OWNER_ID', process.env.OWNER_ID);
-            if (interaction.commandName === 'config' && interaction.user.id !== OWNER_ID && interaction.user.id !== publicOwnerId) {
-                return interaction.reply({ content: 'Only the locked developer or server owner can use this command.', flags: MessageFlags.Ephemeral });
+            const publicOwnerId = ownerId();
+            if (interaction.commandName === 'config' && (!publicOwnerId || interaction.user.id !== publicOwnerId)) {
+                return interaction.reply({ content: 'Only the configured server owner can use this command.', flags: MessageFlags.Ephemeral });
             }
 
             try {

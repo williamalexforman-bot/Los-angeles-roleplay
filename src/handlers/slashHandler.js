@@ -24,10 +24,16 @@ async function registerSlashCommands(client) {
     client.slashCommands.forEach(cmd => commands.push(cmd.data.toJSON()));
 
     const rest = new REST({ version: '10' }).setToken(process.env.BOT_TOKEN);
+    const clientId = process.env.CLIENT_ID || client.user?.id;
+
+    if (!clientId || !process.env.GUILD_ID) {
+        logger.error('Cannot register slash commands: CLIENT_ID/BOT login or GUILD_ID is missing');
+        return;
+    }
 
     try {
         await rest.put(
-            Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
+            Routes.applicationGuildCommands(clientId, process.env.GUILD_ID),
             { body: commands }
         );
         logger.success('Registered slash commands with Discord');

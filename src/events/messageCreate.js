@@ -1,5 +1,5 @@
 const { getSetting } = require('../utils/database');
-const { checkRateLimit, OWNER_ID } = require('../utils/security');
+const { checkRateLimit } = require('../utils/security');
 const logger = require('../utils/logger');
 
 module.exports = {

@@ -1,6 +1,6 @@
 const { SlashCommandBuilder, MessageFlags } = require('discord.js');
 const { setSetting, getSetting } = require('../../utils/database');
-const { OWNER_ID } = require('../../utils/security');
+const { ownerId } = require('../../utils/security');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -19,8 +19,9 @@ module.exports = {
         ),
 
     async execute(interaction) {
-        if (interaction.user.id !== OWNER_ID) {
-            return interaction.reply({ content: 'Only the locked developer can use this command.', flags: MessageFlags.Ephemeral });
+        const configuredOwnerId = ownerId();
+        if (!configuredOwnerId || interaction.user.id !== configuredOwnerId) {
+            return interaction.reply({ content: 'Only the configured server owner can use this command.', flags: MessageFlags.Ephemeral });
         }
 
         const sub = interaction.options.getSubcommand();
