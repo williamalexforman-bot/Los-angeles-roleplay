@@ -1,37 +1,36 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, Partials, Collection } = require('discord.js');
-const { loadCommands } = require('./src/handlers/commandHandler');
-const { loadSlashCommands, registerSlashCommands } = require('./src/handlers/slashHandler');
-const { loadEvents } = require('./src/handlers/eventHandler');
-const { initDatabase } = require('./src/utils/database');
-const logger = require('./src/utils/logger');
+
+const { Client, GatewayIntentBits } = require('discord.js');
+
+const token = process.env.BOT_TOKEN;
+
+if (!token) {
+  console.error('BOT_TOKEN is required.');
+  process.exit(1);
+}
 
 const client = new Client({
-    intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent,
-        GatewayIntentBits.GuildMembers,
-        GatewayIntentBits.GuildMessageReactions,
-        GatewayIntentBits.DirectMessages
-    ],
-    partials: [
-        Partials.Message,
-        Partials.Channel,
-        Partials.Reaction
-    ]
+  intents: [GatewayIntentBits.Guilds],
 });
 
-client.prefixCommands = new Collection();
-client.slashCommands = new Collection();
-client.giveaways = new Collection();
-client.ssuVotes = new Collection();
+client.once('ready', async () => {
+  try {
+    // Remove any global commands left over from older versions.
+    await client.application.commands.set([]);
 
-(async () => {
-    await initDatabase();
-    loadCommands(client);
-    loadSlashCommands(client);
-    loadEvents(client);
-    await client.login(process.env.BOT_TOKEN);
-    await registerSlashCommands(client);
-})();
+    // Remove any server-specific commands left over from older versions.
+    await Promise.all(
+      client.guilds.cache.map((guild) => guild.commands.set([])),
+    );
+
+    console.log(`Ready as ${client.user.tag}. All commands have been removed.`);
+  } catch (error) {
+    console.error('The bot logged in, but command cleanup failed:', error);
+    process.exitCode = 1;
+  }
+});
+
+client.login(token).catch((error) => {
+  console.error('Failed to log in:', error);
+  process.exit(1);
+});
