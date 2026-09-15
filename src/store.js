@@ -7,10 +7,13 @@ async function connect() {
   }
   if (!uri) throw new Error('Set MONGODB_URI or the existing MONGODB_USERNAME, MONGODB_PASSWORD, MONGODB_HOST environment values.');
   const client = new MongoClient(uri, { serverSelectionTimeoutMS: 10000 });
-  await client.connect();
+  try { await client.connect(); }
+  catch (error) { await client.close().catch(() => {}); throw error; }
   // Separate collections preserve data belonging to the backed-up original bot.
-  db = client.db(process.env.MONGODB_DATABASE || 'discordbot');
-  await db.collection('fresh_locks').createIndex({ expires: 1 }, { expireAfterSeconds: 0 });
+  const connected = client.db(process.env.MONGODB_DATABASE || 'discordbot');
+  try { await connected.collection('fresh_locks').createIndex({ expires: 1 }, { expireAfterSeconds: 0 }); }
+  catch (error) { await client.close().catch(() => {}); throw error; }
+  db = connected;
 }
 function collection(name) {
   if (!db) throw new Error('The database is offline. No disciplinary changes were made. Ask an administrator to check MongoDB settings.');

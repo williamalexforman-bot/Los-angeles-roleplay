@@ -20,7 +20,7 @@ async function config(i) {
   const sub = i.options.getSubcommand();
   if (sub === 'view') {
     const s = await settings(i.guildId);
-    return i.editReply(v2('Channel Configuration', Object.keys(CHANNELS).map(k => `**${k}:** <#${s[k]}>`).join('\n'), [], true));
+    return i.editReply(v2('Channel Configuration', Object.keys(CHANNELS).map(k => `**${k}:** ${s[k] ? `<#${s[k]}>` : 'Server system channel'}`).join('\n'), [], true));
   }
   if (sub === 'channel') {
     const key = i.options.getString('destination', true), channel = i.options.getChannel('channel', true);

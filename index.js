@@ -25,8 +25,16 @@ else {
   client.on('shardResume', () => { discordReady = true; });
   client.once('clientReady', () => runTask('Startup', async () => {
     discordReady = true;
-    try { await store.connect(); databaseReady = true; }
-    catch { console.error('Database unavailable: configure MongoDB for persistent records and suspension recovery.'); }
+    let jobsStarted = false;
+    await startTask('Database connection', async () => {
+      if (!databaseReady) { await store.connect(); databaseReady = true; }
+      if (jobsStarted) return;
+      jobsStarted = true;
+      await startTask('Quota', () => tickQuota(client), 30000);
+      await startTask('Ticket access', () => syncTicketAccess(client), 300000);
+      await startTask('Shifts', () => syncShifts(client), 30000);
+      await startTask('Recovery', () => recover(client), 30000);
+    }, 30000);
     try {
       await client.application.commands.set([]);
       for (const guild of client.guilds.cache.values()) {
@@ -35,13 +43,9 @@ else {
       }
       console.log('Registered commands: ' + commands.map(c => '/' + c.name).join(', '));
     } catch { console.error('Command registration failed. Check Discord permissions.'); }
-    if (databaseReady) {
-      await startTask('Quota', () => tickQuota(client), 30000);
-      await startTask('Ticket access', () => syncTicketAccess(client), 300000);
-      await startTask('Shifts', () => syncShifts(client), 30000);
-      await startTask('Recovery', () => recover(client), 30000);
-    }
+
   }));
+  client.on('guildMemberAdd', member => runTask('Welcome message', () => require('./src/welcome').welcome(member)));
   client.on('interactionCreate',handleInteraction);
   client.on('messageCreate',require('./src/messages').handleMessage);
   client.login(token).catch(e => console.error('Discord login failed. Check bot_token / BOT_TOKEN and enable Server Members and Message Content intents.', e.code || e.name));

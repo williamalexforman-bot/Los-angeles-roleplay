@@ -1,4 +1,5 @@
 const CHANNELS = {
+  welcome: null,
   tickets: '1538594178467110942', infractions: '1538399223307829280',
   promotions: '1538399164780511332', deployment: '1538399056986906715',
   shiftLogs: '1538399655438581810', activeShifts: '1538399713378832426',

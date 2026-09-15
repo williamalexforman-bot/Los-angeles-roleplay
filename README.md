@@ -6,7 +6,7 @@ No-banner Discord Components V2 panels, tickets, promotions and disciplinary rec
 
 Node 22.22.0; build `npm install`; start `node index.js`. Set BOT_TOKEN (lowercase bot_token is also accepted; BOT_TOKEN takes priority) and either MONGODB_URI or the existing MONGODB_USERNAME, MONGODB_PASSWORD and MONGODB_HOST variables. MONGODB_DATABASE defaults to discordbot. New collections use the fresh_ prefix and do not modify old bot collections.
 
-Enable **Server Members Intent** and **Message Content Intent** in the Discord Developer Portal for complete ticket transcripts. The bot needs Manage Roles, Manage Channels, View Channels, Send Messages, Read Message History and Attach Files. Place its role above all roles it must manage. Discord-managed roles and @everyone cannot be removed. Durable storage is required before tickets or disciplinary actions can run. If the database is unavailable at startup, fix the environment and restart. The HTTP endpoint reports database and Discord status separately from process health.
+Enable **Server Members Intent** and **Message Content Intent** in the Discord Developer Portal for complete ticket transcripts. The bot needs Manage Roles, Manage Channels, View Channels, Send Messages, Read Message History and Attach Files. Place its role above all roles it must manage. Discord-managed roles and @everyone cannot be removed. Durable storage is required before tickets or disciplinary actions can run. If the database is unavailable at startup, the bot retries connection every 30 seconds and starts background jobs when connected. The HTTP endpoint reports database and Discord status separately from process health.
 
 ## Destinations
 
@@ -79,3 +79,5 @@ Make that role mentionable or grant the bot Mention Everyone in the deployment c
 Successful prefix commands delete the invoking message after posting. Give the bot Manage Messages in command channels. Failed commands retain the original message; deletion failures report separately without repeating the action.
 
 Role 1538393098185613352 additionally grants infraction access. Ticket closing posts <:closing_ticket:1549440281638600854> Closing Ticket in a bannerless V2 container and waits 10 seconds after the transcript is saved. Background job errors are caught and scheduled jobs retry at their normal intervals.
+
+Welcome messages use custom emoji 1549441219774382080 and the exact Valenti greeting, with a mention of the joining member. They post in the system channel by default. Set `/config channel destination:welcome channel:#welcome` to override. Requires Server Members Intent, working MongoDB configuration lookup, and channel send permissions. Joins missed while the bot is offline are not replayed. Render Free may sleep or restart; code does not guarantee continuous hosting.
