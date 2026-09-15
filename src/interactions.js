@@ -1,3 +1,4 @@
+const { shiftPanel, handleShift } = require('./shifts');
 const D = require('discord.js');
 const { collection } = require('./store');
 const { CHANNELS, TYPES, TICKETS } = require('./settings');
@@ -45,6 +46,12 @@ async function config(i) {
     await collection('config').updateOne({ _id: i.guildId }, { $set: { [key]: channel.id } }, { upsert: true });
     return i.editReply(v2('Configuration Saved', `**${key}:** <#${channel.id}>`, [], true));
   }
+  if (sub === 'shift-role') {
+    const role = i.options.getRole('role', true);
+    if (role.id === i.guildId || role.managed) throw new Error('Choose a staff role, not @everyone or a managed role.');
+    await collection('config').updateOne({ _id: i.guildId }, { $set: { shiftRole: role.id } }, { upsert: true });
+    return i.editReply(v2('Shift Access Saved', `Staff with <@&${role.id}> can start shifts.`, [], true));
+  }
   if (sub === 'ticket-access') {
     const type = i.options.getString('department', true), role = i.options.getRole('role', true);
     if (role.id === i.guildId || role.managed) throw new Error('Choose a staff role, not @everyone or a managed role.');
@@ -54,16 +61,18 @@ async function config(i) {
   const type = i.options.getString('panel',true);
   let channel = i.options.getChannel('channel');
   if (!channel) {
-    if (type === 'ticket') channel = i.channel;
+    if (type === 'ticket' || type === 'shift') channel = i.channel;
     else channel = await destination(i.guild, type === 'infraction' ? 'infractions' : 'promotions');
   }
-  await channel.send(panel(type));
+  await channel.send(type === 'shift' ? shiftPanel() : panel(type));
   return i.editReply(v2('Panel Posted', `Posted in <#${channel.id}>.`, [], true));
 }
 async function handleInteraction(i) {
   try {
     if (!i.inGuild()) return;
+    if (i.isButton() && i.customId.startsWith('shift:')) return await handleShift(i, i.customId.split(':')[1]);
     if (i.isChatInputCommand()) {
+      if (i.commandName === 'shift') return await handleShift(i, i.options.getSubcommand());
       if (i.commandName === 'config') return await config(i);
       if (!['infraction','promotion'].includes(i.commandName)) return;
       await admin(i);

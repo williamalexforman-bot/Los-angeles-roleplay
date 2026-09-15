@@ -5,6 +5,7 @@ const store = require('./src/store');
 const { commands } = require('./src/commands/config');
 const { handleInteraction } = require('./src/interactions');
 const { recover, destination } = require('./src/discipline');
+const { syncShifts } = require('./src/shifts');
 const { v2 } = require('./src/panels');
 let discordReady = false, databaseReady = false;
 http.createServer((req,res) => {
@@ -22,11 +23,13 @@ else {
       await client.application.commands.set([]);
       for (const guild of client.guilds.cache.values()) {
         await guild.commands.set(commands.map(c => c.toJSON()));
-        if (databaseReady) await destination(guild,'deployment').then(c => c.send(v2('Bot Deployment', 'The bot is online. Panel configuration, tickets, infractions and promotions are ready.'))).catch(() => console.error('Could not post deployment notice.'));
+        if (databaseReady) await destination(guild,'deployment').then(c => c.send(v2('Bot Deployment', 'The bot is online. Panel configuration, tickets, infractions, promotions and staff shifts are ready.'))).catch(() => console.error('Could not post deployment notice.'));
       }
-      console.log('Registered /config, /infraction and /promotion.');
+      console.log('Registered /config, /infraction, /promotion and /shift.');
     } catch { console.error('Command registration failed. Check Discord permissions.'); }
     if (databaseReady) {
+      await syncShifts(client);
+      setInterval(() => syncShifts(client), 30000);
       await recover(client).catch(() => console.error('Recovery is pending.'));
       setInterval(() => recover(client).catch(() => console.error('Recovery is pending.')),30000);
     }

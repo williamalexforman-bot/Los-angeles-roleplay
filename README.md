@@ -16,8 +16,8 @@ Enable **Message Content Intent** in the Discord Developer Portal for complete t
 | Infractions | 1538399223307829280 |
 | Promotions | 1538399164780511332 |
 | Deployment notices | 1538399056986906715 |
-| Shift logs (reserved) | 1538399655438581810 |
-| Active shifts (reserved) | 1538399713378832426 |
+| Shift logs | 1538399655438581810 |
+| Active shifts | 1538399713378832426 |
 | Ticket transcripts | 1538594354137141260 |
 
 `/config view` shows saved destinations. `/config channel` changes one. `/config panel` posts an interactive panel. Infraction and promotion panels default to their configured channels; ticket panels default to the command channel (tickets themselves always use the configured category). `/config ticket-access` assigns a department support role for new tickets. Until configured, tickets are visible only to the requester, bot and server administrators.
@@ -36,4 +36,13 @@ Suspensions save removable roles before changing them, retain/grant 153840103968
 
 Tickets require a reason before creation; Internal Affairs also requests the reported person and evidence. Closing requires confirmation and uploads all message text, embeds, V2 components and attachment URLs as text transcripts before deleting the channel. Files linked in transcripts are not separately archived. Transcript upload failure leaves the channel intact. One open ticket per requester is enforced with a database lock.
 
-Saved original and utility bot backup branches are unchanged. Shift channel IDs are reserved; this release does not implement shift commands.
+Saved original and utility bot backup branches are unchanged. Staff shift commands and panels are included.
+
+
+## Staff shifts
+
+`/shift start`, `/shift end`, and `/shift status` manage your own shift. An administrator configures eligible staff with `/config shift-role role:@Staff`. Administrators can also start shifts. Suspended members cannot start a new shift. Members can always end their own active shift even if their staff role was removed.
+
+`/config panel panel:shift channel:#staff` posts the no-banner V2 controls. The active-shifts board is created automatically in 1538399713378832426 and refreshed after changes and every 30 seconds. Larger teams use multiple V2 messages. Start/end notices go to 1538399655438581810; failed deliveries retry from MongoDB. An interrupted delivery can occasionally produce a duplicate notice with the same shift ID.
+
+One active shift per member is enforced. MongoDB retains start/end timestamps and completed durations across restarts. Time continues until the member ends the shift; restarting the bot does not reset or automatically end it. There are no automatic ER:LC permissions or game actions attached to shifts.
