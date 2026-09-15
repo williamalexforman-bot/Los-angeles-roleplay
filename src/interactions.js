@@ -41,17 +41,18 @@ async function config(i) {
     return i.editReply(v2('Ticket Access Saved', `New ${TICKETS[type]} tickets will allow <@&${role.id}>. Existing tickets retain their access.`, [], true));
   }
   const type = i.options.getString('panel',true);
-  if (!['ticket','shift'].includes(type)) throw new Error('Use /infraction issue or /promotion issue. Those do not have launcher panels.');
+  if (!['ticket','shift','application'].includes(type)) throw new Error('Use /infraction issue or /promotion issue. Those do not have launcher panels.');
   let channel = i.options.getChannel('channel');
   if (!channel) {
-    if (type === 'ticket' || type === 'shift') channel = i.channel;
+    if (['ticket','shift','application'].includes(type)) channel = i.channel;
     else channel = await destination(i.guild, type === 'infraction' ? 'infractions' : 'promotions');
   }
-  await channel.send(type === 'shift' ? shiftPanel() : panel(type));
+  await channel.send(type === 'application' ? require('./applications').applicationPanel() : type === 'shift' ? shiftPanel() : panel(type));
   return i.editReply(v2('Panel Posted', `Posted in <#${channel.id}>.`, [], true));
 }
 async function handleInteraction(i) {
   try {
+    if(i.customId?.startsWith('application:')) return await require('./applications').handle(i);
     if (!i.inGuild()) return;
     if(i.isButton() && ['close-request:accept','close-request:decline'].includes(i.customId))return await require('./utilities').respond(i);
     if (i.isButton() && i.customId.startsWith('shift:')) return await handleShift(i, i.customId.split(':')[1]);

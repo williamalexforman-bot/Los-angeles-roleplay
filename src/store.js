@@ -20,11 +20,6 @@ function collection(name) {
   return db.collection(`fresh_${name}`);
 }
 async function locked(key, work) {
-  const locks = collection('locks');
-  const owner = require('node:crypto').randomUUID();
-  try { await locks.insertOne({ _id: key, owner, expires: new Date(Date.now() + 600000) }); }
-  catch (e) { if (e.code === 11000) throw new Error('Another action for this member is running. Please try again later.'); throw e; }
-  const timer = setInterval(() => locks.updateOne({ _id: key, owner }, { $set: { expires: new Date(Date.now() + 600000) } }).catch(() => {}), 30000);
-  try { return await work(); } finally { clearInterval(timer); await locks.deleteOne({ _id: key, owner }); }
+  return require('./locks').withLock(collection('locks'),key,work);
 }
 module.exports = { connect, collection, locked };

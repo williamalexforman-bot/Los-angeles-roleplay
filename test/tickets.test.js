@@ -7,7 +7,7 @@ require.cache[require.resolve('../src/store')]={exports:{locked:async(k,fn)=>fn(
 const log={permissionsFor:()=>({has:()=>true}),send:async p=>{p.components[0].toJSON();assert.ok(p.files.length);if(failUpload)throw Error('upload failed');}};
 require.cache[require.resolve('../src/discipline')]={exports:{destination:async()=>log,settings:async()=>({})}};
 const {closeTicket}=require('../src/tickets');
-function interaction(){return {channelId:'ticket',user:{id:'user'},guild:{members:{fetch:async()=>({permissions:{has:()=>false}}),fetchMe:async()=>({})}},channel:{permissionsFor:()=>({has:()=>true}),messages:{fetch:async()=>new D.Collection()},delete:async()=>{deleted=true;}}};}
+function interaction(){return {channelId:'ticket',user:{id:'user'},guild:{members:{fetch:async()=>({permissions:{has:()=>false}}),fetchMe:async()=>({})}},channel:{send:async p=>{assert.equal(p.content,'<a:closing_ticket:1549440281638600854> Closing Ticket');assert.ok(updated[0].$set.transcriptSaved);assert.equal(deleted,false);},permissionsFor:()=>({has:()=>true}),messages:{fetch:async()=>new D.Collection()},delete:async()=>{deleted=true;}}};}
 test('failed transcript upload must not delete ticket',async()=>{
   failUpload=true;deleted=false;updated=[];
   await assert.rejects(()=>closeTicket(interaction()),/upload/);

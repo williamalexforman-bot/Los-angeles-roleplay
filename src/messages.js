@@ -5,7 +5,7 @@ const DEPLOYMENT_CHANNEL='1538399056986906715';
 const DEPLOYMENT_ROLE='1538395272986755173';
 const DEPLOYMENT_TEXT='Hello Valenti, we have an active deployment going on so make sure to join game and start shift and get playing!';
 function parsePrefix(content) {
-  const match=/^-(say|deployment|close|closerequest|purge|ticketpanel)(?:\s+([\s\S]*))?$/i.exec(content);
+  const match=/^-(say|deployment|close|closerequest|purge|ticketpanel|applicationpanel)(?:\s+([\s\S]*))?$/i.exec(content);
   return match?{command:match[1].toLowerCase(),text:(match[2]||'').trim()}:null;
 }
 async function say(context,text) {
@@ -34,7 +34,7 @@ async function handleMessage(message) {
   try {
     if(parsed.command==='say')await say(context,parsed.text);
     else if(require('./utilities').COMMANDS.includes(parsed.command)) {
-      if(['close','ticketpanel'].includes(parsed.command)&&parsed.text)throw new Error('This command does not take extra text.');
+      if(['close','ticketpanel','applicationpanel'].includes(parsed.command)&&parsed.text)throw new Error('This command does not take extra text.');
       const result=await require('./utilities').execute(context,parsed.command,parsed.text);
       if(result==='closed')return;
       if(parsed.command==='purge')await message.channel.send(v2('Messages Deleted',result));

@@ -20,7 +20,7 @@ http.createServer((req,res) => {
 }).listen(Number(process.env.PORT || 10000),'0.0.0.0');
 if (!token) console.warn('bot_token / BOT_TOKEN missing: Discord commands are offline.');
 else {
-  const client = new D.Client({ intents: [D.GatewayIntentBits.Guilds, D.GatewayIntentBits.GuildMembers, D.GatewayIntentBits.GuildMessages, D.GatewayIntentBits.MessageContent] });
+  const client = new D.Client({ intents: [D.GatewayIntentBits.Guilds, D.GatewayIntentBits.GuildMembers, D.GatewayIntentBits.GuildMessages, D.GatewayIntentBits.MessageContent, D.GatewayIntentBits.DirectMessages], partials:[D.Partials.Channel] });
   client.on('error', e => console.error('Discord client error:', e.code || e.name));
   client.on('shardError', e => console.error('Discord connection error:', e.code || e.name));
   client.on('shardDisconnect', (event, id) => { discordReady = false; console.error('Discord disconnected:', id, event.code); });
@@ -39,6 +39,8 @@ else {
       await startTask('Ticket access', () => syncTicketAccess(client), 300000);
       await startTask('Shifts', () => syncShifts(client), 30000);
       await startTask('Recovery', () => recover(client), 30000);
+      await startTask('V2 case notices', () => require('./src/case-panels').syncCasePanels(client), 300000);
+      await startTask('Applications', () => require('./src/applications').recoverApplications(client), 30000);
     }, 30000);
     try {
       await client.application.commands.set([]);
@@ -52,6 +54,6 @@ else {
   }));
   client.on('guildMemberAdd', member => runTask('Welcome message', () => require('./src/welcome').welcome(member)));
   client.on('interactionCreate',handleInteraction);
-  client.on('messageCreate',require('./src/messages').handleMessage);
+  client.on('messageCreate',message => message.guild ? require('./src/messages').handleMessage(message) : require('./src/applications').dm(message));
   client.login(token).catch(e => console.error('Discord login failed. Check bot_token / BOT_TOKEN and enable Server Members and Message Content intents.', e.code || e.name));
 }

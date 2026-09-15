@@ -2,7 +2,7 @@ const D=require('discord.js');
 const {requireAccess}=require('./access');
 const {ticketAccess,closeTicket}=require('./tickets');
 const {v2,panel,button}=require('./panels');
-const COMMANDS=['close','closerequest','purge','ticketpanel'];
+const COMMANDS=['close','closerequest','purge','ticketpanel','applicationpanel'];
 async function execute(context,command,arg='') {
   if(command==='close') {await closeTicket(context);return 'closed';}
   if(command==='closerequest') {
@@ -12,6 +12,7 @@ async function execute(context,command,arg='') {
     return 'Close request sent to the ticket opener.';
   }
   await requireAccess(context,command);
+  if(command==='applicationpanel'){await context.channel.send(require('./applications').applicationPanel());return 'Application panel posted.';}
   if(command==='ticketpanel') {await context.channel.send(panel('ticket'));return 'Ticket panel posted.';}
   if(command==='purge') {
     if(!/^\d+$/.test(String(arg))||Number(arg)<1||Number(arg)>100)throw new Error('Enter a whole number from 1 to 100.');

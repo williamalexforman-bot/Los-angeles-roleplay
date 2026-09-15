@@ -64,7 +64,7 @@ async function logCase(guild, item) {
     try { const user = await guild.client.users.fetch(item.userId); await user.send(caseNotice(item, message.url)); delivered = true; } catch {}
     await collection('cases').updateOne({_id:item._id},{$set:{dmAttempted:true,dmDelivered:delivered}});
   }
-  await collection('cases').updateOne({ _id: item._id }, { $set: { status: 'logged' } });
+  await collection('cases').updateOne({ _id: item._id }, { $set: { status: 'logged', noticeVersion: 2 } });
 }
 async function issue(interaction, data, reason, dateText) {
   return locked(`member:${interaction.guildId}:${data.userId}`, async () => {

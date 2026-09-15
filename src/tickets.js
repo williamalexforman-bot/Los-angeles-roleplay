@@ -30,7 +30,10 @@ async function openTicket(i, type, reason, extra = '') {
     const previous = await collection('tickets').findOne({ guildId: i.guildId, owner: i.user.id, status: 'open' });
     if (previous) {
       const channel = await i.guild.channels.fetch(previous._id).catch(e => { if(e.code===10003) return null; throw e; });
-      if (channel) { await ensureOpeningPanel(channel, previous); return `You already have an open ticket: <#${channel.id}>.`; }
+      if (channel) {
+        try { await ensureOpeningPanel(channel, previous); } catch(e) { console.error('Existing ticket panel repair pending:',channel.id,e.code||e.name); }
+        return `You already have an open ticket: <#${channel.id}>.`;
+      }
       await collection('tickets').updateOne({ _id: previous._id }, { $set: { status: 'missing' } });
     }
     const category = await i.guild.channels.fetch(config.tickets);
@@ -105,7 +108,7 @@ async function closeTicket(i) {
       await log.send({ ...payload, files: [new D.AttachmentBuilder(Buffer.from(parts[n]), { name })] });
     }
     await collection('tickets').updateOne({ _id: i.channelId }, { $set: { transcriptSaved: Date.now() } });
-    await i.channel.send({content:'<:closing_ticket:1549440281638600854> Closing Ticket',allowedMentions:{parse:[]}});
+    await i.channel.send({content:`${i.guild.emojis?.cache.get('1549440281638600854')?.toString() || '<a:closing_ticket:1549440281638600854>'} Closing Ticket`,allowedMentions:{parse:[]}});
     await new Promise(resolve => setTimeout(resolve, 10000));
     await i.channel.delete(`Ticket closed by ${i.user.id}; transcript saved`);
     await collection('tickets').updateOne({ _id: i.channelId }, { $set: { status: 'closed', closed: Date.now() } });

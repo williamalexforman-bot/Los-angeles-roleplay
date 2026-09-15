@@ -8,7 +8,7 @@ const configCommand = admin(new D.SlashCommandBuilder().setName('config').setDes
   .addStringOption(o => o.setName('destination').setDescription('Destination').setRequired(true).addChoices(...Object.keys(CHANNELS).map(value => ({ name: value, value }))))
   .addChannelOption(o => o.setName('channel').setDescription('Channel or ticket category').setRequired(true).addChannelTypes(D.ChannelType.GuildCategory, D.ChannelType.GuildText, D.ChannelType.GuildAnnouncement)))
 .addSubcommand(s => s.setName('panel').setDescription('Post a V2 panel')
-  .addStringOption(o => o.setName('panel').setDescription('Panel').setRequired(true).addChoices(...['ticket','shift'].map(value => ({ name: value, value }))))
+  .addStringOption(o => o.setName('panel').setDescription('Panel').setRequired(true).addChoices(...['ticket','shift','application'].map(value => ({ name: value, value }))))
   .addChannelOption(o => o.setName('channel').setDescription('Optional panel channel override').addChannelTypes(D.ChannelType.GuildText, D.ChannelType.GuildAnnouncement)))
 .addSubcommand(s => s.setName('ticket-access').setDescription('Set the support role for one department')
   .addStringOption(o => o.setName('department').setDescription('Department').setRequired(true).addChoices(...Object.entries(TICKETS).map(([value,name]) => ({name,value}))))
@@ -44,4 +44,5 @@ const close = roleGated(new D.SlashCommandBuilder().setName('close').setDescript
 const closerequest = roleGated(new D.SlashCommandBuilder().setName('closerequest').setDescription('Ask the ticket opener to close this ticket').addStringOption(o=>o.setName('reason').setDescription('Why should this ticket close?').setRequired(true).setMaxLength(1000)));
 const purge = roleGated(new D.SlashCommandBuilder().setName('purge').setDescription('Delete recent messages in this channel').addIntegerOption(o=>o.setName('amount').setDescription('Number of messages, from 1 to 100').setRequired(true).setMinValue(1).setMaxValue(100)));
 const ticketpanel = roleGated(new D.SlashCommandBuilder().setName('ticketpanel').setDescription('Post the ticket panel in this channel'));
-module.exports = { configCommand, commands: [configCommand, infraction, promotion, shift, suspension, quota, say, deployment, close, closerequest, purge, ticketpanel] };
+const applicationpanel = roleGated(new D.SlashCommandBuilder().setName('applicationpanel').setDescription('Post the Valenti application panel'));
+module.exports = { configCommand, commands: [configCommand, infraction, promotion, shift, suspension, quota, say, deployment, close, closerequest, purge, ticketpanel, applicationpanel] };
