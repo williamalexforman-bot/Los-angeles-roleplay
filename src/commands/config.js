@@ -1,31 +1,22 @@
-const { ChannelType, PermissionFlagsBits, SlashCommandBuilder } = require('discord.js');
-
-const configCommand = new SlashCommandBuilder()
-  .setName('config')
-  .setDescription('Configure and post server panels')
-  .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
-  .addSubcommand((subcommand) =>
-    subcommand
-      .setName('panel')
-      .setDescription('Post a Components V2 panel in a channel')
-      .addStringOption((option) =>
-        option
-          .setName('panel')
-          .setDescription('The panel to post')
-          .setRequired(true)
-          .addChoices(
-            { name: 'Infraction', value: 'infraction' },
-            { name: 'Promotion', value: 'promotion' },
-            { name: 'Ticket', value: 'ticket' },
-          ),
-      )
-      .addChannelOption((option) =>
-        option
-          .setName('channel')
-          .setDescription('Where the panel should be posted')
-          .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
-          .setRequired(true),
-      ),
-  );
-
-module.exports = { configCommand };
+const D = require('discord.js');
+const { CHANNELS, TYPES, TICKETS } = require('../settings');
+const admin = cmd => cmd.setDefaultMemberPermissions(D.PermissionFlagsBits.Administrator).setDMPermission(false);
+const configCommand = admin(new D.SlashCommandBuilder().setName('config').setDescription('Set channels, ticket access and post panels'))
+.addSubcommand(s => s.setName('view').setDescription('View configured destinations'))
+.addSubcommand(s => s.setName('channel').setDescription('Change a destination')
+  .addStringOption(o => o.setName('destination').setDescription('Destination').setRequired(true).addChoices(...Object.keys(CHANNELS).map(value => ({ name: value, value }))))
+  .addChannelOption(o => o.setName('channel').setDescription('Channel or ticket category').setRequired(true).addChannelTypes(D.ChannelType.GuildCategory, D.ChannelType.GuildText, D.ChannelType.GuildAnnouncement)))
+.addSubcommand(s => s.setName('panel').setDescription('Post a V2 panel')
+  .addStringOption(o => o.setName('panel').setDescription('Panel').setRequired(true).addChoices(...['infraction','promotion','ticket'].map(value => ({ name: value, value }))))
+  .addChannelOption(o => o.setName('channel').setDescription('Optional panel channel override').addChannelTypes(D.ChannelType.GuildText, D.ChannelType.GuildAnnouncement)))
+.addSubcommand(s => s.setName('ticket-access').setDescription('Set the support role for one department')
+  .addStringOption(o => o.setName('department').setDescription('Department').setRequired(true).addChoices(...Object.entries(TICKETS).map(([value,name]) => ({name,value}))))
+  .addRoleOption(o => o.setName('role').setDescription('Role allowed to read this department’s tickets').setRequired(true)));
+const infraction = admin(new D.SlashCommandBuilder().setName('infraction').setDescription('Issue a recorded infraction'))
+.addUserOption(o => o.setName('member').setDescription('Member').setRequired(true))
+.addStringOption(o => o.setName('type').setDescription('Infraction type').setRequired(true).addChoices(...TYPES.map(value => ({name:value,value}))));
+const promotion = admin(new D.SlashCommandBuilder().setName('promotion').setDescription('Record and apply a rank change'))
+.addUserOption(o => o.setName('member').setDescription('Member').setRequired(true))
+.addRoleOption(o => o.setName('previous-rank').setDescription('Current rank').setRequired(true))
+.addRoleOption(o => o.setName('new-rank').setDescription('New rank').setRequired(true));
+module.exports = { configCommand, commands: [configCommand, infraction, promotion] };

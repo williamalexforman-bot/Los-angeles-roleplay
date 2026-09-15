@@ -1,0 +1,82 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const D = require('discord.js');
+const { ROLES } = require('../src/settings');
+const { panel } = require('../src/panels');
+const data = {};
+function matches(doc, query) {
+  return Object.entries(query).every(([k,v]) => {
+    const actual=k.split('.').reduce((a,b)=>a?.[b],doc);
+    if (v && typeof v==='object') {
+      if ('$in' in v) return v.$in.includes(actual);
+      if ('$lte' in v) return actual <= v.$lte;
+    }
+    return actual===v;
+  });
+}
+function collection(name) {
+  const rows=data[name] ||= [];
+  return {
+    findOne: async q => structuredClone(rows.find(r=>matches(r,q)) || null),
+    find: q => ({toArray:async()=>structuredClone(rows.filter(r=>matches(r,q)))}),
+    insertOne: async r => { rows.push(structuredClone(r)); },
+    replaceOne: async(q,r) => { const n=rows.findIndex(r=>matches(r,q)); if(n<0) rows.push(structuredClone(r)); else rows[n]=structuredClone(r); },
+    updateOne: async(q,u) => { const r=rows.find(r=>matches(r,q)); if(!r) return; Object.assign(r, structuredClone(u.$set || {})); for(const k of Object.keys(u.$unset || {})) delete r[k]; },
+  };
+}
+require.cache[require.resolve('../src/store')]={exports:{collection,locked:async(k,fn)=>fn()}};
+const {advance,endDate,issue,recover}=require('../src/discipline');
+function setup(state={}) {
+  for(const key of Object.keys(data)) delete data[key];
+  const roleIds=['rank','1538401039684866143',...ROLES.warnings,...ROLES.strikes,ROLES.suspended];
+  const roles = new D.Collection(roleIds.map(id=>[id,{id,managed:false}]));
+  const cache = new D.Collection(['rank',ROLES.retained,ROLES.strikes[1]].map(id=>[id,roles.get(id)]));
+  const log = [];
+  const target = { id:'member',user:{bot:false},manageable:true,roles:{cache,
+    add:async id=>{assert.equal(data.cases?.[0]?.status,'prepared');cache.set(id,roles.get(id));},
+    remove:async id=>{assert.ok(data.cases?.length);cache.delete(id);},
+  }};
+  const actor={id:'owner',permissions:{has:()=>true}};
+  const me={permissions:{has:()=>true},roles:{highest:{comparePositionTo:()=>1}}};
+  const channel={id:'log',isTextBased:()=>true,permissionsFor:()=>({has:()=>true}),send:async p=>log.push(p)};
+  const guild={id:'guild',ownerId:'owner',roles:{cache:roles,fetch:async()=>roles},channels:{fetch:async()=>channel},members:{me,fetchMe:async()=>me,fetch:async o=>o.user==='owner'?actor:target}};
+  data.members=[{_id:'guild:member',guildId:'guild',userId:'member',warnings:0,strikes:2,total:2,...state}];
+  const i={id:'case',guildId:'guild',guild,user:{id:'owner'}};
+  return {i,target,log,guild};
+}
+test('warning escalation resets warning tier and adds exactly one strike',()=>{
+  assert.deepEqual(advance({warnings:2,strikes:1},'Warning'),{warnings:0,strikes:2,suspend:false});
+  assert.deepEqual(advance({warnings:2,strikes:2},'Warning'),{warnings:0,strikes:3,suspend:true});
+  assert.equal(advance({},'Suspension').suspend,true);
+});
+test('invalid or past suspension dates are rejected',()=>{
+  for(const date of ['', '2026-02-30 12:00','2001-01-01 12:00','tomorrow']) assert.throws(()=>endDate(date));
+});
+test('all panels serialize as V2 without image components',()=>{
+  for(const type of ['ticket','infraction','promotion']) {
+    const p=panel(type); assert.equal(p.flags,D.MessageFlags.IsComponentsV2);
+    const json=p.components[0].toJSON(); assert.equal(json.type,17);
+    assert.ok(!JSON.stringify(json).includes('http'));
+  }
+});
+test('third strike requires date before any mutation; suspension snapshot survives for recovery',async()=>{
+  let f=setup();
+  await assert.rejects(()=>issue(f.i,{kind:'infraction',userId:'member',type:'Strike'},'Reason',''),/YYYY/);
+  assert.equal(data.cases.length,0); assert.ok(f.target.roles.cache.has('rank'));
+  f=setup();
+  await issue(f.i,{kind:'infraction',userId:'member',type:'Strike'},'Reason','2099-01-01 12:00');
+  assert.deepEqual([...f.target.roles.cache.keys()].sort(),[ROLES.retained,ROLES.suspended].sort());
+  assert.ok(data.members[0].suspension.roles.includes('rank'));
+  assert.equal(data.members[0].strikes,3); assert.equal(data.cases[0].status,'logged');
+  data.members[0].suspension.ends=1;
+  f.target.roles.add=async id=>f.target.roles.cache.set(id,{id});
+  await recover({guilds:{fetch:async()=>f.guild}});
+  assert.ok(f.target.roles.cache.has('rank')); assert.ok(!f.target.roles.cache.has(ROLES.suspended));
+  assert.equal(data.members[0].suspension,undefined);
+});
+test('promotion replaces only selected rank and records reason',async()=>{
+  const f=setup(); f.guild.roles.cache.set('newrank',{id:'newrank',managed:false});
+  await issue(f.i,{kind:'promotion',userId:'member',previous:'rank',next:'newrank'},'Excellent work','');
+  assert.ok(f.target.roles.cache.has('newrank')); assert.ok(!f.target.roles.cache.has('rank'));
+  assert.ok(f.target.roles.cache.has(ROLES.retained)); assert.equal(data.cases[0].reason,'Excellent work');
+});

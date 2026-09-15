@@ -1,44 +1,36 @@
 require('dotenv').config();
-
 const http = require('node:http');
-const { Client, GatewayIntentBits } = require('discord.js');
-const { configCommand } = require('./src/commands/config');
+const D = require('discord.js');
+const store = require('./src/store');
+const { commands } = require('./src/commands/config');
 const { handleInteraction } = require('./src/interactions');
-
-const token = process.env.BOT_TOKEN;
-const port = Number(process.env.PORT || 10000);
-
-const healthServer = http.createServer((request, response) => {
-  response.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-  response.end('CSRP bot is running.');
-});
-
-healthServer.listen(port, '0.0.0.0', () => {
-  console.log(`Health server listening on 0.0.0.0:${port}`);
-});
-
-healthServer.on('error', (error) => {
-  console.error('Health server failed:', error);
-  process.exit(1);
-});
-
-if (!token) {
-  console.warn('BOT_TOKEN is not set. The health server is running, but Discord commands are offline.');
-} else {
-  const client = new Client({ intents: [GatewayIntentBits.Guilds] });
-
-  client.once('ready', async () => {
+const { recover, destination } = require('./src/discipline');
+const { v2 } = require('./src/panels');
+let discordReady = false, databaseReady = false;
+http.createServer((req,res) => {
+  res.writeHead(200, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ service: 'running', discord: discordReady, database: databaseReady }));
+}).listen(Number(process.env.PORT || 10000),'0.0.0.0');
+if (!process.env.BOT_TOKEN) console.warn('BOT_TOKEN missing: Discord commands are offline.');
+else {
+  const client = new D.Client({ intents: [D.GatewayIntentBits.Guilds, D.GatewayIntentBits.GuildMessages, D.GatewayIntentBits.MessageContent] });
+  client.once('clientReady', async () => {
+    discordReady = true;
+    try { await store.connect(); databaseReady = true; }
+    catch { console.error('Database unavailable: configure MongoDB for persistent records and suspension recovery.'); }
     try {
       await client.application.commands.set([]);
-      await Promise.all(
-        client.guilds.cache.map((guild) => guild.commands.set([configCommand.toJSON()])),
-      );
-      console.log(`Ready as ${client.user.tag}. Registered /config.`);
-    } catch (error) {
-      console.error('Failed to register Discord commands:', error);
+      for (const guild of client.guilds.cache.values()) {
+        await guild.commands.set(commands.map(c => c.toJSON()));
+        if (databaseReady) await destination(guild,'deployment').then(c => c.send(v2('Bot Deployment', 'The bot is online. Panel configuration, tickets, infractions and promotions are ready.'))).catch(() => console.error('Could not post deployment notice.'));
+      }
+      console.log('Registered /config, /infraction and /promotion.');
+    } catch { console.error('Command registration failed. Check Discord permissions.'); }
+    if (databaseReady) {
+      await recover(client).catch(() => console.error('Recovery is pending.'));
+      setInterval(() => recover(client).catch(() => console.error('Recovery is pending.')),30000);
     }
   });
-
-  client.on('interactionCreate', handleInteraction);
-  client.login(token).catch((error) => console.error('Failed to log in:', error));
+  client.on('interactionCreate',handleInteraction);
+  client.login(process.env.BOT_TOKEN).catch(e => console.error('Discord login failed. Check BOT_TOKEN and enable Message Content Intent.', e.code || e.name));
 }
