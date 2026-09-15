@@ -90,8 +90,9 @@ async function handleInteraction(i) {
       return await i.editReply(v2('Ticket Created', await openTicket(i, type, reason, extra), [], true));
     }
     if (i.isButton() && i.customId === 'ticket:close') {
+      await i.deferReply({ flags: D.MessageFlags.Ephemeral });
       await ticketAccess(i);
-      return await i.reply(v2('Close Ticket?', 'The transcript will be saved before the channel is deleted.', [button('ticket:confirm-close','Save Transcript & Close', D.ButtonStyle.Danger)], true));
+      return await i.editReply(v2('Close Ticket?', 'The transcript will be saved before the channel is deleted.', [button('ticket:confirm-close','Save Transcript & Close', D.ButtonStyle.Danger)], true));
     }
     if (i.isButton() && i.customId === 'ticket:confirm-close') {
       await i.deferUpdate();
@@ -115,7 +116,7 @@ async function handleInteraction(i) {
       return await i.editReply(v2('Infraction Appeal',await openTicket(i,'affairs',reason,`Infraction: INF-${record._id}`),[],true));
     }
   } catch(e) {
-    console.error('Interaction failed:', e.code || e.name);
+    console.error('Interaction failed:', i.commandName || i.customId, i.id, e.code || e.name);
     const message = e.name === 'Error' ? e.message : 'Discord could not complete this action. Check the bot’s channel and role permissions.';
     const payload = v2('Action Not Completed',message,[],true);
     if (i.deferred || i.replied) await i.editReply(payload).catch(() => {});

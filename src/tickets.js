@@ -10,7 +10,7 @@ async function openTicket(i, type, reason, extra = '') {
     const config = await settings(i.guildId);
     const previous = await collection('tickets').findOne({ guildId: i.guildId, owner: i.user.id, status: 'open' });
     if (previous) {
-      const channel = await i.guild.channels.fetch(previous._id).catch(() => null);
+      const channel = await i.guild.channels.fetch(previous._id).catch(e => { if(e.code===10003) return null; throw e; });
       if (channel) return `You already have an open ticket: <#${channel.id}>.`;
       await collection('tickets').updateOne({ _id: previous._id }, { $set: { status: 'missing' } });
     }
@@ -20,14 +20,14 @@ async function openTicket(i, type, reason, extra = '') {
     if (!me.permissions.has(D.PermissionFlagsBits.ManageChannels)) throw new Error('The bot needs Manage Channels to create tickets.');
     const support = config[`support_${type}`];
     const allow = [D.PermissionFlagsBits.ViewChannel, D.PermissionFlagsBits.SendMessages, D.PermissionFlagsBits.ReadMessageHistory, D.PermissionFlagsBits.AttachFiles, D.PermissionFlagsBits.EmbedLinks];
-    const overwrites = [ { id: i.guildId, deny: [D.PermissionFlagsBits.ViewChannel] }, { id: i.user.id, allow }, { id: me.id, allow: [...allow, D.PermissionFlagsBits.ManageChannels] } ];
+    const overwrites = [ { id: i.guildId, type: D.OverwriteType.Role, deny: [D.PermissionFlagsBits.ViewChannel] }, { id: i.user.id, type: D.OverwriteType.Member, allow }, { id: me.id, type: D.OverwriteType.Member, allow: [...allow, D.PermissionFlagsBits.ManageChannels] } ];
     const sharedRole = await i.guild.roles.fetch(TICKET_ACCESS_ROLE);
     if (!sharedRole) throw new Error('The shared ticket access role is missing from this server.');
-    overwrites.push({ id: TICKET_ACCESS_ROLE, allow });
+    overwrites.push({ id: TICKET_ACCESS_ROLE, type: D.OverwriteType.Role, allow });
     if (support && support !== TICKET_ACCESS_ROLE) {
       const role = await i.guild.roles.fetch(support);
       if (!role || role.id === i.guildId) throw new Error('The configured ticket support role is invalid.');
-      overwrites.push({ id: support, allow });
+      overwrites.push({ id: support, type: D.OverwriteType.Role, allow });
     }
     const channel = await i.guild.channels.create({ name: `${type}-${i.user.id}`, type: D.ChannelType.GuildText, parent: category.id, topic: `ticket-owner:${i.user.id}`, permissionOverwrites: overwrites });
     try {

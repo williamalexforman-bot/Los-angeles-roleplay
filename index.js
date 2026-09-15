@@ -12,6 +12,8 @@ const { v2 } = require('./src/panels');
 const { runTask, startTask } = require('./src/runtime');
 const token = process.env.BOT_TOKEN?.trim() || process.env.bot_token?.trim();
 let discordReady = false, databaseReady = false;
+console.log('Bot starting:', process.env.RENDER_GIT_COMMIT || 'local', 'Node', process.version);
+process.on('SIGTERM', () => { console.log('Host sent SIGTERM; stopping bot.'); process.exit(0); });
 http.createServer((req,res) => {
   res.writeHead(200, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ service: 'running', discord: discordReady, database: databaseReady }));
@@ -21,12 +23,15 @@ else {
   const client = new D.Client({ intents: [D.GatewayIntentBits.Guilds, D.GatewayIntentBits.GuildMembers, D.GatewayIntentBits.GuildMessages, D.GatewayIntentBits.MessageContent] });
   client.on('error', e => console.error('Discord client error:', e.code || e.name));
   client.on('shardError', e => console.error('Discord connection error:', e.code || e.name));
-  client.on('shardDisconnect', () => { discordReady = false; });
+  client.on('shardDisconnect', (event, id) => { discordReady = false; console.error('Discord disconnected:', id, event.code); });
+  client.on('shardReconnecting', id => console.log('Discord reconnecting:', id));
+  client.on('shardReady', () => { discordReady = true; });
+  client.on('invalidated', () => { discordReady = false; console.error('Discord session invalidated; restarting process.'); process.exit(1); });
   client.on('shardResume', () => { discordReady = true; });
   client.once('clientReady', () => runTask('Startup', async () => {
     discordReady = true;
     let jobsStarted = false;
-    await startTask('Database connection', async () => {
+    void startTask('Database connection', async () => {
       if (!databaseReady) { await store.connect(); databaseReady = true; }
       if (jobsStarted) return;
       jobsStarted = true;
