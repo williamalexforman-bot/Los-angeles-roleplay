@@ -1,40 +1,23 @@
 {
-  "name": "discord-management-bot",
+  "name": "custom-utility-bot",
   "version": "1.0.0",
-  "description": "A professional Discord management bot for a Roblox roleplay community.",
+  "description": "Professional Discord Utility Bot for ERLC communities",
   "main": "index.js",
-  "engines": {
-    "node": ">=22.22.0 <23"
+  "author": "SEJED-DEV",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SEJED-DEV/ERLC-UTILITY-BOT.git"
   },
   "scripts": {
-    "start": "node index.js",
-    "dev": "node --watch index.js",
-    "build": "npm run typecheck && npm run check:banner-quality && npm run check:v2-emblems",
-    "typecheck": "tsc --noEmit",
-    "test": "ts-node --transpile-only tests/smoke.ts && ts-node --transpile-only tests/marketplace.ts && ts-node --transpile-only tests/giveaway.ts && ts-node --transpile-only tests/memberLifecycleLogs.ts",
-    "check:banner-quality": "node scripts/check-banner-quality.js",
-    "check:v2-emblems": "node scripts/check-v2-emblems.js",
-    "check": "npm run typecheck && npm run check:banner-quality && npm run check:v2-emblems && npm test"
+    "start": "node index.js"
   },
   "dependencies": {
-    "discord.js": "^14.0.0",
-    "dotenv": "^10.0.0",
-    "mongoose": "^6.0.0",
-    "sharp": "^0.35.3",
-    "ts-node": "^10.9.1",
-    "typescript": "^5.5.0"
-  },
-  "devDependencies": {
-    "@types/node": "^20.0.0",
-    "ts-node-dev": "^2.0.0"
-  },
-  "keywords": [
-    "discord",
-    "bot",
-    "management",
-    "roblox",
-    "roleplay"
-  ],
-  "author": "California State Roleplay",
-  "license": "MIT"
+    "better-sqlite3": "^11.5.0",
+    "chalk": "^4.1.2",
+    "discord-html-transcripts": "^3.2.0",
+    "discord.js": "^14.18.0",
+    "dotenv": "^16.4.5",
+    "node-fetch": "^2.7.0"
+  }
 }
