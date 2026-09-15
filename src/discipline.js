@@ -1,7 +1,7 @@
 const D = require('discord.js');
 const { collection, locked } = require('./store');
 const { CHANNELS, ROLES, TYPES } = require('./settings');
-const { caseNotice } = require('./legacy-layout');
+const { caseNotice, NOTICE_VERSION } = require('./legacy-layout');
 const { v2 } = require('./panels');
 async function settings(guildId) { return { ...CHANNELS, ...(await collection('config').findOne({ _id: guildId })) }; }
 async function destination(guild, key) {
@@ -64,7 +64,7 @@ async function logCase(guild, item) {
     try { const user = await guild.client.users.fetch(item.userId); await user.send(caseNotice(item, message.url)); delivered = true; } catch {}
     await collection('cases').updateOne({_id:item._id},{$set:{dmAttempted:true,dmDelivered:delivered}});
   }
-  await collection('cases').updateOne({ _id: item._id }, { $set: { status: 'logged', noticeVersion: 2 } });
+  await collection('cases').updateOne({ _id: item._id }, { $set: { status: 'logged', noticeVersion: NOTICE_VERSION } });
 }
 async function issue(interaction, data, reason, dateText) {
   return locked(`member:${interaction.guildId}:${data.userId}`, async () => {
