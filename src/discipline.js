@@ -25,19 +25,16 @@ function endDate(input) {
   return n;
 }
 async function authorize(interaction, userId, kind = 'infraction') {
-  const actor = await interaction.guild.members.fetch({ user: interaction.user.id, force: true });
-  if (!require('./access').allowed(actor,kind)) throw new Error('You do not have the required role for this action.');
+  const actor = await require('./access').requireAccess(interaction, kind);
   const target = await interaction.guild.members.fetch({ user: userId, force: true });
   const me = await interaction.guild.members.fetchMe();
   if (target.user.bot) throw new Error('Choose a human member rather than a bot account.');
   if (target.id === interaction.guild.ownerId && actor.id !== interaction.guild.ownerId) throw new Error('Only the server owner may issue an action on the owner’s record.');
   if (!me.permissions.has(D.PermissionFlagsBits.ManageRoles)) throw new Error('Move the bot role above the target and grant Manage Roles.');
-  if (actor.id !== target.id && actor.id !== interaction.guild.ownerId && actor.roles.highest.comparePositionTo(target.roles.highest) <= 0) throw new Error('You may only change members below your highest role.');
   return { actor, target, me };
 }
 function checkRole(role, actor, me, guild) {
   if (!role || role.id === guild.id || role.managed || me.roles.highest.comparePositionTo(role) <= 0) throw new Error('A required role is missing, managed by Discord, or above the bot.');
-  if (actor && actor.id !== guild.ownerId && actor.roles.highest.comparePositionTo(role) <= 0) throw new Error('A selected role is at or above your highest role.');
 }
 async function applyCase(guild, item) {
   const member = await guild.members.fetch({ user: item.userId, force: true });

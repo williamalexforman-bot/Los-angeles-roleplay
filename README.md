@@ -54,7 +54,7 @@ The original backup branch was inspected for its Staff Promotion, Staff Infracti
 
 Appeal buttons open an Internal Affairs request for staff review; they do not automatically reverse roles or counts. Claim and Escalate controls are available to ticket staff. Escalation marks the ticket High Rank and adds the configured High Rank support role, if one is set.
 
-Owner/self targets are no longer rejected just for their identity. Administrators still require appropriate role hierarchy, and the bot can only change roles below its own role. No Discord permission restrictions are bypassed.
+Owner/self targets are no longer rejected just for their identity. The configured action roles authorize callers regardless of their personal role position. The bot can only change roles below its own role. No Discord permission restrictions are bypassed.
 
 
 ## Weekly quota
@@ -75,3 +75,5 @@ Role 1538395177448644709 can use `-say your message` or `/say message:your messa
 Hello Valenti, we have an active deployment going on so make sure to join game and start shift and get playing!
 
 Make that role mentionable or grant the bot Mention Everyone in the deployment channel. These commands require the same management role as say.
+
+Successful prefix commands delete the invoking message after posting. Give the bot Manage Messages in command channels. Failed commands retain the original message; deletion failures report separately without repeating the action.

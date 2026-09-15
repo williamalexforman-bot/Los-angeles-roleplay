@@ -1,6 +1,6 @@
 const D = require('discord.js');
 const { CHANNELS, TYPES, TICKETS } = require('../settings');
-const roleGated = cmd => cmd.setDMPermission(false);
+const roleGated = cmd => cmd.setDefaultMemberPermissions(null).setDMPermission(false);
 const admin = cmd => cmd.setDefaultMemberPermissions(D.PermissionFlagsBits.Administrator).setDMPermission(false);
 const configCommand = admin(new D.SlashCommandBuilder().setName('config').setDescription('Set channels, ticket access and post panels'))
 .addSubcommand(s => s.setName('view').setDescription('View configured destinations'))

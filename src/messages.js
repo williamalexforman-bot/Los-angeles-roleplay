@@ -36,7 +36,14 @@ async function handleMessage(message) {
     else {
       if(parsed.text)throw new Error('Use -deployment without additional text.');
       const sent=await deployment(context);
-      if(message.channel.id!==DEPLOYMENT_CHANNEL)await message.reply({...v2('Deployment Posted',`Sent to <#${DEPLOYMENT_CHANNEL}>.\n[View message](${sent.url})`),allowedMentions:{parse:[],repliedUser:false}});
+      if(message.channel.id!==DEPLOYMENT_CHANNEL)await message.channel.send({...v2('Deployment Posted',`Sent to <#${DEPLOYMENT_CHANNEL}>.\n[View message](${sent.url})`),allowedMentions:{parse:[],repliedUser:false}});
+    }
+    try { await message.delete(); }
+    catch (e) {
+      if(e.code!==10008) {
+        console.error('Prefix message cleanup failed:',e.code||e.name);
+        await message.channel.send({...v2('Message Sent', 'The command succeeded, but I could not delete your command message. Give the bot Manage Messages in this channel.'),allowedMentions:{parse:[]}}).catch(()=>{});
+      }
     }
   }catch(e){
     console.error('Prefix command failed:',e.code||e.name);

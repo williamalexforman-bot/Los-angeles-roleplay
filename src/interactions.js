@@ -61,8 +61,8 @@ async function handleInteraction(i) {
       if (i.commandName === 'shift') return await handleShift(i, i.options.getSubcommand());
       if (i.commandName === 'config') return await config(i);
       if (!['infraction','promotion'].includes(i.commandName)) return;
-      await require('./access').requireAccess(i,i.commandName);
       await i.deferReply({ flags: D.MessageFlags.Ephemeral });
+      await require('./access').requireAccess(i,i.commandName);
       const data = { kind: i.commandName, userId: i.options.getUser('member',true).id };
       if(data.kind === 'infraction') {
         data.type=i.options.getString('action',true); data.notes=i.options.getString('notes',true);

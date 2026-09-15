@@ -25,3 +25,18 @@ test('bot messages and DMs never trigger prefix commands',async()=>{
  await handleMessage({guild:null,content:'-deployment'});
  await handleMessage({guild:{},author:{bot:true},content:'-say repeat'});
 });
+test('successful prefix deletes caller message only after sending',async()=>{
+ const {sent,context}=setup();let deleted=false;
+ await handleMessage({guild:context.guild,channel:context.channel,author:context.user,content:'-say hi',delete:async()=>{assert.equal(sent[0].content,'hi');deleted=true;}});
+ assert.equal(deleted,true);
+});
+test('denied prefix retains caller message',async()=>{
+ const {context}=setup(false);let deleted=false;
+ await handleMessage({guild:context.guild,channel:context.channel,author:context.user,content:'-say hi',delete:async()=>{deleted=true;},reply:async()=>{}});
+ assert.equal(deleted,false);
+});
+test('cleanup failure does not resend the command output',async()=>{
+ const {sent,context}=setup();
+ await handleMessage({guild:context.guild,channel:context.channel,author:context.user,content:'-say hi',delete:async()=>{throw Object.assign(new Error('Missing permissions'),{code:50013});}});
+ assert.equal(sent.filter(p=>p.content==='hi').length,1);assert.equal(sent.length,2);
+});
