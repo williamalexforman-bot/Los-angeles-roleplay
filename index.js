@@ -7,6 +7,7 @@ const { handleInteraction } = require('./src/interactions');
 const { recover, destination } = require('./src/discipline');
 const { syncTicketAccess } = require('./src/tickets');
 const { syncShifts } = require('./src/shifts');
+const { tickQuota } = require('./src/quota');
 const { v2 } = require('./src/panels');
 const token = process.env.bot_token?.trim() || process.env.BOT_TOKEN?.trim();
 let discordReady = false, databaseReady = false;
@@ -27,11 +28,11 @@ else {
         await guild.commands.set(commands.map(c => c.toJSON()));
         if (databaseReady) await destination(guild,'deployment').then(c => c.send(v2('Bot Deployment', 'The bot is online. Panel configuration, tickets, infractions, promotions and staff shifts are ready.'))).catch(() => console.error('Could not post deployment notice.'));
       }
-      console.log('Registered /config, /infraction, /promotion and /shift.');
+      console.log('Registered commands: ' + commands.map(c => '/' + c.name).join(', '));
     } catch { console.error('Command registration failed. Check Discord permissions.'); }
     if (databaseReady) {
-      await require('./quota').tickQuota(client);
-      setInterval(() => require('./quota').tickQuota(client),30000);
+      await tickQuota(client);
+      setInterval(() => tickQuota(client),30000);
       await syncTicketAccess(client);
       setInterval(() => syncTicketAccess(client), 300000);
       await syncShifts(client);
