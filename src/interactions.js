@@ -52,6 +52,7 @@ async function config(i) {
 }
 async function handleInteraction(i) {
   try {
+    if(i.customId?.startsWith('verification:')) return await require('./verification').handle(i);
     if(i.customId?.startsWith('application:')) return await require('./applications').handle(i);
     if (!i.inGuild()) return;
     if(i.isButton() && ['close-request:accept','close-request:decline'].includes(i.customId))return await require('./utilities').respond(i);

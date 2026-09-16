@@ -4,8 +4,6 @@ const { v2 } = require('./panels');
 const CHANNEL_ID = '1549901960142913616';
 
 async function robloxAccount(username, request = fetch, pause = ms => new Promise(resolve => setTimeout(resolve, ms))) {
-  username = username.trim();
-  if (!/^[A-Za-z0-9_]{3,20}$/.test(username)) throw new Error('Enter a Roblox username, not a display name or profile URL.');
   async function json(url, options = {}) {
     let response;
     try { response = await request(url, { ...options, signal: AbortSignal.timeout(10000) }); }
@@ -15,13 +13,7 @@ async function robloxAccount(username, request = fetch, pause = ms => new Promis
     try { return await response.json(); }
     catch { throw new Error('Roblox returned an unreadable response. Try again shortly.'); }
   }
-  const result = await json('https://users.roblox.com/v1/usernames/users', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ usernames: [username], excludeBannedUsers: false }),
-  });
-  const account = result.data?.[0];
-  if (!account) throw new Error('No Roblox account was found with that username. Check the spelling.');
-  if (!Number.isSafeInteger(account.id) || account.id <= 0 || typeof account.name !== 'string') throw new Error('Roblox returned an invalid account. Try again shortly.');
+  const account = await require('./roblox').lookupUsername(username, request);
   const url = `https://thumbnails.roblox.com/v1/users/avatar?userIds=${account.id}&size=420x420&format=Png&isCircular=false`;
   for (let attempt = 0; attempt < 3; attempt++) {
     const thumbnails = await json(url);
