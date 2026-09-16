@@ -1,19 +1,16 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const D = require('discord.js');
-const { discordId, robloxAccount, execute, CHANNEL_ID } = require('../src/mostwanted');
+const { robloxAccount, execute, CHANNEL_ID } = require('../src/mostwanted');
 const { MANAGER } = require('../src/access');
-const target = '123456789012345678';
 const account = { id: 156, name: 'Builderman', displayName: 'Builderman' };
 const imageUrl = 'https://tr.rbxcdn.com/example/420/420/Avatar/Png';
 const response = data => ({ ok: true, json: async () => ({ data }) });
 const lookup = async url => response(url.includes('usernames') ? [account] : [{ targetId: 156, state: 'Completed', imageUrl }]);
 
-test('Discord option accepts external IDs and mentions without a member lookup', () => {
-  for (const input of [target, `<@${target}>`, `<@!${target}>`]) assert.equal(discordId(input), target);
-  for (const input of ['username', '@everyone', `<@${target}`, `${target}>`]) assert.throws(() => discordId(input), /Discord user ID/);
+test('mostwanted requires only a Roblox username and reason', () => {
   const command = require('../src/commands/config').commands.find(c => c.name === 'mostwanted').toJSON();
-  assert.equal(command.options.find(o => o.name === 'discord').type, D.ApplicationCommandOptionType.String);
+  assert.deepEqual(command.options.map(o => o.name), ['roblox', 'reason']);
   assert.ok(command.options.every(o => o.required));
 });
 
@@ -43,7 +40,7 @@ function interaction({ access = true, permissions = true } = {}) {
   const sent = [];
   const i = {
     id: '111111111111111111', user: { id: '222222222222222222' },
-    options: { getString: name => ({ roblox: 'builderman', discord: target, reason: 'Test reason @everyone' })[name] },
+    options: { getString: name => { assert.ok(['roblox', 'reason'].includes(name)); return ({ roblox: 'builderman', reason: 'Test reason @everyone' })[name]; } },
     deferReply: async () => {}, editReply: async p => { i.reply = p; },
     guild: {
       members: { fetch: async ({ user }) => { assert.equal(user, i.user.id); return { roles: { cache: new Set(access ? [MANAGER] : []) } }; }, fetchMe: async () => ({}) },
@@ -56,11 +53,12 @@ function interaction({ access = true, permissions = true } = {}) {
   return { i, sent };
 }
 
-test('notice posts avatar, reason and external Discord ID only in the requested channel', async () => {
+test('notice posts Roblox identity, avatar and reason in the requested channel', async () => {
   const { i, sent } = interaction(); await execute(i, lookup);
   assert.equal(sent.length, 1);
   const payload = sent[0], body = JSON.stringify(payload.components);
-  for (const value of [target, 'Builderman', imageUrl, 'Test reason', 'https://www.roblox.com/users/156/profile']) assert.ok(body.includes(value));
+  for (const value of ['Builderman', imageUrl, 'Test reason', 'https://www.roblox.com/users/156/profile']) assert.ok(body.includes(value));
+  assert.ok(!body.includes('**Discord:**'));
   assert.deepEqual(payload.allowedMentions, { parse: [] });
   assert.equal(payload.nonce, i.id); assert.equal(payload.enforceNonce, true);
   assert.ok(payload.flags & D.MessageFlags.IsComponentsV2); assert.ok(i.reply);

@@ -47,6 +47,5 @@ const ticketpanel = roleGated(new D.SlashCommandBuilder().setName('ticketpanel')
 const applicationpanel = roleGated(new D.SlashCommandBuilder().setName('applicationpanel').setDescription('Post the Valenti application panel'));
 const mostwanted = roleGated(new D.SlashCommandBuilder().setName('mostwanted').setDescription('Post a most-wanted notice with a Roblox avatar')
   .addStringOption(o => o.setName('roblox').setDescription('Roblox username (not display name)').setRequired(true).setMinLength(3).setMaxLength(20))
-  .addStringOption(o => o.setName('discord').setDescription('Discord user ID or mention; they do not need to be in this server').setRequired(true).setMaxLength(23))
   .addStringOption(o => o.setName('reason').setDescription('Reason for the most-wanted notice').setRequired(true).setMaxLength(1000)));
 module.exports = { configCommand, commands: [configCommand, infraction, promotion, shift, suspension, quota, say, deployment, close, closerequest, purge, ticketpanel, applicationpanel, mostwanted] };
