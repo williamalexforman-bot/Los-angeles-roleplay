@@ -44,13 +44,14 @@ else {
       await startTask('Applications', () => require('./src/applications').recoverApplications(client), 30000);
     }, 30000);
     try {
+      const guilds = await require('./src/guild-config').commandGuilds(client);
       await client.application.commands.set([]);
-      for (const guild of client.guilds.cache.values()) {
+      for (const guild of guilds) {
         await guild.commands.set(commands.map(c => c.toJSON()));
         if (databaseReady) await destination(guild,'deployment').then(c => c.send(v2('Bot Deployment', 'The bot is online. Panel configuration, tickets, infractions, promotions and staff shifts are ready.'))).catch(() => console.error('Could not post deployment notice.'));
       }
       console.log('Registered commands: ' + commands.map(c => '/' + c.name).join(', '));
-    } catch { console.error('Command registration failed. Check Discord permissions.'); }
+    } catch (e) { console.error('Command registration failed:', e.name === 'Error' ? e.message : e.code || e.name); }
 
   }));
   client.on('guildMemberAdd', member => runTask('Welcome message', () => require('./src/welcome').welcome(member)));
