@@ -125,6 +125,7 @@ async function ticketAction(i, action) {
     if (action === 'claim') {
       if (record.claimedBy) return `This ticket is already claimed by <@${record.claimedBy}>.`;
       await collection('tickets').updateOne({_id:record._id},{$set:{claimedBy:i.user.id}});
+      await require('./logging').record('claims',i.guildId,'Ticket Claimed',`**Ticket:** <#${i.channelId}>\n**Requester:** <@${record.owner}>\n**Claimed by:** <@${i.user.id}>`,i.id);
       const message = await i.channel.messages.fetch(record.panelId || i.message.id);
       await message.edit(ticketNotice({...record,claimedBy:i.user.id}));
       return 'Ticket claimed.';

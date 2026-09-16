@@ -20,7 +20,8 @@ http.createServer((req,res) => {
 }).listen(Number(process.env.PORT || 10000),'0.0.0.0');
 if (!token) console.warn('bot_token / BOT_TOKEN missing: Discord commands are offline.');
 else {
-  const client = new D.Client({ intents: [D.GatewayIntentBits.Guilds, D.GatewayIntentBits.GuildMembers, D.GatewayIntentBits.GuildMessages, D.GatewayIntentBits.MessageContent, D.GatewayIntentBits.DirectMessages], partials:[D.Partials.Channel] });
+  const client = new D.Client({ intents: [D.GatewayIntentBits.Guilds, D.GatewayIntentBits.GuildMembers, D.GatewayIntentBits.GuildMessages, D.GatewayIntentBits.MessageContent, D.GatewayIntentBits.DirectMessages, D.GatewayIntentBits.GuildModeration], partials:[D.Partials.Channel,D.Partials.Message,D.Partials.GuildMember] });
+  require('./src/logging').registerLogs(client);
   client.on('error', e => console.error('Discord client error:', e.code || e.name));
   client.on('shardError', e => console.error('Discord connection error:', e.code || e.name));
   client.on('shardDisconnect', (event, id) => { discordReady = false; console.error('Discord disconnected:', id, event.code); });
@@ -35,6 +36,7 @@ else {
       if (!databaseReady) { await store.connect(); databaseReady = true; }
       if (jobsStarted) return;
       jobsStarted = true;
+      void startTask('Event log delivery', () => require('./src/logging').flushLogs(client), 5000);
       void startTask('Ticket opening panels', () => require('./src/tickets').recoverTicketPanels(client), 15000);
       await startTask('Quota', () => tickQuota(client), 30000);
       await startTask('Ticket access', () => syncTicketAccess(client), 300000);

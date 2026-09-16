@@ -11,7 +11,11 @@ async function connect() {
   catch (error) { await client.close().catch(() => {}); throw error; }
   // Separate collections preserve data belonging to the backed-up original bot.
   const connected = client.db(process.env.MONGODB_DATABASE || 'discordbot');
-  try { await connected.collection('fresh_locks').createIndex({ expires: 1 }, { expireAfterSeconds: 0 }); }
+  try {
+    await connected.collection('fresh_locks').createIndex({ expires: 1 }, { expireAfterSeconds: 0 });
+    await connected.collection('fresh_event_logs').createIndex({ expires: 1 }, { expireAfterSeconds: 0 });
+    await connected.collection('fresh_event_logs').createIndex({ delivered: 1, nextAttempt: 1, created: 1 });
+  }
   catch (error) { await client.close().catch(() => {}); throw error; }
   db = connected;
 }

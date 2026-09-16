@@ -109,3 +109,25 @@ Missing ticket opening panels now have a separate recovery job every 15 seconds,
 Use `BOT_TOKEN` for the Discord token and `GUILD_ID` for the numeric Discord server ID. Commands register specifically in `GUILD_ID` when set; the bot must belong to that server. `MONGODB_HOST`, `MONGODB_USERNAME`, and `MONGODB_PASSWORD` build the MongoDB SRV connection automatically; no separate `MONGODB_URI` is required. `MONGODB_HOST` should be the cluster hostname only, without a URL scheme or credentials. Username and password are URL-encoded in code. An explicitly set `MONGODB_URI` remains an optional override; `MONGODB_DATABASE` defaults to `discordbot`. Never paste tokens or passwords into source files.
 
 New infraction/promotion notices mention the affected member. New ticket opening panels mention the opener and the shared support role. Edits and automatic layout refreshes suppress mentions to avoid repeated notifications. Welcome messages, close requests and deployments retain their explicit member/role pings. Role pings remain subject to Discord permissions and role mentionability.
+
+## Server logs
+
+| Log | Destination |
+| --- | --- |
+| Messages | 1549588089096245258 |
+| Infractions | 1549589454568558735 |
+| Promotions | 1549589488928424076 |
+| Ticket claims | 1549589552451031101 |
+| Roles | 1549589572961173594 |
+| Raid warnings | 1549589600102518864 |
+| Bans/kicks | 1549589628758007868 |
+| Joins/leaves | 1549589652879704105 |
+| Applications | 1549590420244402206 |
+
+Logs are bannerless V2 messages with mentions suppressed. Staff notices still post in their original channels; the log channels receive additional action records. Message logs cover human messages sent, edited, deleted and bulk-deleted, with links/IDs and bounded content previews. Bot/webhook messages, DMs, and the log channels themselves are excluded. Deleted or pre-edit text that was not cached is shown as unavailable; the logger cannot reconstruct unseen messages. Attached files are represented by links when available, not copied.
+
+Role logs cover member-role additions/removals and role creation, deletion, permission and basic setting changes. Member departures are logged without guessing a kick/ban cause. Kick logs use actual Discord audit entries and require View Audit Log; ban/unban events use GuildModeration intent. Member and message events require Server Members and Message Content intents. The bot needs View Channel and Send Messages in every log channel. When GUILD_ID is set, gateway logs are limited to that server.
+
+Raid warnings flag 10 distinct human joins in 60 seconds (five-minute alert cooldown), or basic raid-threat phrases in new/edited messages. These are staff-review alerts, not proof of a raid, and never issue automatic punishments. Join counters are in memory and reset on restart. Application logs cover started, submitted, accepted, rejected and cancelled events; complete answers remain in the designated application review channel.
+
+Logs use the `fresh_event_logs` MongoDB outbox. Delivery runs every five seconds, retries failures with backoff, and uses stable IDs/nonces to reduce duplicates. Delivered outbox records expire after seven days; Discord log messages remain. A 500-event in-memory startup/outage buffer bridges short database outages but cannot survive process loss; events the bot never receives while offline cannot be recovered. Rare delivery duplicates remain possible if the process stops after a Discord send and before saving success.

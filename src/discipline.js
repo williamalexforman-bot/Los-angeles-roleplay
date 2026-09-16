@@ -64,6 +64,7 @@ async function logCase(guild, item) {
     try { const user = await guild.client.users.fetch(item.userId); await user.send(caseNotice(item, message.url)); delivered = true; } catch {}
     await collection('cases').updateOne({_id:item._id},{$set:{dmAttempted:true,dmDelivered:delivered}});
   }
+  await require('./logging').record(item.kind==='promotion'?'promotions':'infractions',guild.id,item.kind==='promotion'?'Promotion Recorded':'Infraction Recorded',`${item.summary}\n**Case:** ${item._id}\n[View notice](${message.url})`,item._id);
   await collection('cases').updateOne({ _id: item._id }, { $set: { status: 'logged', noticeVersion: NOTICE_VERSION } });
 }
 async function issue(interaction, data, reason, dateText) {

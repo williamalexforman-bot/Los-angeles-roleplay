@@ -47,7 +47,7 @@ async function start(i){
   let a=await apps().findOne({userId:i.user.id,status:{$in:['collecting','submitted','accepting']}});
   if(a&&a.guildId!==i.guildId)throw new Error('Finish your existing application first.');
   if(a&&a.status!=='collecting')throw new Error('Your application is already awaiting staff review.');
-  if(!a){a={_id:i.id,guildId:i.guildId,userId:i.user.id,status:'collecting',answers:[],step:0,promptStep:-1,created:Date.now()};await apps().insertOne(a);}
+  if(!a){a={_id:i.id,guildId:i.guildId,userId:i.user.id,status:'collecting',answers:[],step:0,promptStep:-1,created:Date.now()};await apps().insertOne(a);await appLog(a,'started');}
   try {await sendPrompt(a,i.user);}catch(e){if(e.code===50007)throw new Error('Enable DMs from server members, then select the application again. Your progress is saved.');throw e;}
  });
  await i.editReply(v2('Application Started','Check your DMs to answer the application questions.',[],true));
@@ -57,7 +57,7 @@ async function dm(message){
  try {
   await locked(`application-user:${message.author.id}`,async()=>{
    const a=await apps().findOne({userId:message.author.id,status:'collecting'});if(!a)return;
-   if(message.content.trim().toLowerCase()==='cancel'){await apps().updateOne({_id:a._id},{$set:{status:'cancelled'}});await message.author.send(v2('Application Cancelled','You may start again from the server panel.'));return;}
+   if(message.content.trim().toLowerCase()==='cancel'){await apps().updateOne({_id:a._id},{$set:{status:'cancelled'}});await appLog(a,'cancelled');await message.author.send(v2('Application Cancelled','You may start again from the server panel.'));return;}
    if(a.promptStep!==a.step){await sendPrompt(a,message.author);return;}
    if(a.step>=6){await message.author.send(v2('Use the Controls',a.step===8?'Press Submit Application above.':'Choose Yes or No using the dropdown above.'));return;}
    if(BigInt(message.id)<=BigInt(a.promptId))return;
@@ -97,7 +97,7 @@ async function grant(client,a){
  const roles=await Promise.all(PASS_ROLES.map(id=>guild.roles.fetch(id)));
  for(const role of roles)if(!role||role.managed||me.roles.highest.comparePositionTo(role)<=0)throw new Error('Both acceptance roles must exist below the bot role.');
  for(const role of roles)if(!member.roles.cache.has(role.id))await member.roles.add(role.id,`Application ${a._id} accepted by ${a.reviewer}`);
- await apps().updateOne({_id:a._id},{$set:{status:'accepted',reviewDirty:true}});a.status='accepted';
+ await apps().updateOne({_id:a._id},{$set:{status:'accepted',reviewDirty:true}});a.status='accepted';await appLog(a,'accepted');
 }
 async function notify(client,a){
  if(a.notified||!['accepted','rejected'].includes(a.status))return;
@@ -119,6 +119,7 @@ async function handle(i){
    if(a.status!=='submitted')throw new Error('This application has already been reviewed.');
    a={...a,status:action==='accept'?'accepting':'rejected',reviewer:i.user.id,reviewDirty:true};
    await apps().updateOne({_id:id},{$set:{status:a.status,reviewer:a.reviewer,reviewDirty:true}});
+   if(action==='reject')await appLog(a,'rejected');
    if(action==='accept'){try{await grant(i.client,a);}catch(e){throw new Error('Acceptance saved, but role assignment is pending. Check that both roles exist below the bot and that it has Manage Roles. The bot will retry automatically.');}}
   });
   await i.editReply(v2('Decision Saved',action==='accept'?'Accepted. Both roles have been granted.':'Application rejected.',[],true));
@@ -127,14 +128,14 @@ async function handle(i){
  if(i.inGuild()||a.userId!==i.user.id)throw new Error('Only the applicant can answer in DMs.');
  await locked(`application-user:${a.userId}`,async()=>{
   a=await apps().findOne({_id:id});if(a.status!=='collecting')throw new Error('This application is no longer collecting answers.');
-  if(action==='cancel'){await apps().updateOne({_id:id},{$set:{status:'cancelled'}});return;}
+  if(action==='cancel'){await apps().updateOne({_id:id},{$set:{status:'cancelled'}});await appLog(a,'cancelled');return;}
   if(action==='answer'){
    if(a.step!==Number(step)||a.promptId!==i.message.id)throw new Error('Use the latest question message.');
    await answer(a,i.values[0],i.user);return;
   }
   if(action==='submit'){
    if(a.step!==8||a.answers.length!==8)throw new Error('Complete all eight questions first.');
-   await apps().updateOne({_id:id},{$set:{status:'submitted',submitted:Date.now(),reviewDirty:true}});return;
+   await apps().updateOne({_id:id},{$set:{status:'submitted',submitted:Date.now(),reviewDirty:true}});await appLog(a,'submitted');return;
   }
   throw new Error('Unknown application action.');
  });
@@ -151,3 +152,5 @@ async function recoverApplications(client){
  });}catch(e){console.error('Application recovery pending:',item._id,e.code||e.name);}}
 }
 module.exports={applicationPanel,prompt,validate,reviewPages,start,dm,handle,recoverApplications,grant,PASS_ROLES,QUESTIONS};
+
+async function appLog(a,event){await require('./logging').record('applications',a.guildId,`Application ${event}`,`**Applicant:** <@${a.userId}>\n**Application:** ${a._id}${a.reviewer?`\n**Reviewer:** <@${a.reviewer}>`:''}\n**Review channel:** <#${REVIEW_CHANNEL}>`,`${a._id}:${event}`);}

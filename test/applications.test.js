@@ -6,6 +6,7 @@ function matches(a,q){return Object.entries(q).every(([k,v])=>k==='$or'?v.some(c
 store.locked=async(_key,work)=>work();
 store.collection=()=>({findOne:async q=>copy([...rows.values()].find(a=>matches(a,q))),insertOne:async a=>{rows.set(a._id,copy(a));},updateOne:async(q,u)=>{const a=[...rows.values()].find(a=>matches(a,q));if(a)Object.assign(a,copy(u.$set));},find:q=>({toArray:async()=>[...rows.values()].filter(a=>matches(a,q)).map(copy)})});
 const {MANAGER}=require('../src/access');
+const logged=[];require('../src/logging').record=async(...args)=>{logged.push(args);};
 const A=require('../src/applications');
 function user(id='applicant'){return {id,send:async p=>{if(denyDM)throw Object.assign(Error('DMs closed'),{code:50007});const m={id:String(++seq),payload:p};dms.push(m);return m;}};}
 const channel={messages:{fetch:async arg=>{if(typeof arg==='string'){if(!review.has(arg))throw Object.assign(Error('Missing'),{code:10008});return review.get(arg);}return new D.Collection(review);}},send:async p=>{const m={id:String(++seq),author:{id:'bot'},nonce:p.nonce,payload:p,edit:async x=>{m.payload=x;}};review.set(m.id,m);return m;}};
@@ -26,7 +27,7 @@ test('all eight DM answers persist; review and acceptance add exact roles',async
  for(const m of review.values()){assert.ok(m.payload.flags&D.MessageFlags.IsComponentsV2);m.payload.components[0].toJSON();}
  await assert.rejects(A.handle(interaction(`application:accept:${a._id}`,'outsider',true)),/need/);
  await A.handle(interaction(`application:accept:${a._id}`,'manager',true));
- assert.equal(a.status,'accepted');assert.deepEqual(granted,A.PASS_ROLES);
+ assert.equal(a.status,'accepted');assert.deepEqual(granted,A.PASS_ROLES);assert.ok(logged.some(e=>e[0]==='applications'&&e[2]==='Application accepted'));
  await A.recoverApplications(client);assert.equal(a.notified,true);
  await assert.rejects(A.handle(interaction(`application:reject:${a._id}`,'manager',true)),/already been reviewed/);
 });
