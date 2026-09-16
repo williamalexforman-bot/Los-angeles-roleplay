@@ -41,11 +41,11 @@ test('panel posting persists, reuses and recovers deleted messages without ignor
   const message = { id: 'message', author: { id: 'bot' }, components: V.panel().components };
   const channel = { type: D.ChannelType.GuildText, guildId: process.env.GUILD_ID || '1538371050759520306',
     messages: { fetch: async arg => { if (failure) throw failure; if (typeof arg === 'string') { if (!existing) throw { code: 10008 }; return existing; } return new D.Collection(recent.map(m => [m.id, m])); } },
-    send: async () => { sent++; existing = message; return message; },
+    send: async payload => { assert.ok(payload.nonce.length<=25); assert.equal(payload.nonce,V.CHANNEL_ID); sent++; existing = message; return message; },
   };
   const client = { user: { id: 'bot' }, channels: { fetch: async id => { assert.equal(id, V.CHANNEL_ID); return channel; } } };
   await V.ensurePanel(client); await V.ensurePanel(client); assert.equal(sent, 1);
   record = undefined; recent = [message]; await V.ensurePanel(client); assert.equal(sent, 1);
   existing = null; recent = []; await V.ensurePanel(client); assert.equal(sent, 2);
-  failure = { code: 50013 }; await assert.rejects(V.ensurePanel(client)); assert.equal(sent, 2);
+  failure = { code: 50013 }; await assert.rejects(V.ensurePanel(client),/Read Message History/); assert.equal(sent, 2);
 });

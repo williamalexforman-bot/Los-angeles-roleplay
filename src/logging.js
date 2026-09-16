@@ -21,6 +21,10 @@ async function flushLogs(client){
  for(const item of pending){
   try{await locked(`event-log:${item._id}`,async()=>{
    const fresh=await collection('event_logs').findOne({_id:item._id});if(!fresh||fresh.delivered)return;
+   if(fresh.kind==='messages'&&fresh.title==='Message Sent') {
+    await collection('event_logs').updateOne({_id:item._id},{$set:{delivered:true,suppressed:true,expires:new Date(Date.now()+7*86400000)}});
+    return;
+   }
    const guild=await client.guilds.fetch(item.guildId),channel=await guild.channels.fetch(CHANNELS[item.kind]);
    if(!channel?.send)throw new Error('Log channel unavailable');
    await channel.send({...v2(item.title,`${item.body}\n\n-# <t:${Math.floor(item.created/1000)}:F>`),nonce:item._id,enforceNonce:true});
@@ -51,7 +55,6 @@ function registerLogs(client){
  const attachments=m=>m.attachments?.size?'\n**Attachments:**\n'+[...m.attachments.values()].slice(0,5).map(a=>safe(a.url,300)).join('\n'):'';
  on('messageCreate',async m=>{
   if(!valid(m))return;
-  await record('messages',m.guild.id,'Message Sent',`${header(m)}\n[Jump to message](${m.url})\n\n${safe(m.content,2200)}${attachments(m)}`,`sent:${m.id}`);
   if(isThreat(m.content))await record('raids',m.guild.id,'Possible Raid Threat',`${header(m)}\n[Review message](${m.url})\n\n${safe(m.content)}\n\nKeyword alert only. Staff must verify; no automatic punishment.`,`threat:${m.id}`);
  });
  on('messageUpdate',async(old,m)=>{

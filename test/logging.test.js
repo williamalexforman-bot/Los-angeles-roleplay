@@ -8,23 +8,31 @@ test('all nine log destinations match configuration',()=>{
  assert.deepEqual(Object.values(L.CHANNELS),['1549588089096245258','1549589454568558735','1549589488928424076','1549589552451031101','1549589572961173594','1549589600102518864','1549589628758007868','1549589652879704105','1549590420244402206']);
 });
 test('queue deduplicates, recovers startup outages, and suppresses mentions',async()=>{
- rows=new Map();offline=true;await L.record('messages','guild','Message Sent','@everyone','message:1');offline=false;
+ rows=new Map();offline=true;await L.record('messages','guild','Message Edited','@everyone','message:1');offline=false;
  let sent=0;const client={guilds:{fetch:async()=>({channels:{fetch:async id=>{assert.equal(id,L.CHANNELS.messages);return {send:async p=>{sent++;assert.ok(p.flags&D.MessageFlags.IsComponentsV2);assert.deepEqual(p.allowedMentions,{parse:[]});}};}}})}};
  await L.flushLogs(client);assert.equal(sent,1);
- await L.record('messages','guild','Message Sent','@everyone','message:1');await L.flushLogs(client);assert.equal(sent,1);assert.ok([...rows.values()][0].expires instanceof Date);
+ await L.record('messages','guild','Message Edited','@everyone','message:1');await L.flushLogs(client);assert.equal(sent,1);assert.ok([...rows.values()][0].expires instanceof Date);
 });
 test('failed log channel backs off while other logs deliver',async()=>{
  rows=new Map();await L.record('roles','guild','Role Updated','details','r1');await L.record('claims','guild','Ticket Claimed','details','c1');
  await L.flushLogs({guilds:{fetch:async()=>({channels:{fetch:async id=>{if(id===L.CHANNELS.roles)throw {code:50013};return {send:async()=>{}};}}})}});
  assert.equal([...rows.values()].find(r=>r.kind==='claims').delivered,true);assert.ok([...rows.values()].find(r=>r.kind==='roles').nextAttempt>Date.now());
 });
-test('events log user messages, edits and unknown deletes without bot recursion or DMs',async()=>{
+test('events log edits and unknown deletes but not newly sent messages',async()=>{
  rows=new Map();const client=new EventEmitter();L.registerLogs(client);const guild={id:process.env.GUILD_ID||'guild'};
  const message={guild,channelId:'chat',id:'m1',author:{id:'person',bot:false},content:'hello',url:'https://discord.com/channels/g/c/m',attachments:new Map()};
  client.emit('messageCreate',message);client.emit('messageCreate',{...message,id:'bot',author:{bot:true}});client.emit('messageCreate',{...message,id:'dm',guild:null});client.emit('messageCreate',{...message,id:'log',channelId:L.CHANNELS.messages});
  client.emit('messageUpdate',message,{...message,content:'edited',editedTimestamp:1});client.emit('messageDelete',{...message,id:'old',author:null,content:null});await tick();
- assert.equal(rows.size,3);assert.ok([...rows.values()].some(r=>r.body.includes('Unavailable')));
+ assert.equal(rows.size,2);assert.ok([...rows.values()].some(r=>r.body.includes('Unavailable')));
+ assert.ok(![...rows.values()].some(r=>r.title==='Message Sent'));
+ client.emit('messageDeleteBulk',new Map([['bulk',{...message,id:'bulk'}]]));await tick();assert.ok([...rows.values()].some(r=>r.title==='Message Deleted (Bulk)'));
+ client.emit('messageCreate',{...message,id:'threat',content:'going to raid your server'});await tick();assert.ok([...rows.values()].some(r=>r.kind==='raids'));
  client.emit('guildAuditLogEntryCreate',{action:D.AuditLogEvent.MemberKick,id:'audit1',targetId:'person',executorId:'staff',reason:'Reason'},guild);await tick();assert.ok([...rows.values()].some(r=>r.title==='Member Kicked'));
+});
+test('queued legacy Message Sent logs are suppressed without sending',async()=>{
+ rows=new Map();await L.record('messages','guild','Message Sent','old message','old-sent');
+ await L.flushLogs({guilds:{fetch:async()=>{throw Error('Must not fetch a destination');}}});
+ const row=[...rows.values()][0];assert.equal(row.delivered,true);assert.equal(row.suppressed,true);
 });
 test('raid alerts are threshold based with cooldown and limited keyword matching',()=>{
  const state=new Map(),now=1000000;for(let n=0;n<9;n++)assert.equal(L.trackRaid(state,'guild',String(n),now),0);

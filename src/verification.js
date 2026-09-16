@@ -17,9 +17,10 @@ function isPanel(message, botId) {
 }
 
 async function ensurePanel(client) {
-  const channel = await client.channels.fetch(CHANNEL_ID);
-  if (!channel || channel.type !== D.ChannelType.GuildText || channel.guildId !== (process.env.GUILD_ID?.trim() || '1538371050759520306')) throw new Error('Verification channel is unavailable in the configured server.');
-  return store.locked(`verification-panel:${CHANNEL_ID}`, async () => {
+  try {
+   const channel = await client.channels.fetch(CHANNEL_ID);
+   if (!channel || channel.type !== D.ChannelType.GuildText || channel.guildId !== (process.env.GUILD_ID?.trim() || '1538371050759520306')) throw new Error('Verification channel is unavailable in the configured server.');
+   return await store.locked(`verification-panel:${CHANNEL_ID}`, async () => {
     const panels = store.collection('verification_panels');
     const saved = await panels.findOne({ _id: CHANNEL_ID });
     if (saved?.messageId) {
@@ -29,11 +30,20 @@ async function ensurePanel(client) {
     // Recover a send that succeeded before its database write completed.
     const recent = await channel.messages.fetch({ limit: 100 });
     let message = recent.find(m => isPanel(m, client.user.id));
-    if (!message) message = await channel.send({ ...panel(), nonce: `verify:${CHANNEL_ID}`, enforceNonce: true });
+    if (!message) message = await channel.send({ ...panel(), nonce: CHANNEL_ID, enforceNonce: true });
     await panels.updateOne({ _id: CHANNEL_ID }, { $set: { messageId: message.id, guildId: channel.guildId } }, { upsert: true });
     console.log('Verification panel ready:', message.id);
     return message;
-  });
+   });
+  } catch (error) {
+    if ([50001, 50013].includes(error.code)) throw new Error(`I cannot access or post the verification panel in <#${CHANNEL_ID}>. Give me View Channel, Read Message History, Send Messages and Embed Links there, including its channel overrides.`);
+    if (error.code === 10003) throw new Error(`Verification channel ${CHANNEL_ID} no longer exists or is unavailable to this bot.`);
+    if (error.code === 50035) {
+      console.error('Verification panel rejected:', JSON.stringify(error.rawError?.errors || {}));
+      throw new Error('Discord rejected the verification panel format (50035). Check that Render deployed the latest version; validation details are in the bot logs.');
+    }
+    throw error;
+  }
 }
 
 async function handle(i, request = fetch) {
