@@ -28,6 +28,8 @@ Enable **Server Members Intent** and **Message Content Intent** in the Discord D
 
 ## Actions
 
+`/cmds` privately lists every slash command and subcommand, its arguments and description, plus all prefix commands. Any member can view it; each command retains its existing access restrictions.
+
 Managers use `-verificationpanel` to post the **Roblox Verification** panel in `1538390763476357130`. Repeating the command reuses the existing panel or replaces it if deleted. The panel is not posted automatically on startup. Members press Verify, submit their Roblox username, and receive a private confirmation after their server nickname is set to the canonical Roblox username. The bot needs Manage Nicknames and a role above the member, plus View Channel, Read Message History, Send Messages and Embed Links in the panel channel. Discord prevents renaming the server owner. This checks account existence, not account ownership; it does not grant roles or change a member's global Discord username. Nicknames sync on submission, not continuously.
 
 `/mostwanted roblox:Username reason:Reason` posts a Components V2 notice in channel `1549901960142913616`, including the resolved Roblox username, profile link, user ID and full-body avatar. Only the Roblox username and reason are required. The existing manager role is required. Mentions do not notify anyone. The bot needs View Channel, Send Messages and Embed Links in the destination. Roblox lookup failures are reported privately without posting an incomplete notice. No Roblox API key is required.

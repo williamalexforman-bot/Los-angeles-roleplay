@@ -48,4 +48,5 @@ const applicationpanel = roleGated(new D.SlashCommandBuilder().setName('applicat
 const mostwanted = roleGated(new D.SlashCommandBuilder().setName('mostwanted').setDescription('Post a most-wanted notice with a Roblox avatar')
   .addStringOption(o => o.setName('roblox').setDescription('Roblox username (not display name)').setRequired(true).setMinLength(3).setMaxLength(20))
   .addStringOption(o => o.setName('reason').setDescription('Reason for the most-wanted notice').setRequired(true).setMaxLength(1000)));
-module.exports = { configCommand, commands: [configCommand, infraction, promotion, shift, suspension, quota, say, deployment, close, closerequest, purge, ticketpanel, applicationpanel, mostwanted] };
+const cmds = new D.SlashCommandBuilder().setName('cmds').setDescription('List every command and what it does').setDMPermission(false);
+module.exports = { configCommand, commands: [configCommand, infraction, promotion, shift, suspension, quota, say, deployment, close, closerequest, purge, ticketpanel, applicationpanel, mostwanted, cmds] };
