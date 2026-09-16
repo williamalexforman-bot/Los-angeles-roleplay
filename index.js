@@ -50,7 +50,6 @@ else {
       if (!databaseReady) { await store.connect(); databaseReady = true; }
       if (jobsStarted) return;
       jobsStarted = true;
-      void startTask('Verification panel', () => require('./src/verification').ensurePanel(client), 60000);
       void startTask('Event log delivery', () => require('./src/logging').flushLogs(client), 5000);
       void startTask('Ticket opening panels', () => require('./src/tickets').recoverTicketPanels(client), 15000);
       await startTask('Quota', () => tickQuota(client), 30000);

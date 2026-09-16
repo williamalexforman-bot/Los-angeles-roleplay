@@ -9,6 +9,7 @@ function setup(access=true){
 test('prefix parsing preserves multiline text and ignores other commands',()=>{
  assert.deepEqual(parsePrefix('-say Hello\nValenti'),{command:'say',text:'Hello\nValenti'});
  assert.deepEqual(parsePrefix('-DEPLOYMENT'),{command:'deployment',text:''});
+ assert.deepEqual(parsePrefix('-verificationpanel'),{command:'verificationpanel',text:''});
  assert.equal(parsePrefix('-sayhello'),null);assert.equal(parsePrefix('hello'),null);
 });
 test('say requires management and enables user and role mentions without mass pings',async()=>{
@@ -39,4 +40,15 @@ test('cleanup failure does not resend the command output',async()=>{
  const {sent,context}=setup();
  await handleMessage({guild:context.guild,channel:context.channel,author:context.user,content:'-say hi',delete:async()=>{throw Object.assign(new Error('Missing permissions'),{code:50013});}});
  assert.equal(sent.filter(p=>p.content==='hi').length,1);assert.equal(sent.length,2);
+});
+test('verificationpanel checks access, posts to configured destination and removes successful invocation',async()=>{
+ const verification=require('../src/verification');const original=verification.ensurePanel;let posts=0;
+ verification.ensurePanel=async client=>{assert.equal(client.user.id,'bot');posts++;return {url:'https://discord.com/channels/1/2/3'};};
+ try {
+  for(const [access,text,expected] of [[true,'',1],[false,'',1],[true,' extra',1]]){
+   const {context}=setup(access);let deleted=false;
+   await handleMessage({guild:context.guild,channel:context.channel,author:context.user,client:{user:{id:'bot'}},content:'-verificationpanel'+text,delete:async()=>{deleted=true;},reply:async()=>{}});
+   assert.equal(posts,expected);assert.equal(deleted,access&&!text);
+  }
+ } finally {verification.ensurePanel=original;}
 });

@@ -5,7 +5,7 @@ const DEPLOYMENT_CHANNEL='1538399056986906715';
 const DEPLOYMENT_ROLE='1538395272986755173';
 const DEPLOYMENT_TEXT='Hello Valenti, we have an active deployment going on so make sure to join game and start shift and get playing!';
 function parsePrefix(content) {
-  const match=/^-(say|deployment|close|closerequest|purge|ticketpanel|applicationpanel)(?:\s+([\s\S]*))?$/i.exec(content);
+  const match=/^-(say|deployment|close|closerequest|purge|ticketpanel|applicationpanel|verificationpanel)(?:\s+([\s\S]*))?$/i.exec(content);
   return match?{command:match[1].toLowerCase(),text:(match[2]||'').trim()}:null;
 }
 async function say(context,text) {
@@ -33,6 +33,13 @@ async function handleMessage(message) {
   const context={guild:message.guild,user:message.author,channel:message.channel,guildId:message.guild.id,channelId:message.channel.id,sourceMessageId:message.id};
   try {
     if(parsed.command==='say')await say(context,parsed.text);
+    else if(parsed.command==='verificationpanel') {
+      if(parsed.text)throw new Error('Use -verificationpanel without additional text.');
+      await requireAccess(context,'verificationpanel');
+      const verification=require('./verification');
+      const sent=await verification.ensurePanel({user:message.client.user,channels:message.guild.channels});
+      if(message.channel.id!==verification.CHANNEL_ID)await message.channel.send(v2('Verification Panel Ready',`[View panel](${sent.url}) in <#${verification.CHANNEL_ID}>.`));
+    }
     else if(require('./utilities').COMMANDS.includes(parsed.command)) {
       if(['close','ticketpanel','applicationpanel'].includes(parsed.command)&&parsed.text)throw new Error('This command does not take extra text.');
       const result=await require('./utilities').execute(context,parsed.command,parsed.text);
