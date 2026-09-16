@@ -52,11 +52,11 @@ test('warning escalation resets warning tier and adds exactly one strike',()=>{
 test('invalid or past suspension dates are rejected',()=>{
   for(const date of ['', '2026-02-30 12:00','2001-01-01 12:00','tomorrow']) assert.throws(()=>endDate(date));
 });
-test('all panels serialize as V2 without image components',()=>{
+test('all panels serialize as V2 with the shared underbanner',()=>{
   for(const type of ['ticket']) {
     const p=panel(type); assert.equal(p.flags,D.MessageFlags.IsComponentsV2);
     const json=p.components[0].toJSON(); assert.equal(json.type,17);
-    assert.ok(!JSON.stringify(json).includes('http'));
+    assert.ok(JSON.stringify(json).includes('/footer.png'));
   }
 });
 test('invalid expiry changes nothing; suspension snapshot survives for recovery',async()=>{
@@ -89,7 +89,7 @@ test('owner may issue a warning on own record when the marker role is manageable
   await issue(f.i,{kind:'infraction',userId:'owner',type:'Warning'},'Self test','');
   assert.ok(f.target.roles.cache.has(ROLES.warnings[0]));
 });
-test('case layouts preserve saved fields and include no image assets',()=>{
+test('case layouts preserve saved fields with hosted banner assets',()=>{
   const {caseNotice,ticketNotice}=require('../src/legacy-layout');
   const common={_id:'1',userId:'2',actorId:'3',created:Date.now(),reason:'Reason',username:'User',next:{warnings:1,strikes:0,total:1}};
   for(const payload of [caseNotice({...common,kind:'infraction',type:'Warning',notes:'Rule',appealable:true}),caseNotice({...common,kind:'promotion',previous:'4',newRole:'5',newRoleName:'Staff',approvedBy:'3',effectiveDate:'Today'}),ticketNotice({type:'general',owner:'2',reason:'Help'})]) {

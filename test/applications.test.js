@@ -52,7 +52,7 @@ test('long escaped answers fit V2 limits, scales validate, yes/no use menus',()=
  const a={_id:'1',status:'submitted',userId:'2',answers:Array(8).fill('*'.repeat(500)),suggestion:'x'.repeat(450)};
  for(const p of A.reviewPages(a)){const data=p.components[0].toJSON();const text=data.components.filter(c=>c.type===10).map(c=>c.content).join('');assert.ok(text.length<=4000);}
  assert.throws(()=>A.validate(4,'11'),/1 to 10/);assert.throws(()=>A.validate(6,'maybe'),/dropdown/);
- for(const step of [6,7])assert.equal(A.prompt({_id:'1',step}).components[0].toJSON().components.at(-1).components[0].type,3);
+ for(const step of [6,7])assert.equal(A.prompt({_id:'1',step}).components[0].toJSON().components.filter(c=>(c.type ?? c.data?.type)===1).at(-1).components[0].type,3);
  const notice=require('../src/legacy-layout').ticketNotice({type:'general',owner:'1',reason:'Help'}).components[0].toJSON();
- const buttons=notice.components.at(-1).components;assert.equal(buttons[0].emoji.id,'1549441861675126979');assert.equal(buttons[1].emoji.id,'1549543557197463625');
+ const buttons=notice.components.filter(c=>(c.type ?? c.data?.type)===1).at(-1).components;assert.equal(buttons[0].emoji.id,'1549441861675126979');assert.equal(buttons[1].emoji.id,'1549543557197463625');
 });

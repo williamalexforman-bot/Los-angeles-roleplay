@@ -7,7 +7,7 @@ test('invalid custom emoji falls back to functional V2 text buttons',async()=>{
   attempts++;
   if(attempts===1)throw {code:50035,rawError:{errors:{components:{emoji:{_errors:[{message:'Invalid emoji'}]}}}}};
   assert.ok(p.flags&D.MessageFlags.IsComponentsV2);
-  const controls=p.components[0].components.at(-1).components;
+  const controls=p.components[0].components.filter(c=>(c.type ?? c.data?.type)===1).at(-1).components;
   assert.equal(controls.length,3);assert.equal(controls[0].custom_id,'ticket:claim');assert.ok(controls.every(c=>!c.emoji));
   return {id:'panel'};
  }},record);

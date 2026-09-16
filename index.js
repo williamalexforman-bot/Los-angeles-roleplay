@@ -16,12 +16,13 @@ console.log('Bot starting:', process.env.RENDER_GIT_COMMIT || 'local', 'Node', p
 process.on('SIGTERM', () => { console.log('Host sent SIGTERM; stopping bot.'); process.exit(0); });
 http.createServer((req,res) => {
   res.writeHead(200, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify({ service: 'running', discord: discordReady, database: databaseReady }));
+  res.end(JSON.stringify({ service: 'running', discord: discordReady, database: databaseReady, commit: process.env.RENDER_GIT_COMMIT || 'local', uptimeSeconds: Math.floor(process.uptime()) }));
 }).listen(Number(process.env.PORT || 10000),'0.0.0.0');
 if (!token) console.warn('bot_token / BOT_TOKEN missing: Discord commands are offline.');
 else {
   const client = new D.Client({ intents: [D.GatewayIntentBits.Guilds, D.GatewayIntentBits.GuildMembers, D.GatewayIntentBits.GuildMessages, D.GatewayIntentBits.MessageContent, D.GatewayIntentBits.DirectMessages, D.GatewayIntentBits.GuildModeration], partials:[D.Partials.Channel,D.Partials.Message,D.Partials.GuildMember] });
   require('./src/logging').registerLogs(client);
+  require('./src/presence').registerPresence(client);
   client.on('error', e => console.error('Discord client error:', e.code || e.name));
   client.on('shardError', e => console.error('Discord connection error:', e.code || e.name));
   client.on('shardDisconnect', (event, id) => { discordReady = false; console.error('Discord disconnected:', id, event.code); });
@@ -58,9 +59,16 @@ else {
   }));
   client.on('guildMemberAdd', member => runTask('Welcome message', () => require('./src/welcome').welcome(member)));
   client.on('interactionCreate',handleInteraction);
-  client.on('messageCreate',message => {
+  client.on('messageCreate',message => runTask('Message handler', async () => {
     if(!message.author.bot && /^-spamcool(?:\s|$)/i.test(message.content || '')) return require('./src/self-dm').handle(message);
     return message.guild ? require('./src/messages').handleMessage(message) : require('./src/applications').dm(message);
-  });
-  client.login(token).catch(e => console.error('Discord login failed. Check bot_token / BOT_TOKEN and enable Server Members and Message Content intents.', e.code || e.name));
+  }));
+  const login = async () => {
+    try { await client.login(token); }
+    catch (e) {
+      console.error('Discord login failed. Check BOT_TOKEN and enabled intents. Retrying in 30 seconds:', e.code || e.name);
+      setTimeout(login, 30000);
+    }
+  };
+  void login();
 }

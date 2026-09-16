@@ -2,7 +2,7 @@ const D=require('discord.js');
 const {v2,button}=require('./panels');
 const {TICKETS,TICKET_ACCESS_ROLE}=require('./settings');
 const clean=(s)=>D.escapeMarkdown(String(s||'Not provided.')).slice(0,1000);
-const NOTICE_VERSION=4;
+const NOTICE_VERSION=5;
 function caseNotice(item, url) {
   const box=new D.ContainerBuilder();
   const text=content=>box.addTextDisplayComponents(new D.TextDisplayBuilder().setContent(content));
@@ -43,6 +43,7 @@ function caseNotice(item, url) {
     if(item.approvedBy)text(`-# Approved by <@${item.approvedBy}>${item.effectiveDate?` • Effective: ${clean(item.effectiveDate)}`:''}`);
   } else if(item.appealable)box.addActionRowComponents(new D.ActionRowBuilder().addComponents(button(`appeal:${item._id}`,'Appeal Infraction')));
   if(url)text(`[View ${item.kind==='promotion'?'Promotion':'Infraction'}](${url})`);
+  require('./branding').decorate(box, item.kind==='promotion'?'promotion':'infraction');
   return {components:[box],flags:D.MessageFlags.IsComponentsV2,allowedMentions:{parse:[]}};
 }
 function ticketNotice(record) {
@@ -54,8 +55,10 @@ function ticketNotice(record) {
   const controls=[
     button('ticket:claim',record.claimedBy?'Claimed':'Claim',D.ButtonStyle.Success).setEmoji({id:'1549441861675126979'}).setDisabled(Boolean(record.claimedBy)),
     button('ticket:close','Close',D.ButtonStyle.Danger).setEmoji({id:'1549543557197463625'}),button('ticket:escalate','Escalate',D.ButtonStyle.Secondary)];
-  const payload=v2(`${emojis[record.type] || '🎫'} ${TICKETS[record.type]} Ticket`,text.join('\n'));
+  const payload=v2(`${emojis[record.type] || '🎫'} ${TICKETS[record.type]} Ticket`,text.join('\n'), [], false, 'assistance');
+  const footer=payload.components[0].components.pop();
   payload.components[0].addSeparatorComponents(new D.SeparatorBuilder()).addActionRowComponents(new D.ActionRowBuilder().addComponents(...controls));
+  payload.components[0].components.push(footer);
   return payload;
 }
 module.exports={NOTICE_VERSION,caseNotice,ticketNotice};

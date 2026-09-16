@@ -24,7 +24,7 @@ async function deployment(context) {
   const permissions=channel.permissionsFor(me);
   if(!permissions?.has([D.PermissionFlagsBits.ViewChannel,D.PermissionFlagsBits.SendMessages]))throw new Error('The bot needs View Channel and Send Messages in the deployment channel.');
   if(!role.mentionable&&!permissions.has(D.PermissionFlagsBits.MentionEveryone))throw new Error('Make the deployment role mentionable, or grant the bot Mention Everyone in the deployment channel, so the role ping works.');
-  return channel.send({...v2('Active Deployment',`<@&${DEPLOYMENT_ROLE}>\n\n${DEPLOYMENT_TEXT}`),allowedMentions:{parse:[],roles:[DEPLOYMENT_ROLE]}});
+  return channel.send({...v2('Active Deployment',`<@&${DEPLOYMENT_ROLE}>\n\n${DEPLOYMENT_TEXT}`,[],false,'deployment'),allowedMentions:{parse:[],roles:[DEPLOYMENT_ROLE]}});
 }
 async function handleMessage(message) {
   if(!message.guild||message.author.bot||message.webhookId)return;

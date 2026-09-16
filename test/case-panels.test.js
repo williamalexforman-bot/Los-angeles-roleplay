@@ -5,5 +5,5 @@ const {syncCasePanels}=require('../src/case-panels');
 test('saved infraction and promotion messages migrate by clearing legacy embeds',async()=>{
  let edits=0;
  const client={guilds:{fetch:async()=>({channels:{fetch:async()=>({messages:{fetch:async()=>({edit:async p=>{edits++;assert.equal(p.content,null);assert.deepEqual(p.embeds,[]);assert.ok(p.flags&D.MessageFlags.IsComponentsV2);assert.equal(p.components[0].toJSON().type,17);}})}})}})}};
- await syncCasePanels(client);assert.equal(edits,2);assert.ok(records.every(r=>r.noticeVersion===4));
+ await syncCasePanels(client);assert.equal(edits,2);assert.ok(records.every(r=>r.noticeVersion===5));
 });
