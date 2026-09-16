@@ -49,7 +49,7 @@ async function logCase(guild, item) {
   let message;
   if (item.messageId) message = await channel.messages.fetch(item.messageId).catch(e => { if(e.code!==10008) throw e; return null; });
   if (!message) {
-    message = await channel.send(caseNotice(item));
+    message = await channel.send({...caseNotice(item),allowedMentions:{parse:[],users:[item.userId]}});
     await collection('cases').updateOne({ _id: item._id }, { $set: { messageId: message.id } });
     item.messageId = message.id;
   }

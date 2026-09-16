@@ -12,7 +12,7 @@ async function say(context,text) {
   await requireAccess(context,'say');
   if(!text.trim())throw new Error('Type a message after -say, for example: -say Hello Valenti!');
   if(text.length>2000)throw new Error('Keep the message at 2,000 characters or fewer.');
-  return context.channel.send({content:text,allowedMentions:{parse:[]}});
+  return context.channel.send({content:text,allowedMentions:{parse:['users','roles'],repliedUser:false}});
 }
 async function deployment(context) {
   await requireAccess(context,'deployment');

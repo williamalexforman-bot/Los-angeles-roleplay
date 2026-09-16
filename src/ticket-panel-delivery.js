@@ -1,4 +1,5 @@
 const {ticketNotice}=require('./legacy-layout');
+const {TICKET_ACCESS_ROLE}=require('./settings');
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 function emojiFailure(e){return e.code===10014 || (e.code===50035 && /emoji/i.test(JSON.stringify(e.rawError?.errors || e.errors || e.message || '')));}
 function withoutButtonEmojis(payload){
@@ -10,7 +11,7 @@ async function deliver(channel,record,message){
  let payload=ticketNotice(record),fallback=false;
  for(let attempt=0;;attempt++){
   try {
-   const sent=message?await message.edit(payload):await channel.send({...payload,nonce:record._id,enforceNonce:true});
+   const sent=message?await message.edit(payload):await channel.send({...payload,nonce:record._id,enforceNonce:true,allowedMentions:{parse:[],users:[record.owner],roles:[TICKET_ACCESS_ROLE]}});
    return {message:sent||message,emojiFallback:fallback};
   }catch(e){
    if(!fallback&&emojiFailure(e)){payload=withoutButtonEmojis(payload);fallback=true;continue;}

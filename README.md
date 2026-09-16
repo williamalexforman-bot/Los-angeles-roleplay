@@ -68,7 +68,7 @@ At the deadline a V2 quota infraction list posts in the configured infractions c
 
 ## Message commands
 
-Role 1538395177448644709 can use `-say your message` or `/say message:your message` to post as the bot in the current channel. Message Content Intent must be enabled for prefix commands. Say messages do not ping mentions.
+Role 1538395177448644709 can use `-say your message` or `/say message:your message` to post as the bot in the current channel. Message Content Intent must be enabled for prefix commands. Say messages allow user and role mentions; @everyone and @here remain suppressed.
 
 `-deployment` and `/deployment` post a bannerless V2 announcement in 1538399056986906715, pinging only role 1538395272986755173, with this exact message:
 
@@ -107,3 +107,5 @@ Missing ticket opening panels now have a separate recovery job every 15 seconds,
 ## Render environment names
 
 Use `BOT_TOKEN` for the Discord token and `GUILD_ID` for the numeric Discord server ID. Commands register specifically in `GUILD_ID` when set; the bot must belong to that server. `MONGODB_HOST`, `MONGODB_USERNAME`, and `MONGODB_PASSWORD` build the MongoDB SRV connection automatically; no separate `MONGODB_URI` is required. `MONGODB_HOST` should be the cluster hostname only, without a URL scheme or credentials. Username and password are URL-encoded in code. An explicitly set `MONGODB_URI` remains an optional override; `MONGODB_DATABASE` defaults to `discordbot`. Never paste tokens or passwords into source files.
+
+New infraction/promotion notices mention the affected member. New ticket opening panels mention the opener and the shared support role. Edits and automatic layout refreshes suppress mentions to avoid repeated notifications. Welcome messages, close requests and deployments retain their explicit member/role pings. Role pings remain subject to Discord permissions and role mentionability.

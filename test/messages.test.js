@@ -11,8 +11,8 @@ test('prefix parsing preserves multiline text and ignores other commands',()=>{
  assert.deepEqual(parsePrefix('-DEPLOYMENT'),{command:'deployment',text:''});
  assert.equal(parsePrefix('-sayhello'),null);assert.equal(parsePrefix('hello'),null);
 });
-test('say requires management and prevents unexpected pings',async()=>{
- const {sent,context}=setup();await say(context,'Hello @everyone');assert.equal(sent[0].content,'Hello @everyone');assert.deepEqual(sent[0].allowedMentions.parse,[]);
+test('say requires management and enables user and role mentions without mass pings',async()=>{
+ const {sent,context}=setup();await say(context,'Hello @everyone');assert.equal(sent[0].content,'Hello @everyone');assert.deepEqual(sent[0].allowedMentions.parse,['users','roles']);
  await assert.rejects(()=>say(setup(false).context,'test'),/need/);await assert.rejects(()=>say(context,''),/Type/);
 });
 test('deployment sends exact requested content and allows only specified role ping',async()=>{
