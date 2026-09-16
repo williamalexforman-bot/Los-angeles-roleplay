@@ -143,6 +143,7 @@ async function ticketAction(i, action) {
 }
 async function syncTicketAccess(client) {
   for (const guild of client.guilds.cache.values()) {
+    if(process.env.GUILD_ID?.trim() && guild.id!==process.env.GUILD_ID.trim())continue;
     try {
       const config = await settings(guild.id);
       const category = await guild.channels.fetch(config.tickets);

@@ -92,7 +92,7 @@ let syncing=false;
 async function syncShifts(client) {
   if(syncing)return;
   syncing=true;
-  try { for(const guild of client.guilds.cache.values()) await syncGuild(guild).catch(e=>console.error('Shift sync pending:',guild.id,e.code || e.name)); }
+  try { for(const guild of client.guilds.cache.values()) { if(process.env.GUILD_ID?.trim() && guild.id!==process.env.GUILD_ID.trim())continue; await syncGuild(guild).catch(e=>console.error('Shift sync pending:',guild.id,e.code || e.name)); } }
   finally { syncing=false; }
 }
 async function handleShift(i,action) {
