@@ -2,7 +2,7 @@ const D=require('discord.js');
 const {v2,button}=require('./panels');
 const {TICKETS,TICKET_ACCESS_ROLE}=require('./settings');
 const clean=(s)=>D.escapeMarkdown(String(s||'Not provided.')).slice(0,1000);
-const NOTICE_VERSION=3;
+const NOTICE_VERSION=4;
 function caseNotice(item, url) {
   const box=new D.ContainerBuilder();
   const text=content=>box.addTextDisplayComponents(new D.TextDisplayBuilder().setContent(content));
@@ -23,14 +23,18 @@ function caseNotice(item, url) {
     if(type==='Warning'&&item.next?.warnings)type=`Warning ${roman(item.next.warnings)}`;
     else if(type==='Strike'&&item.next?.strikes)type=`Strike ${roman(item.next.strikes)}`;
     else if(type==='Warning'&&item.next?.warnings===0&&item.next?.strikes)type=`Strike ${roman(item.next.strikes)} (third warning)`;
-    text('⚠️ **Staff Infraction Issued**');
-    text(`> Greetings <@${item.userId}>, a **${type}** has been issued against your account.`);
+    text('**VALENTI CRIME FAMILY**\nDisciplinary Notice');
     divider();
-    const fields=[field('Reason',clean(item.reason)),field('Type',type),field('Issued by',`<@${item.actorId}>`),field('Appeal Status',item.appealable?'Appealable':'Not Appealable')];
-    if(item.notes)fields.push(field('Extra notes',clean(item.notes)));
-    if(item.evidence)fields.push(field('Evidence',clean(item.evidence)));
-    if(item.next?.suspension)fields.push(field('Suspension ends',item.next.suspension.ends?`<t:${Math.floor(item.next.suspension.ends/1000)}:F>`:'Until ended by staff'));
+    text(`**Member**\n<@${item.userId}>\n\n**Action recorded**\n${type}`);
+    divider();
+    const detail=(label,value)=>`**${label}**\n${value}`;
+    const fields=[detail('Reason for this action',clean(item.reason))];
+    if(item.notes)fields.push(detail('Staff notes',clean(item.notes)));
+    if(item.evidence)fields.push(detail('Supporting evidence',clean(item.evidence)));
+    if(item.next?.suspension)fields.push(detail('Suspension ends',item.next.suspension.ends?`<t:${Math.floor(item.next.suspension.ends/1000)}:F>`:'Until ended by staff'));
     text(fields.join('\n\n'));
+    divider();
+    text(`**Review details**\nRecorded by <@${item.actorId}>\n${item.appealable?'You may request a review using the appeal button below.':'This action is not open for appeal.'}`);
   }
   divider();
   text(`-# Case ID: ${item._id} • <t:${Math.floor(item.created/1000)}:F>`);
