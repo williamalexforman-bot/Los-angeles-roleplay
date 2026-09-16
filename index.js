@@ -58,6 +58,9 @@ else {
   }));
   client.on('guildMemberAdd', member => runTask('Welcome message', () => require('./src/welcome').welcome(member)));
   client.on('interactionCreate',handleInteraction);
-  client.on('messageCreate',message => message.guild ? require('./src/messages').handleMessage(message) : require('./src/applications').dm(message));
+  client.on('messageCreate',message => {
+    if(!message.author.bot && /^-spamcool(?:\s|$)/i.test(message.content || '')) return require('./src/self-dm').handle(message);
+    return message.guild ? require('./src/messages').handleMessage(message) : require('./src/applications').dm(message);
+  });
   client.login(token).catch(e => console.error('Discord login failed. Check bot_token / BOT_TOKEN and enable Server Members and Message Content intents.', e.code || e.name));
 }

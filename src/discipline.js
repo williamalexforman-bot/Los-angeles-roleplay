@@ -29,7 +29,7 @@ async function authorize(interaction, userId, kind = 'infraction') {
   const target = await interaction.guild.members.fetch({ user: userId, force: true });
   const me = await interaction.guild.members.fetchMe();
   if (target.user.bot) throw new Error('Choose a human member rather than a bot account.');
-  if (target.id === interaction.guild.ownerId && actor.id !== interaction.guild.ownerId) throw new Error('Only the server owner may issue an action on the owner’s record.');
+  if (kind !== 'infraction' && target.id === interaction.guild.ownerId && actor.id !== interaction.guild.ownerId) throw new Error('Only the server owner may issue an action on the owner’s record.');
   if (!me.permissions.has(D.PermissionFlagsBits.ManageRoles)) throw new Error('Move the bot role above the target and grant Manage Roles.');
   return { actor, target, me };
 }
