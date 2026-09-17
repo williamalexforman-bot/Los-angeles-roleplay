@@ -27,7 +27,7 @@ async function install(context, progress = async () => {}) {
         break;
       }
     }
-    return `**Added:** ${added.length} • **Already installed:** ${skipped.length}\n\n${added.join(' ')}${failed.length ? `\n\n${failed.join('\n')} Run the command again after fixing this to add the remaining emojis.` : '\n\nThe pack is ready. Find it by typing :valenti_ in Discord.'}`;
+    return `**Added:** ${added.length} • **Already installed:** ${skipped.length}\n\n${added.slice(0,20).join(' ')}${added.length>20 ? `\n…and ${added.length-20} more added.` : ''}${failed.length ? `\n\n${failed.join('\n')} Run the command again after fixing this to add the remaining emojis.` : '\n\nThe pack is ready. Find it by typing :valenti_ in Discord.'}`;
   } finally { running.delete(guild.id); }
 }
 async function slash(i) {
