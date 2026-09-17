@@ -15,8 +15,8 @@ function textInput(id, label, required = true, placeholder) {
   return row(t);
 }
 async function config(i) {
-  await admin(i);
   await i.deferReply({ flags: D.MessageFlags.Ephemeral });
+  await admin(i);
   const sub = i.options.getSubcommand();
   if (sub === 'view') {
     const s = await settings(i.guildId);
@@ -47,7 +47,7 @@ async function config(i) {
     if (['ticket','shift','application'].includes(type)) channel = i.channel;
     else channel = await destination(i.guild, type === 'infraction' ? 'infractions' : 'promotions');
   }
-  await channel.send(type === 'application' ? require('./applications').applicationPanel() : type === 'shift' ? shiftPanel() : panel(type));
+  await require('./config-delivery').sendPanel(channel, i.guild, type === 'application' ? require('./applications').applicationPanel() : type === 'shift' ? shiftPanel() : panel(type));
   return i.editReply(v2('Panel Posted', `Posted in <#${channel.id}>.`, [], true));
 }
 async function handleInteraction(i) {
@@ -123,11 +123,11 @@ async function handleInteraction(i) {
       return await i.editReply(v2('Infraction Appeal',await openTicket(i,'affairs',reason,`Infraction: INF-${record._id}`),[],true));
     }
   } catch(e) {
-    console.error('Interaction failed:', i.commandName || i.customId, i.id, e.code || e.name);
-    const message = e.name === 'Error' ? e.message : 'Discord could not complete this action. Check the bot’s channel and role permissions.';
+    console.error('Interaction failed:', i.commandName || i.customId, i.commandName==='config' ? i.options.getSubcommand() : '', i.id, e.code || e.name, 'status:', e.status, 'invalid fields:', require('./config-delivery').errorFields(e));
+    const message = require('./config-delivery').describeError(e) + `\n\nReference: ${i.id}`;
     const payload = v2('Action Not Completed',message,[],true);
     if (i.deferred || i.replied) await i.editReply(payload).catch(() => {});
     else await i.reply(payload).catch(() => {});
   }
 }
-module.exports = { handleInteraction, textInput };
+module.exports = { handleInteraction, textInput, config };
