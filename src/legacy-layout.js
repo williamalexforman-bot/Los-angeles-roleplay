@@ -3,7 +3,7 @@ const E=require('./panel-emojis');
 const {v2,button}=require('./panels');
 const {TICKETS,TICKET_ACCESS_ROLE}=require('./settings');
 const clean=(s)=>D.escapeMarkdown(String(s||'Not provided.')).slice(0,1000);
-const NOTICE_VERSION=6;
+const NOTICE_VERSION=7;
 function caseNotice(item, url) {
   const box=new D.ContainerBuilder();
   const text=content=>box.addTextDisplayComponents(new D.TextDisplayBuilder().setContent(content));
