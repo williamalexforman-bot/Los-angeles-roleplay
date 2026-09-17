@@ -161,3 +161,8 @@ The expanded pack includes navigation arrows, locks, search, status icons, annou
 Administrators can run `-delete emojis` (also `-deleteemojis` or `-delete-emojis`) to remove emojis with a known pack name and a creator matching this bot. Other, managed, renamed, or unverified emojis are kept. Requires the bot to have Create Expressions or Manage Expressions. Add and delete operations cannot overlap in a server. Rerun after a partial failure to continue.
 
 The emoji pack now has no background tiles. To replace the previously installed set, run `-delete emojis` and wait for completion, then run `-add emojis`. Existing name matches are skipped by the installer, so adding alone does not replace old images.
+
+### Custom emojis in V2 panels
+V2 headings and buttons now use matching installed `valenti_` emojis. Ticket categories and claim/close controls, promotion and infraction headings and fields, shift/application/deployment panels, and log headings use the pack. Lookup uses the configured guild and current emoji cache, so newly generated emoji IDs are used on subsequent sends/edits after reinstalling. Missing/unavailable/restricted emojis fall back to text or existing icons. Member-authored reasons and answers are not rewritten. Welcome and closing notices remain plain text.
+
+Existing saved case notices migrate to layout version 6. Repost persistent ticket/application launchers to update their existing messages; new messages and normally refreshed boards use the new styling. Installing or reinstalling the pack alone does not rewrite every historical Discord message.

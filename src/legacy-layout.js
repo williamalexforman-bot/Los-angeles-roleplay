@@ -1,15 +1,16 @@
 const D=require('discord.js');
+const E=require('./panel-emojis');
 const {v2,button}=require('./panels');
 const {TICKETS,TICKET_ACCESS_ROLE}=require('./settings');
 const clean=(s)=>D.escapeMarkdown(String(s||'Not provided.')).slice(0,1000);
-const NOTICE_VERSION=5;
+const NOTICE_VERSION=6;
 function caseNotice(item, url) {
   const box=new D.ContainerBuilder();
   const text=content=>box.addTextDisplayComponents(new D.TextDisplayBuilder().setContent(content));
   const divider=()=>box.addSeparatorComponents(new D.SeparatorBuilder());
-  const field=(label,value)=>`› **${label}**\n${value}`;
+  const field=(label,value)=>`› **${E.heading(label,item.guildId)}**\n${value}`;
   if(item.kind==='promotion') {
-    text('🎉 **Staff Promotion**');
+    text(`${E.icon('promotion','🎉',item.guildId)} **Staff Promotion**`);
     text(`*Promoted by* <@${item.actorId}>`);
     text([
       field('Promoted staff',`<@${item.userId}>`),
@@ -23,11 +24,11 @@ function caseNotice(item, url) {
     if(type==='Warning'&&item.next?.warnings)type=`Warning ${roman(item.next.warnings)}`;
     else if(type==='Strike'&&item.next?.strikes)type=`Strike ${roman(item.next.strikes)}`;
     else if(type==='Warning'&&item.next?.warnings===0&&item.next?.strikes)type=`Strike ${roman(item.next.strikes)} (third warning)`;
-    text('**VALENTI CRIME FAMILY**\nDisciplinary Notice');
+    text(`${E.icon('infraction','',item.guildId)} **VALENTI CRIME FAMILY**\nDisciplinary Notice`);
     divider();
-    text(`**Member**\n<@${item.userId}>\n\n**Action recorded**\n${type}`);
+    text(`**${E.heading("Member",item.guildId)}**\n<@${item.userId}>\n\n**${E.heading("Action recorded",item.guildId)}**\n${type}`);
     divider();
-    const detail=(label,value)=>`**${label}**\n${value}`;
+    const detail=(label,value)=>`**${E.heading(label,item.guildId)}**\n${value}`;
     const fields=[detail('Reason for this action',clean(item.reason))];
     if(item.notes)fields.push(detail('Staff notes',clean(item.notes)));
     if(item.evidence)fields.push(detail('Supporting evidence',clean(item.evidence)));
@@ -53,8 +54,8 @@ function ticketNotice(record) {
   if(record.claimedBy)text.push('',`**Claimed By:** <@${record.claimedBy}>`);
   text.push('','*Realism at its Finest*');
   const controls=[
-    button('ticket:claim',record.claimedBy?'Claimed':'Claim',D.ButtonStyle.Success).setEmoji({id:'1549441861675126979'}).setDisabled(Boolean(record.claimedBy)),
-    button('ticket:close','Close',D.ButtonStyle.Danger).setEmoji({id:'1549543557197463625'}),button('ticket:escalate','Escalate',D.ButtonStyle.Secondary)];
+    button('ticket:claim',record.claimedBy?'Claimed':'Claim',D.ButtonStyle.Success).setEmoji(E.component('claim',{id:'1549441861675126979'},record.guildId)).setDisabled(Boolean(record.claimedBy)),
+    button('ticket:close','Close',D.ButtonStyle.Danger).setEmoji(E.component('close',{id:'1549543557197463625'},record.guildId)),button('ticket:escalate','Escalate',D.ButtonStyle.Secondary)];
   const payload=v2(`${emojis[record.type] || '🎫'} ${TICKETS[record.type]} Ticket`,text.join('\n'), [], false, 'assistance');
   const footer=payload.components[0].components.pop();
   payload.components[0].addSeparatorComponents(new D.SeparatorBuilder()).addActionRowComponents(new D.ActionRowBuilder().addComponents(...controls));

@@ -24,12 +24,13 @@ http.createServer((req,res) => {
 }).listen(Number(process.env.PORT || 10000),'0.0.0.0');
 if (!token) console.warn('bot_token / BOT_TOKEN missing: Discord commands are offline.');
 else {
-  client = new D.Client({ intents: [D.GatewayIntentBits.Guilds, D.GatewayIntentBits.GuildMembers, D.GatewayIntentBits.GuildMessages, D.GatewayIntentBits.MessageContent, D.GatewayIntentBits.DirectMessages, D.GatewayIntentBits.GuildModeration], partials:[D.Partials.Channel,D.Partials.Message,D.Partials.GuildMember] });
+  client = new D.Client({ intents: [D.GatewayIntentBits.Guilds, D.GatewayIntentBits.GuildEmojisAndStickers, D.GatewayIntentBits.GuildMembers, D.GatewayIntentBits.GuildMessages, D.GatewayIntentBits.MessageContent, D.GatewayIntentBits.DirectMessages, D.GatewayIntentBits.GuildModeration], partials:[D.Partials.Channel,D.Partials.Message,D.Partials.GuildMember] });
   const health = connectionHealth({ isReady: () => client.isReady(), restart: () => {
     console.error('Discord has been unavailable for 120 seconds; exiting so Render can restart the bot. Check BOT_TOKEN, privileged intents and network connectivity.');
     process.exit(1);
   } });
   setInterval(() => health.check(), 10000).unref();
+  require('./src/panel-emojis').configure(client);
   require('./src/logging').registerLogs(client);
   require('./src/presence').registerPresence(client);
   client.on('error', e => console.error('Discord client error:', e.code || e.name));
@@ -45,6 +46,7 @@ else {
   client.once('clientReady', () => runTask('Startup', async () => {
     health.check();
     console.log('Discord connected as', client.user.tag);
+    await client.guilds.cache.get(process.env.GUILD_ID)?.emojis.fetch().catch(e => console.error('Emoji refresh failed:', e.code || e.name));
     let jobsStarted = false;
     void startTask('Database connection', async () => {
       if (!databaseReady) { await store.connect(); databaseReady = true; }
