@@ -7,7 +7,8 @@ const DEPLOYMENT_TEXT='Hello Valenti, we have an active deployment going on so m
 function parsePrefix(content) {
   content=content.replace(/^-add\s+emojis\s*$/i, "-addemojis");
   content=content.replace(/^-delete\s+emojis\s*$/i, "-deleteemojis");
-  const match=/^-(deleteemojis|delete-emojis|addemojis|add-emojis|say|deployment|close|closerequest|purge|ticketpanel|applicationpanel|verificationpanel)(?:\s+([\s\S]*))?$/i.exec(content);
+  content=content.replace(/^-continue\s+emojis\s*$/i, "-continueemojis");
+  const match=/^-(continueemojis|continue-emojis|deleteemojis|delete-emojis|addemojis|add-emojis|say|deployment|close|closerequest|purge|ticketpanel|applicationpanel|verificationpanel)(?:\s+([\s\S]*))?$/i.exec(content);
   return match?{command:match[1].toLowerCase(),text:(match[2]||'').trim()}:null;
 }
 async function say(context,text) {
@@ -34,7 +35,11 @@ async function handleMessage(message) {
   if(!parsed)return;
   const context={guild:message.guild,user:message.author,channel:message.channel,guildId:message.guild.id,channelId:message.channel.id,sourceMessageId:message.id};
   try {
-    if(['deleteemojis','delete-emojis'].includes(parsed.command)) {
+    if(['continueemojis','continue-emojis'].includes(parsed.command)) {
+      if(parsed.text)throw new Error('Use -continue emojis without extra text.');
+      await require('./emoji-install').continuePrefix(context);
+    }
+    else if(['deleteemojis','delete-emojis'].includes(parsed.command)) {
       if(parsed.text)throw new Error('Use -delete emojis without extra text.');
       await require('./emoji-install').removePrefix(context);
     }
