@@ -5,8 +5,8 @@ from pathlib import Path
 names=['infraction','promotion','ticket','support','deployment','shift','application','approved','denied','warning','strike','suspension','claim','close','logs','welcome']
 pack={}
 for name in names:
- im=Image.new('RGBA',(128,128));d=ImageDraw.Draw(im);red='#cf191f';cream='#ffe5d2'
- d.rounded_rectangle((7,7,120,120),radius=27,fill=red)
+ im=Image.new('RGBA',(128,128));d=ImageDraw.Draw(im);red=(0,0,0,0);cream='#ffe5d2'
+ pass # No background tile: symbols are drawn directly on transparency.
  def line(points):d.line(points,fill=cream,width=9,joint='curve')
  if name in ['infraction','warning']:
   d.polygon([(64,23),(107,99),(21,99)],fill=cream);d.rectangle((59,47,69,73),fill=red);d.ellipse((59,81,69,91),fill=red)
@@ -53,7 +53,7 @@ badges={
 }
 font_path='/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'
 for name,shape in {**symbols,**badges}.items():
- im=Image.new('RGBA',(128,128));d=ImageDraw.Draw(im);d.rounded_rectangle((7,7,120,120),radius=27,fill=red)
+ im=Image.new('RGBA',(128,128));d=ImageDraw.Draw(im);pass # No background tile: symbols are drawn directly on transparency.
  def line(points,w=8):d.line(points,fill=cream,width=w,joint='curve')
  def text(label):
   font=ImageFont.truetype(font_path,58 if len(label)<3 else 35 if len(label)<4 else 28)
