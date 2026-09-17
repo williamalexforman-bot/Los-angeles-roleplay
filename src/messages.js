@@ -5,7 +5,8 @@ const DEPLOYMENT_CHANNEL='1538399056986906715';
 const DEPLOYMENT_ROLE='1538395272986755173';
 const DEPLOYMENT_TEXT='Hello Valenti, we have an active deployment going on so make sure to join game and start shift and get playing!';
 function parsePrefix(content) {
-  const match=/^-(say|deployment|close|closerequest|purge|ticketpanel|applicationpanel|verificationpanel)(?:\s+([\s\S]*))?$/i.exec(content);
+  content=content.replace(/^-add\s+emojis\s*$/i, "-addemojis");
+  const match=/^-(addemojis|add-emojis|say|deployment|close|closerequest|purge|ticketpanel|applicationpanel|verificationpanel)(?:\s+([\s\S]*))?$/i.exec(content);
   return match?{command:match[1].toLowerCase(),text:(match[2]||'').trim()}:null;
 }
 async function say(context,text) {
@@ -32,7 +33,11 @@ async function handleMessage(message) {
   if(!parsed)return;
   const context={guild:message.guild,user:message.author,channel:message.channel,guildId:message.guild.id,channelId:message.channel.id,sourceMessageId:message.id};
   try {
-    if(parsed.command==='say')await say(context,parsed.text);
+    if(['addemojis','add-emojis'].includes(parsed.command)) {
+      if(parsed.text)throw new Error('Use -addemojis without extra text.');
+      await require('./emoji-install').prefix(context);
+    }
+    else if(parsed.command==='say')await say(context,parsed.text);
     else if(parsed.command==='verificationpanel') {
       if(parsed.text)throw new Error('Use -verificationpanel without additional text.');
       await requireAccess(context,'verificationpanel');

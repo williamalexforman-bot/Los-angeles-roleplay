@@ -58,6 +58,7 @@ async function handleInteraction(i) {
     if(i.isButton() && ['close-request:accept','close-request:decline'].includes(i.customId))return await require('./utilities').respond(i);
     if (i.isButton() && i.customId.startsWith('shift:')) return await handleShift(i, i.customId.split(':')[1]);
     if (i.isChatInputCommand()) {
+      if(i.commandName==='add-emojis')return await require('./emoji-install').slash(i);
       if(i.commandName === 'cmds') return await require('./command-help').handle(i);
       if(i.commandName === 'mostwanted') return await require('./mostwanted').execute(i);
       if(require('./utilities').COMMANDS.includes(i.commandName))return await require('./utilities').slash(i);

@@ -2,6 +2,7 @@ const D = require('discord.js');
 const { v2 } = require('./panels');
 
 const PREFIX_COMMANDS = [
+  ['-addemojis (or -add emojis)', 'Administrator: install the Valenti server emoji pack, skipping existing names.'],
   ['-say <message>', 'Send the supplied text as the bot.'],
   ['-deployment', 'Post the deployment announcement and ping the deployment role.'],
   ['-close', 'Save the transcript and close the current ticket.'],

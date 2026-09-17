@@ -49,4 +49,5 @@ const mostwanted = roleGated(new D.SlashCommandBuilder().setName('mostwanted').s
   .addStringOption(o => o.setName('roblox').setDescription('Roblox username (not display name)').setRequired(true).setMinLength(3).setMaxLength(20))
   .addStringOption(o => o.setName('reason').setDescription('Reason for the most-wanted notice').setRequired(true).setMaxLength(1000)));
 const cmds = new D.SlashCommandBuilder().setName('cmds').setDescription('List every command and what it does').setDMPermission(false);
-module.exports = { configCommand, commands: [configCommand, infraction, promotion, shift, suspension, quota, say, deployment, close, closerequest, purge, ticketpanel, applicationpanel, mostwanted, cmds] };
+const addEmojis = admin(new D.SlashCommandBuilder().setName('add-emojis').setDescription('Install the Valenti server emoji pack; skips existing emojis'));
+module.exports = { configCommand, commands: [addEmojis, configCommand, infraction, promotion, shift, suspension, quota, say, deployment, close, closerequest, purge, ticketpanel, applicationpanel, mostwanted, cmds] };
