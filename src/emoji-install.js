@@ -8,7 +8,7 @@ async function install(context, progress = async () => {}) {
   if (!member.permissions.has(D.PermissionFlagsBits.Administrator)) throw new Error('Administrator permission is required to install server emojis.');
   const me = await guild.members.fetchMe();
   if (!me.permissions.has(D.PermissionFlagsBits.CreateGuildExpressions)) throw new Error('Give the bot Create Expressions permission to upload server emojis.');
-  if (running.has(guild.id)) throw new Error('An emoji installation is already running in this server.');
+  if (running.has(guild.id)) throw new Error('An emoji operation is already running in this server.');
   running.add(guild.id);
   const added = [], skipped = [], failed = [];
   try {
@@ -40,4 +40,35 @@ async function prefix(context) {
   const result = await install(context, async text => { status = await context.channel.send(v2('Installing Emojis', text)); });
   await status.edit(v2('Server Emoji Pack', result));
 }
-module.exports = { install, slash, prefix };
+async function remove(context, progress = async () => {}) {
+  const { guild, user } = context;
+  const member = await guild.members.fetch({ user: user.id, force: true });
+  if (!member.permissions.has(D.PermissionFlagsBits.Administrator)) throw new Error('Administrator permission is required to remove server emojis.');
+  const me = await guild.members.fetchMe();
+  if (!me.permissions.has(D.PermissionFlagsBits.CreateGuildExpressions) && !me.permissions.has(D.PermissionFlagsBits.ManageGuildExpressions)) throw new Error('The bot needs Create Expressions or Manage Expressions permission.');
+  if (running.has(guild.id)) throw new Error('An emoji operation is already running in this server.');
+  running.add(guild.id);
+  let deleted = 0, skipped = 0, failure = '';
+  try {
+    const emojis = await guild.emojis.fetch();
+    await progress('Removing Valenti pack emojis created by this bot. Other emojis will be kept.');
+    for (const emoji of emojis.values()) {
+      if (!Object.hasOwn(pack, emoji.name) || emoji.managed) continue;
+      // Missing ownership data is not permission to delete a name match.
+      if (!emoji.author?.id || emoji.author.id !== me.id) { skipped++; continue; }
+      try { await emoji.delete(`Valenti emoji pack removal requested by ${user.id}`); deleted++; }
+      catch (e) {
+        if (e.code === 10014) continue; // Already removed elsewhere.
+        failure = e.code === 50013 ? 'Discord denied permission to delete an emoji.' : `Discord deletion failed (${e.code || e.name}).`;
+        break;
+      }
+    }
+    return `**Deleted:** ${deleted} • **Kept because ownership did not match or could not be verified:** ${skipped}\n\n${failure ? `${failure} Fix the issue and rerun to continue.` : 'Finished. Other server emojis were left alone.'}`;
+  } finally { running.delete(guild.id); }
+}
+async function removePrefix(context) {
+  let status;
+  const result = await remove(context, async text => { status = await context.channel.send(v2('Removing Emojis', text)); });
+  await status.edit(v2('Emoji Removal', result));
+}
+module.exports = { install, slash, prefix, remove, removePrefix };
