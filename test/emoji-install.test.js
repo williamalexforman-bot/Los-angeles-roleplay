@@ -3,7 +3,7 @@ const D=require('discord.js'),{install}=require('../src/emoji-install');
 const pack=require('../assets/emojis/pack.json');
 function fixture(admin=true,canCreate=true){
  const emojis=new D.Collection();let count=0;
- const c={user:{id:'user'},guild:{id:'guild',members:{fetch:async()=>({permissions:{has:()=>admin}}),fetchMe:async()=>({permissions:{has:()=>canCreate}})},emojis:{fetch:async()=>emojis,create:async({name,attachment})=>{assert.ok(Buffer.isBuffer(attachment));assert.ok(attachment.length<256*1024);const e={id:String(++count),name};emojis.set(e.id,e);return e;}}}};
+ const c={user:{id:'user'},guild:{premiumTier:3,id:'guild',members:{fetch:async()=>({permissions:{has:()=>admin}}),fetchMe:async()=>({permissions:{has:()=>canCreate}})},emojis:{fetch:async()=>emojis,create:async({name,attachment})=>{assert.ok(Buffer.isBuffer(attachment));assert.ok(attachment.length<256*1024);const e={id:String(++count),name};emojis.set(e.id,e);return e;}}}};
  return {c,emojis};
 }
 test('pack contains valid 128px PNGs; installs once and skips duplicates',async()=>{
@@ -12,7 +12,7 @@ test('pack contains valid 128px PNGs; installs once and skips duplicates',async(
 });
 test('permissions are checked and partial failures can resume',async()=>{
  await assert.rejects(install(fixture(false).c),/Administrator/);await assert.rejects(install(fixture(true,false).c),/Create Expressions/);
- const {c}=fixture();const create=c.guild.emojis.create;let n=0;c.guild.emojis.create=async o=>{if(++n===2)throw {code:30008};return create(o);};assert.match(await install(c),/slots are full/);c.guild.emojis.create=create;assert.match(await install(c),/Added:\*\* 199/);
+ const {c}=fixture();const create=c.guild.emojis.create;let n=0;c.guild.emojis.create=async o=>{if(++n===2)throw {code:30008};return create(o);};assert.match(await install(c),/limit reached/);c.guild.emojis.create=create;assert.match(await install(c),/Added:\*\* 199/);
 });
 test('concurrent installers are rejected and lock is released',async()=>{
  const {c}=fixture();let release,started;const ready=new Promise(r=>started=r);const wait=new Promise(r=>release=r);const p=install(c,async()=>{started();await wait;});await ready;await assert.rejects(install(c),/already running/);release();await p;await install(c);
