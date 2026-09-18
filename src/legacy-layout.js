@@ -48,15 +48,20 @@ function caseNotice(item, url) {
   return {components:[box],flags:D.MessageFlags.IsComponentsV2,allowedMentions:{parse:[]}};
 }
 function ticketNotice(record) {
-  const emojis={general:'🎫',affairs:'📋',high:'⭐'};
-  const text=[`<@${record.owner}> • <@&${TICKET_ACCESS_ROLE}>`, 'Welcome to **Valenti Crime Family**. A staff member will assist you shortly.', '',`**Opened By:** <@${record.owner}>`,'**Reason:**',clean(record.reason)];
-  if(record.extra)text.push('',clean(record.extra));
-  if(record.claimedBy)text.push('',`**Claimed By:** <@${record.claimedBy}>`);
-  text.push('','*Realism at its Finest*');
+  const staff=record.support || TICKET_ACCESS_ROLE;
+  const icon=(name,fallback)=>E.icon(name,fallback,record.guildId);
+  const text=[
+    `<:Wave_1:1533090639674212443> Thanks <@${record.owner}> for contacting support!`,
+    `Thank you for creating a ticket with **Valenti Crime Family**. <@&${staff}> will be with you shortly. Please do not ping staff unless your ticket has had no response for more than **12 hours**. If you are reporting a user, include their **User ID**, a **screenshot**, and a **clear reason** below.`,
+    `${icon('ticket','🎫')} **Ticket Information**\n${icon('member','•')} **Opener:** <@${record.owner}>\n${icon('reference','•')} **Ticket ID:** \`TICKET-${record._id}\`\n${icon('support','•')} **Department:** ${TICKETS[record.type] || 'Support'}\n${icon('reason','•')} **Inquiry:**\n${clean(record.reason)}`
+  ];
+  if(record.extra)text.push(`${icon('evidence','•')} **Additional Information**\n${clean(record.extra)}`);
+  if(record.claimedBy)text.push(`${icon('claim','•')} **Claimed by:** <@${record.claimedBy}>`);
+  if(record.escalatedBy)text.push(`${icon('escalated','•')} **Escalated to Senior High Rank** by <@${record.escalatedBy}>`);
   const controls=[
     button('ticket:claim',record.claimedBy?'Claimed':'Claim',D.ButtonStyle.Success).setEmoji(E.component('claim',{id:'1549441861675126979'},record.guildId)).setDisabled(Boolean(record.claimedBy)),
-    button('ticket:close','Close',D.ButtonStyle.Danger).setEmoji(E.component('close',{id:'1549543557197463625'},record.guildId)),button('ticket:escalate','Escalate',D.ButtonStyle.Secondary)];
-  const payload=v2(`${emojis[record.type] || '🎫'} ${TICKETS[record.type]} Ticket`,text.join('\n'), [], false, 'assistance');
+    button('ticket:close','Close',D.ButtonStyle.Danger).setEmoji(E.component('close',{id:'1549543557197463625'},record.guildId)),button('ticket:escalate',record.escalatedBy?'Escalated':'Escalate',D.ButtonStyle.Secondary).setEmoji(E.component('escalated',{name:'⬆️'},record.guildId)).setDisabled(Boolean(record.escalationNotified))];
+  const payload=v2('Support Ticket',text, [], false, 'assistance');
   const footer=payload.components[0].components.pop();
   payload.components[0].addSeparatorComponents(new D.SeparatorBuilder()).addActionRowComponents(new D.ActionRowBuilder().addComponents(...controls));
   payload.components[0].components.push(footer);

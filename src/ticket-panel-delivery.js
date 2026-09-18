@@ -11,7 +11,7 @@ async function deliver(channel,record,message){
  let payload=ticketNotice(record),fallback=false;
  for(let attempt=0;;attempt++){
   try {
-   const sent=message?await message.edit(payload):await channel.send({...payload,nonce:record._id,enforceNonce:true,allowedMentions:{parse:[],users:[record.owner],roles:[TICKET_ACCESS_ROLE]}});
+   const sent=message?await message.edit(payload):await channel.send({...payload,nonce:record._id,enforceNonce:true,allowedMentions:{parse:[],users:[record.owner],roles:[record.support || TICKET_ACCESS_ROLE]}});
    return {message:sent||message,emojiFallback:fallback};
   }catch(e){
    if(!fallback&&emojiFailure(e)){payload=withoutButtonEmojis(payload);fallback=true;continue;}

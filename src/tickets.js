@@ -130,15 +130,8 @@ async function ticketAction(i, action) {
       await message.edit(ticketNotice({...record,claimedBy:i.user.id}));
       return 'Ticket claimed.';
     }
-    const config = await settings(i.guildId);
-    if (config.support_high && config.support_high !== TICKET_ACCESS_ROLE) {
-      await i.channel.permissionOverwrites.edit(config.support_high,{ViewChannel:true,SendMessages:true,ReadMessageHistory:true});
-    }
-    await collection('tickets').updateOne({_id:record._id},{$set:{type:'high',escalatedBy:i.user.id}});
-    const message = await i.channel.messages.fetch(record.panelId || i.message.id);
-    await message.edit(ticketNotice({...record,type:'high'}));
-    await i.channel.send(v2('Ticket Escalated',`This ticket was escalated to High Rank by <@${i.user.id}>.`));
-    return 'Ticket escalated to High Rank.';
+    if(action !== 'escalate') throw new Error('Unknown ticket action.');
+    return require('./ticket-escalation').escalate(i,record);
   });
 }
 async function syncTicketAccess(client) {
