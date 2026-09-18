@@ -8,12 +8,13 @@ const configCommand = admin(new D.SlashCommandBuilder().setName('config').setDes
   .addStringOption(o => o.setName('destination').setDescription('Destination').setRequired(true).addChoices(...Object.keys(CHANNELS).map(value => ({ name: value, value }))))
   .addChannelOption(o => o.setName('channel').setDescription('Channel or ticket category').setRequired(true).addChannelTypes(D.ChannelType.GuildCategory, D.ChannelType.GuildText, D.ChannelType.GuildAnnouncement)))
 .addSubcommand(s => s.setName('panel').setDescription('Post a V2 panel')
-  .addStringOption(o => o.setName('panel').setDescription('Panel').setRequired(true).addChoices(...['ticket','shift','application'].map(value => ({ name: value, value }))))
+  .addStringOption(o => o.setName('panel').setDescription('Panel').setRequired(true).addChoices(...['ticket','shift'].map(value => ({ name: value, value }))))
   .addChannelOption(o => o.setName('channel').setDescription('Optional panel channel override').addChannelTypes(D.ChannelType.GuildText, D.ChannelType.GuildAnnouncement)))
 .addSubcommand(s => s.setName('ticket-access').setDescription('Set the support role for one department')
   .addStringOption(o => o.setName('department').setDescription('Department').setRequired(true).addChoices(...Object.entries(TICKETS).map(([value,name]) => ({name,value}))))
   .addRoleOption(o => o.setName('role').setDescription('Role allowed to read this department’s tickets').setRequired(true)));
 configCommand.addSubcommand(s => s.setName('shift-role').setDescription('Set the role allowed to start staff shifts').addRoleOption(o => o.setName('role').setDescription('Staff role').setRequired(true)));
+configCommand.addSubcommand(s=>s.setName('staff-role').setDescription('Configure staff access or deployment mentions').addStringOption(o=>o.setName('purpose').setDescription('Role purpose').setRequired(true).addChoices(...['management','infraction','promotion','deployment_ping'].map(value=>({name:value,value})))).addRoleOption(o=>o.setName('role').setDescription('Server role').setRequired(true)));
 const shift = new D.SlashCommandBuilder().setName('shift').setDescription('Manage your staff shift').setDMPermission(false);
 for (const name of ['start','end','status']) shift.addSubcommand(s => s.setName(name).setDescription(`${name} your staff shift`));
 const infraction = roleGated(new D.SlashCommandBuilder().setName('infraction').setDescription('Manage staff infraction cases'))
@@ -44,10 +45,6 @@ const close = roleGated(new D.SlashCommandBuilder().setName('close').setDescript
 const closerequest = roleGated(new D.SlashCommandBuilder().setName('closerequest').setDescription('Ask the ticket opener to close this ticket').addStringOption(o=>o.setName('reason').setDescription('Why should this ticket close?').setRequired(true).setMaxLength(1000)));
 const purge = roleGated(new D.SlashCommandBuilder().setName('purge').setDescription('Delete recent messages in this channel').addIntegerOption(o=>o.setName('amount').setDescription('Number of messages, from 1 to 100').setRequired(true).setMinValue(1).setMaxValue(100)));
 const ticketpanel = roleGated(new D.SlashCommandBuilder().setName('ticketpanel').setDescription('Post the ticket panel in this channel'));
-const applicationpanel = roleGated(new D.SlashCommandBuilder().setName('applicationpanel').setDescription('Post the Valenti application panel'));
-const mostwanted = roleGated(new D.SlashCommandBuilder().setName('mostwanted').setDescription('Post a most-wanted notice with a Roblox avatar')
-  .addStringOption(o => o.setName('roblox').setDescription('Roblox username (not display name)').setRequired(true).setMinLength(3).setMaxLength(20))
-  .addStringOption(o => o.setName('reason').setDescription('Reason for the most-wanted notice').setRequired(true).setMaxLength(1000)));
 const cmds = new D.SlashCommandBuilder().setName('cmds').setDescription('List every command and what it does').setDMPermission(false);
-const addEmojis = admin(new D.SlashCommandBuilder().setName('add-emojis').setDescription('Install up to 5 missing Valenti emojis'));
-module.exports = { configCommand, commands: [addEmojis, configCommand, infraction, promotion, shift, suspension, quota, say, deployment, close, closerequest, purge, ticketpanel, applicationpanel, mostwanted, cmds] };
+const addEmojis = admin(new D.SlashCommandBuilder().setName('add-emojis').setDescription('Install up to 5 missing PCSO emojis'));
+module.exports = { configCommand, commands: [addEmojis, configCommand, infraction, promotion, shift, suspension, quota, say, deployment, close, closerequest, purge, ticketpanel, cmds] };

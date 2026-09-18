@@ -76,7 +76,7 @@ async function processGuild(guild) {
    }
    if(!report.sent) {
      const channel=await destination(guild,'infractions');
-     const header=`Valenti Crime Family — Weekly Quota Infraction List\nPeriod: ${new Date(report.start).toISOString()} to ${new Date(report.end).toISOString()}\nDeadline timezone: ${report.zone}\nRequired: 30 minutes of completed shifts\nBelow quota: ${report.missed.length}\n`;
+     const header=`Pierce County Sheriff Office — Weekly Quota Infraction List\nPeriod: ${new Date(report.start).toISOString()} to ${new Date(report.end).toISOString()}\nDeadline timezone: ${report.zone}\nRequired: 30 minutes of completed shifts\nBelow quota: ${report.missed.length}\n`;
      const full=header+'\n'+report.missed.map((m,n)=>`${n+1}. ${m.name} (${m.id}) — ${progress(m.time)}`).join('\n');
      const preview=report.missed.slice(0,25).map(m=>`<@${m.id}> — ${progress(m.time)}`).join('\n')||'All current members completed quota.';
      const payload=v2('Weekly Quota Infraction List',`**Deadline:** <t:${Math.floor(report.end/1000)}:F>\n**Below quota:** ${report.missed.length}\n\n${preview}\n\nThe attached file contains the complete list. This report does not automatically issue warnings or strikes.`);
@@ -91,5 +91,15 @@ async function processGuild(guild) {
  });
 }
 let running=false;
-async function tickQuota(client){if(running)return;running=true;try{for(const guild of client.guilds.cache.values())await processGuild(guild).catch(e=>console.error('Quota report pending:',guild.id,e.code||e.name));}finally{running=false;}}
+async function tickQuota(client){
+ if(running)return;running=true;
+ try{for(const guild of client.guilds.cache.values()){
+  if(guild.id!==require('./settings').GUILD_ID)continue;
+  try{
+   const config=await require('./discipline').settings(guild.id);
+   if(!config.shiftLogs || !config.activeShifts)continue;
+   await processGuild(guild);
+  }catch(e){console.error('Quota report pending:',guild.id,e.code||e.name);}
+ }}finally{running=false;}
+}
 module.exports={nextFriday,totals,progress,quotaCommand,tickQuota,processGuild};

@@ -1,6 +1,6 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const {nextFriday,totals}=require('../src/quota');
-const {allowed,MANAGER}=require('../src/access');
+const access=require('../src/access');const MANAGER='manager';const allowed=(m,k)=>access.allowed(m,k,{role_management:MANAGER,role_infraction:'1538395250312093768'});
 test('Friday 10 AM Eastern survives daylight saving changes',()=>{
  assert.equal(new Date(nextFriday(Date.parse('2026-03-06T15:00:00Z'))).toISOString(),'2026-03-13T14:00:00.000Z');
  assert.equal(new Date(nextFriday(Date.parse('2026-10-30T14:00:00Z'))).toISOString(),'2026-11-06T15:00:00.000Z');

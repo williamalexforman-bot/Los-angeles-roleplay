@@ -1,5 +1,5 @@
 const D = require('discord.js');
-const pack = require('../assets/emojis/pack.json');
+const pack = Object.fromEntries(Object.entries(require('../assets/emojis/pack.json')).map(([name,data])=>[name.replace(/^valenti_/,'pcso_'),data]));
 const { staticLimit, staticUsed } = require('./emoji-capacity');
 const { v2 } = require('./panels');
 const BATCH_SIZE = 5;
@@ -63,7 +63,7 @@ async function install(context, progress = async () => {}) {
       if (added.length >= BATCH_SIZE) break;
       job.current = name;
       try {
-        const emoji = await guild.emojis.create({ attachment: Buffer.from(data, 'base64'), name, reason: `Valenti emoji pack requested by ${user.id}` });
+        const emoji = await guild.emojis.create({ attachment: Buffer.from(data, 'base64'), name, reason: `PCSO emoji pack requested by ${user.id}` });
         added.push(`<:${name}:${emoji.id}>`); names.add(name);
         job.done++; job.added++; job.last = Date.now();
         used++; job.capacity = `Static emoji slots: ${used}/${staticLimit(guild)}`;
@@ -79,7 +79,7 @@ async function install(context, progress = async () => {}) {
     if (op.cancelled) return `Installation stopped. Added ${added.length} emojis before stopping.`;
     const remaining = Object.keys(pack).filter(name => !names.has(name)).length;
     if (full) return `**Server emoji limit reached.**\nAdded: ${added.length} • Pack installed: ${job.done}/${Object.keys(pack).length} • Not added: ${remaining}\nStatic slots: ${used}/${staticLimit(guild)}. Uploads have stopped. Free up static emoji slots before running -continue emojis.`;
-    return `**Added:** ${added.length} • **Already installed:** ${alreadyInstalled}\n\n${added.slice(0,20).join(' ')}${added.length>20 ? `\n…and ${added.length-20} more added.` : ''}${failed.length ? `\n\n${failed.join('\n')} Run -continue emojis after fixing this to add the remaining emojis.` : remaining ? `\n\nBatch complete. **${remaining} emojis remaining.** Run -continue emojis to install the next ${BATCH_SIZE}.` : '\n\nThe pack is ready. Find it by typing :valenti_ in Discord.'}`;
+    return `**Added:** ${added.length} • **Already installed:** ${alreadyInstalled}\n\n${added.slice(0,20).join(' ')}${added.length>20 ? `\n…and ${added.length-20} more added.` : ''}${failed.length ? `\n\n${failed.join('\n')} Run -continue emojis after fixing this to add the remaining emojis.` : remaining ? `\n\nBatch complete. **${remaining} emojis remaining.** Run -continue emojis to install the next ${BATCH_SIZE}.` : '\n\nThe pack is ready. Find it by typing :pcso_ in Discord.'}`;
   } catch(e) { if(cooldown(e))return cooldown(e); throw e; } finally { clearInterval(timer); await reportTask; jobs.delete(guild.id); op.finish(); }
 }
 async function slash(i) {
@@ -111,13 +111,13 @@ async function remove(context, progress = async () => {}, force = false) {
     }
     if (op.cancelled) return 'Deletion stopped before restarting.';
     const emojis = await guild.emojis.fetch();
-    await progress('Removing Valenti pack emojis created by this bot. Other emojis will be kept.');
+    await progress('Removing PCSO pack emojis created by this bot. Other emojis will be kept.');
     for (const emoji of emojis.values()) {
       if (op.cancelled) break;
       if (!Object.hasOwn(pack, emoji.name) || emoji.managed) continue;
       // Missing ownership data is not permission to delete a name match.
       if (!emoji.author?.id || emoji.author.id !== me.id) { skipped++; continue; }
-      try { await emoji.delete(`Valenti emoji pack removal requested by ${user.id}`); deleted++; }
+      try { await emoji.delete(`PCSO emoji pack removal requested by ${user.id}`); deleted++; }
       catch (e) {
         if (e.code === 10014) continue; // Already removed elsewhere.
         failure = cooldown(e) || (e.code === 50013 ? 'Discord denied permission to delete an emoji.' : `Discord deletion failed (${e.code || e.name}).`);

@@ -7,7 +7,7 @@ test('welcome uses configured channel or system channel and only mentions new me
  for(const id of [null,'chosen']) {
   configured=id;let payload;
   await welcome({id:'newmember',guild:{id:'guild',systemChannelId:'system',channels:{fetch:async channel=>{assert.equal(channel,id||'system');return {isTextBased:()=>true,send:async p=>{payload=p;}};}}}});
-  assert.equal(payload.content, `${TEXT}\n<@newmember>`);
+  assert.equal(payload.content, `👋 ${TEXT}\n<@newmember>`);
   assert.equal(payload.components,undefined);
   assert.equal(payload.embeds,undefined);
   assert.deepEqual(payload.allowedMentions,{parse:[],users:['newmember']});

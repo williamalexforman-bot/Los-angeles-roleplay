@@ -1,5 +1,5 @@
 const test=require('node:test'),assert=require('node:assert/strict'),D=require('discord.js');
-const pack=require('../assets/emojis/pack.json');
+const pack=Object.fromEntries(Object.entries(require('../assets/emojis/pack.json')).map(([n,v])=>[n.replace('valenti_','pcso_'),v]));
 const {install,continuePrefix}=require('../src/emoji-install');
 function fixture(){let created=0;const cache=new D.Collection(),sent=[];const c={user:{id:'admin'},guild:{premiumTier:3,id:'continue-test',members:{fetch:async()=>({permissions:{has:()=>true}}),fetchMe:async()=>({permissions:{has:()=>true}})},emojis:{fetch:async()=>cache,create:async({name})=>{const e={id:String(++created),name};cache.set(e.id,e);return e;}}},channel:{send:async p=>{sent.push(p);return {edit:async p=>sent.push(p)};}}};return {c,cache,sent,count:()=>created};}
 test('continue resumes only missing emojis after partial failure',async()=>{const {c,cache,count}=fixture();const create=c.guild.emojis.create;let n=0;c.guild.emojis.create=async o=>{if(++n===4)throw {code:50013};return create(o);};await install(c);assert.equal(cache.size,3);c.guild.emojis.create=create;await continuePrefix(c);assert.equal(cache.size,8);assert.equal(count(),8);await continuePrefix(c);assert.equal(count(),13);});

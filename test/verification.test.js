@@ -2,12 +2,13 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const D = require('discord.js');
 const store = require('../src/store');
+require('../src/discipline').settings=async()=>({verification:'verification'});
 const V = require('../src/verification');
 const request = async () => ({ ok: true, json: async () => ({ data: [{ id: 156, name: 'builderman' }] }) });
 function interaction() {
   const updates = [];
   const member = { nickname: null, manageable: true, setNickname: async name => updates.push(name) };
-  const i = { inGuild: () => true, channelId: V.CHANNEL_ID, customId: V.MODAL_ID, user: { id: 'member' },
+  const i = { inGuild: () => true, channelId: 'verification', customId: V.MODAL_ID, user: { id: 'member' },
     isButton: () => false, isModalSubmit: () => true, fields: { getTextInputValue: () => 'Builderman' },
     deferReply: async p => { assert.equal(p.flags, D.MessageFlags.Ephemeral); }, editReply: async p => { i.reply = p; },
     guild: { members: { fetch: async args => { assert.equal(args.user, 'member'); return member; }, fetchMe: async () => ({ permissions: { has: () => true } }) } },
@@ -39,13 +40,13 @@ test('panel posting persists, reuses and recovers deleted messages without ignor
   store.locked = async (_key, work) => work();
   store.collection = () => ({ findOne: async () => record, updateOne: async (_filter, update) => { record = update.$set; } });
   const message = { id: 'message', author: { id: 'bot' }, components: V.panel().components };
-  const channel = { type: D.ChannelType.GuildText, guildId: process.env.GUILD_ID || '1538371050759520306',
+  const channel = { type: D.ChannelType.GuildText, guildId: process.env.GUILD_ID || '1521905971004444743',
     messages: { fetch: async arg => { if (failure) throw failure; if (typeof arg === 'string') { if (!existing) throw { code: 10008 }; return existing; } return new D.Collection(recent.map(m => [m.id, m])); } },
-    send: async payload => { assert.ok(payload.nonce.length<=25); assert.equal(payload.nonce,V.CHANNEL_ID); sent++; existing = message; return message; },
+    send: async payload => { assert.ok(payload.nonce.length<=25); assert.equal(payload.nonce,'verification'); sent++; existing = message; return message; },
   };
-  const client = { user: { id: 'bot' }, channels: { fetch: async id => { assert.equal(id, V.CHANNEL_ID); return channel; } } };
-  await V.ensurePanel(client); await V.ensurePanel(client); assert.equal(sent, 1);
-  record = undefined; recent = [message]; await V.ensurePanel(client); assert.equal(sent, 1);
-  existing = null; recent = []; await V.ensurePanel(client); assert.equal(sent, 2);
-  failure = { code: 50013 }; await assert.rejects(V.ensurePanel(client),/Read Message History/); assert.equal(sent, 2);
+  const client = { user: { id: 'bot' }, channels: { fetch: async id => { assert.equal(id, 'verification'); return channel; } } };
+  await V.ensurePanel(client,'verification'); await V.ensurePanel(client,'verification'); assert.equal(sent, 1);
+  record = undefined; recent = [message]; await V.ensurePanel(client,'verification'); assert.equal(sent, 1);
+  existing = null; recent = []; await V.ensurePanel(client,'verification'); assert.equal(sent, 2);
+  failure = { code: 50013 }; await assert.rejects(V.ensurePanel(client,'verification'),/Read Message History/); assert.equal(sent, 2);
 });

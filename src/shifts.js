@@ -41,6 +41,8 @@ function activePages(active) {
   return pages.length ? pages : [v2('Active Staff Shifts','No staff members are currently on shift.')];
 }
 async function syncGuild(guild) {
+  const config=await settings(guild.id);
+  if(!config.shiftLogs || !config.activeShifts)return;
   return locked(`shift-sync:${guild.id}`,async()=>{
     const rows=collection('shifts');
     const unlogged=await rows.find({guildId:guild.id,$or:[{startLogged:false},{endLogged:false}]}).toArray();

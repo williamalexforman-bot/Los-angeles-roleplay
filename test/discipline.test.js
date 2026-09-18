@@ -30,7 +30,7 @@ function setup(state={}) {
   for(const key of Object.keys(data)) delete data[key];
   const roleIds=['rank','1538401039684866143',...ROLES.warnings,...ROLES.strikes,ROLES.suspended];
   const roles = new D.Collection(roleIds.map(id=>[id,{id,managed:false}]));
-  const cache = new D.Collection(['rank',ROLES.retained,ROLES.strikes[1]].map(id=>[id,roles.get(id)]));
+  const cache = new D.Collection(['rank',ROLES.retained,ROLES.strikes[1]].filter(Boolean).map(id=>[id,roles.get(id)]));
   const log = [];
   const target = { id:'member',user:{bot:false},manageable:true,roles:{cache,
     add:async id=>{assert.equal(data.cases?.[0]?.status,'prepared');cache.set(id,roles.get(id));},
@@ -65,7 +65,7 @@ test('invalid expiry changes nothing; suspension snapshot survives for recovery'
   assert.equal(data.cases.length,0); assert.ok(f.target.roles.cache.has('rank'));
   f=setup();
   await issue(f.i,{kind:'infraction',userId:'member',type:'Strike'},'Reason','2099-01-01 12:00');
-  assert.deepEqual([...f.target.roles.cache.keys()].sort(),[ROLES.retained,ROLES.suspended].sort());
+  assert.deepEqual([...f.target.roles.cache.keys()].sort(),[ROLES.retained,ROLES.suspended].filter(Boolean).sort());
   assert.ok(data.members[0].suspension.roles.includes('rank'));
   assert.equal(data.members[0].strikes,3); assert.equal(data.cases[0].status,'logged');
   data.members[0].suspension.ends=1;
@@ -78,7 +78,7 @@ test('promotion replaces only selected rank and records reason',async()=>{
   const f=setup(); f.guild.roles.cache.set('newrank',{id:'newrank',managed:false});
   await issue(f.i,{kind:'promotion',userId:'member',previous:'rank',next:'newrank'},'Excellent work','');
   assert.ok(f.target.roles.cache.has('newrank')); assert.ok(!f.target.roles.cache.has('rank'));
-  assert.ok(f.target.roles.cache.has(ROLES.retained)); assert.equal(data.cases[0].reason,'Excellent work');
+  assert.ok(f.target.roles.cache.has(ROLES.strikes[1])); assert.equal(data.cases[0].reason,'Excellent work');
 });
 
 test('owner may issue a warning on own record when the marker role is manageable',async()=>{
@@ -97,7 +97,7 @@ test('case layouts preserve saved fields with hosted banner assets',()=>{
   }
   const cmds=require('../src/commands/config').commands.map(c=>c.toJSON());
   const panels=cmds.find(c=>c.name==='config').options.find(o=>o.name==='panel').options[0].choices.map(c=>c.value);
-  assert.deepEqual(panels,['ticket','shift','application']);
+  assert.deepEqual(panels,['ticket','shift']);
 });
 
 test('blank suspension expiry creates an indefinite suspension',async()=>{
@@ -106,4 +106,12 @@ test('blank suspension expiry creates an indefinite suspension',async()=>{
  f.target.roles.add=async id=>f.target.roles.cache.set(id,{id});
  await recover({guilds:{fetch:async()=>f.guild}});
  assert.ok(data.members[0].suspension);assert.ok(f.target.roles.cache.has(ROLES.suspended));
+});
+
+test('PCSO status infractions grant the supplied marker without removing rank roles',async()=>{
+ for(const [type,marker] of [['Termination',ROLES.termination],['Blacklisted',ROLES.blacklisted],['Under Investigation',ROLES.investigation]]){
+  const f=setup({strikes:0});f.guild.roles.cache.set(marker,{id:marker,managed:false});
+  await issue(f.i,{kind:'infraction',userId:'member',type},'Recorded reason','');
+  assert.ok(f.target.roles.cache.has(marker));assert.ok(f.target.roles.cache.has('rank'));
+ }
 });

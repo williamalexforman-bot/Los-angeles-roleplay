@@ -1,6 +1,7 @@
 const test=require('node:test'),assert=require('node:assert/strict');
+require('../src/store').collection=()=>({findOne:async()=>({role_management:'manager',role_infraction:'infraction',role_promotion:'promotion'})});
 const {authorize}=require('../src/discipline');
-const {MANAGER,INFRACTION_ROLES}=require('../src/access');
+const MANAGER='manager',INFRACTION_ROLES=['infraction','manager'];
 function context(roles,manage=true){
  const actor={id:'actor',roles:{cache:new Set(roles),highest:{comparePositionTo:()=>-1}}};
  const target={id:'target',user:{bot:false},roles:{highest:{}}};
@@ -11,8 +12,8 @@ test('authorized roles work even when target has a higher rank than caller',asyn
  for(const role of INFRACTION_ROLES)await authorize(context([role]),'target','infraction');
 });
 test('unprivileged callers and missing bot permissions remain blocked',async()=>{
- await assert.rejects(authorize(context([]),'target','infraction'),/need/);
- await assert.rejects(authorize(context([INFRACTION_ROLES[0]]),'target','promotion'),/need/);
+ await assert.rejects(authorize(context([]),'target','infraction'),/required/);
+ await assert.rejects(authorize(context([INFRACTION_ROLES[0]]),'target','promotion'),/required/);
  await assert.rejects(authorize(context([MANAGER],false),'target','promotion'),/Manage Roles/);
 });
 test('role-gated slash commands explicitly clear legacy default restrictions',()=>{

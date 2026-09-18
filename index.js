@@ -1,5 +1,5 @@
 require('dotenv').config();
-process.env.GUILD_ID = process.env.GUILD_ID?.trim() || '1538371050759520306';
+process.env.GUILD_ID = require('./src/settings').GUILD_ID;
 const http = require('node:http');
 const D = require('discord.js');
 const store = require('./src/store');
@@ -57,7 +57,7 @@ else {
     health.check();
     console.log('Discord connected as', client.user.tag);
     // Emoji REST rate limits must not hold up database/jobs/command registration.
-    void runTask('Emoji refresh', async () => { await client.guilds.cache.get(process.env.GUILD_ID)?.emojis.fetch(); });
+    void runTask('Emoji refresh', async () => { const emojis=await client.guilds.cache.get(process.env.GUILD_ID)?.emojis.fetch(); console.log('Server emojis available:',emojis?.size || 0); });
     let jobsStarted = false;
     void startTask('Database connection', async () => {
       if (!databaseReady) { await store.connect(); databaseReady = true; }
@@ -70,7 +70,6 @@ else {
       await startTask('Shifts', () => syncShifts(client), 30000);
       await startTask('Recovery', () => recover(client), 30000);
       await startTask('V2 case notices', () => require('./src/case-panels').syncCasePanels(client), 300000);
-      await startTask('Applications', () => require('./src/applications').recoverApplications(client), 30000);
     }, 30000);
     try {
       const guilds = await require('./src/guild-config').commandGuilds(client);
@@ -83,10 +82,10 @@ else {
     } catch (e) { console.error('Command registration failed:', e.name === 'Error' ? e.message : e.code || e.name); }
 
   }));
-  client.on('guildMemberAdd', member => runTask('Welcome message', () => require('./src/welcome').welcome(member)));
+  client.on('guildMemberAdd', member => member.guild.id === process.env.GUILD_ID && runTask('Welcome message', () => require('./src/welcome').welcome(member)));
   client.on('interactionCreate',handleInteraction);
   client.on('messageCreate',message => runTask('Message handler', async () => {
-    return message.guild ? require('./src/messages').handleMessage(message) : require('./src/applications').dm(message);
+    if(message.guild?.id === process.env.GUILD_ID) return require('./src/messages').handleMessage(message);
   }));
   const login = async () => {
     try { await client.login(token); }

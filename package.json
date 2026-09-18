@@ -1,8 +1,8 @@
 {
-  "name": "csrp-clean-bot",
+  "name": "pcso-bot",
   "version": "1.0.0",
   "private": true,
-  "description": "California State Roleplay panels, tickets and staff records",
+  "description": "Pierce County Sheriff Office panels, tickets and staff records",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",

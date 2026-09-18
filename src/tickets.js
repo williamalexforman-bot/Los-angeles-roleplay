@@ -36,22 +36,18 @@ async function openTicket(i, type, reason, extra = '') {
       }
       await collection('tickets').updateOne({ _id: previous._id }, { $set: { status: 'missing' } });
     }
-    const category = await i.guild.channels.fetch(config.tickets);
-    if (category?.type !== D.ChannelType.GuildCategory) throw new Error('The configured ticket destination must be a category. Use /config channel destination:tickets to select it.');
+    const category = await ticketCategory(i.guild,config,type);
     const me = await i.guild.members.fetchMe();
     if (!me.permissions.has(D.PermissionFlagsBits.ManageChannels)) throw new Error('The bot needs Manage Channels to create tickets.');
-    const support = config[`support_${type}`];
+    const support = config[`support_${type}`] || config.role_management;
     const allow = [D.PermissionFlagsBits.ViewChannel, D.PermissionFlagsBits.SendMessages, D.PermissionFlagsBits.ReadMessageHistory, D.PermissionFlagsBits.AttachFiles, D.PermissionFlagsBits.EmbedLinks];
     const overwrites = [ { id: i.guildId, type: D.OverwriteType.Role, deny: [D.PermissionFlagsBits.ViewChannel] }, { id: i.user.id, type: D.OverwriteType.Member, allow }, { id: me.id, type: D.OverwriteType.Member, allow: [...allow, D.PermissionFlagsBits.ManageChannels] } ];
-    const sharedRole = await i.guild.roles.fetch(TICKET_ACCESS_ROLE);
-    if (!sharedRole) throw new Error('The shared ticket access role is missing from this server.');
-    overwrites.push({ id: TICKET_ACCESS_ROLE, type: D.OverwriteType.Role, allow });
     if (support && support !== TICKET_ACCESS_ROLE) {
       const role = await i.guild.roles.fetch(support);
       if (!role || role.id === i.guildId) throw new Error('The configured ticket support role is invalid.');
       overwrites.push({ id: support, type: D.OverwriteType.Role, allow });
     }
-    const channel = await i.guild.channels.create({ name: `${type}-${i.user.id}`, type: D.ChannelType.GuildText, parent: category.id, topic: `ticket-owner:${i.user.id}`, permissionOverwrites: overwrites });
+    const channel = await i.guild.channels.create({ name: `${type}-${i.user.id}`, type: D.ChannelType.GuildText, parent: category?.id || null, topic: `ticket-owner:${i.user.id}`, permissionOverwrites: overwrites });
     const record={ _id:channel.id, guildId:i.guildId, owner:i.user.id, type, reason, extra, support, status:'open', opened:Date.now(), panelPending:true };
     try { await collection('tickets').insertOne(record); }
     catch(error) { await channel.delete('Ticket record could not be saved').catch(()=>{}); throw error; }
@@ -68,7 +64,7 @@ async function ticketAccess(i) {
   const record = await collection('tickets').findOne({ _id: i.channelId, status: 'open' });
   if (!record) throw new Error('This is not an open ticket.');
   const member = await i.guild.members.fetch({ user: i.user.id, force: true });
-  if (i.user.id !== record.owner && !member.permissions.has(D.PermissionFlagsBits.Administrator) && !member.roles.cache.has(TICKET_ACCESS_ROLE) && !(record.support && member.roles.cache.has(record.support))) throw new Error('Only the requester or this department’s support staff can close the ticket.');
+  if (i.user.id !== record.owner && !member.permissions.has(D.PermissionFlagsBits.Administrator) && !(record.support && member.roles.cache.has(record.support))) throw new Error('Only the requester or this department’s support staff can close the ticket.');
   return record;
 }
 function transcriptLine(m) {
@@ -109,7 +105,7 @@ async function closeTicket(i) {
       await log.send({ ...payload, files: [new D.AttachmentBuilder(Buffer.from(parts[n]), { name })] });
     }
     await collection('tickets').updateOne({ _id: i.channelId }, { $set: { transcriptSaved: Date.now() } });
-    await i.channel.send({content:`${i.guild.emojis?.cache.get('1549440281638600854')?.toString() || '<a:closing_ticket:1549440281638600854>'} Closing Ticket`,allowedMentions:{parse:[]}});
+    await i.channel.send({content:`${require('./panel-emojis').icon('close','🔒',i.guildId)} Closing Ticket`,allowedMentions:{parse:[]}});
     await new Promise(resolve => setTimeout(resolve, 10000));
     await i.channel.delete(`Ticket closed by ${i.user.id}; transcript saved`);
     await collection('tickets').updateOne({ _id: i.channelId }, { $set: { status: 'closed', closed: Date.now() } });
@@ -121,7 +117,7 @@ async function ticketAction(i, action) {
   return locked(`ticket-close:${i.channelId}`, async () => {
     const record = await ticketAccess(i);
     const member = await i.guild.members.fetch({user:i.user.id,force:true});
-    if (!member.permissions.has(D.PermissionFlagsBits.Administrator) && !member.roles.cache.has(TICKET_ACCESS_ROLE) && !(record.support && member.roles.cache.has(record.support))) throw new Error('Only ticket staff can claim or escalate tickets.');
+    if (!member.permissions.has(D.PermissionFlagsBits.Administrator) && !(record.support && member.roles.cache.has(record.support))) throw new Error('Only ticket staff can claim or escalate tickets.');
     if (action === 'claim') {
       if (record.claimedBy) return `This ticket is already claimed by <@${record.claimedBy}>.`;
       await collection('tickets').updateOne({_id:record._id},{$set:{claimedBy:i.user.id}});
@@ -139,14 +135,12 @@ async function syncTicketAccess(client) {
     if(process.env.GUILD_ID?.trim() && guild.id!==process.env.GUILD_ID.trim())continue;
     try {
       const config = await settings(guild.id);
-      const category = await guild.channels.fetch(config.tickets);
       const permission = { ViewChannel:true, SendMessages:true, ReadMessageHistory:true, AttachFiles:true, EmbedLinks:true };
-      await category.permissionOverwrites.edit(TICKET_ACCESS_ROLE,permission).catch(e=>console.error('Category access refresh pending:',e.code||e.name));
       const records = await collection('tickets').find({guildId:guild.id,status:'open'}).toArray();
       for (const record of records) {
         try {
           const channel = await guild.channels.fetch(record._id);
-          await channel.permissionOverwrites.edit(TICKET_ACCESS_ROLE,permission).catch(e=>console.error('Ticket permission update pending:',record._id,e.code||e.name));
+          if(record.support) await channel.permissionOverwrites.edit(record.support,permission,{type:D.OverwriteType.Role});
           await ensureOpeningPanel(channel,record);
         } catch(e) { console.error('Ticket access refresh pending:', record._id,e.code || e.name); }
       }
@@ -168,3 +162,14 @@ async function recoverTicketPanels(client) {
     }
   }
 }
+
+// Text destinations route private tickets into their parent category. Never inherit public access.
+async function ticketCategory(guild,config,type){
+ const id=config['tickets_'+type] || config.tickets;
+ if(!id)throw new Error('Set the ticket destination with /config channel.');
+ const destination=await guild.channels.fetch(id);
+ if(destination?.type===D.ChannelType.GuildCategory)return destination;
+ if(destination?.type===D.ChannelType.GuildText)return destination.parent || null;
+ throw new Error('The ticket destination must be a category or a server text channel.');
+}
+module.exports.ticketCategory=ticketCategory;

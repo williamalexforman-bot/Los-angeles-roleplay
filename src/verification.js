@@ -2,7 +2,7 @@ const D = require('discord.js');
 const store = require('./store');
 const { v2, button, row } = require('./panels');
 const { lookupUsername } = require('./roblox');
-const CHANNEL_ID = '1538390763476357130';
+const CHANNEL_ID = null;
 const BUTTON_ID = 'verification:start';
 const MODAL_ID = 'verification:username';
 
@@ -16,10 +16,12 @@ function isPanel(message, botId) {
   return (message.components || []).some(c => hasButton(c.toJSON ? c.toJSON() : c));
 }
 
-async function ensurePanel(client) {
+async function ensurePanel(client, channelId) {
+  const CHANNEL_ID=channelId;
+  if(!CHANNEL_ID)throw new Error("Set a verification channel with /config channel first.");
   try {
    const channel = await client.channels.fetch(CHANNEL_ID);
-   if (!channel || channel.type !== D.ChannelType.GuildText || channel.guildId !== (process.env.GUILD_ID?.trim() || '1538371050759520306')) throw new Error('Verification channel is unavailable in the configured server.');
+   if (!channel || channel.type !== D.ChannelType.GuildText || channel.guildId !== (require('./settings').GUILD_ID)) throw new Error('Verification channel is unavailable in the configured server.');
    return await store.locked(`verification-panel:${CHANNEL_ID}`, async () => {
     const panels = store.collection('verification_panels');
     const saved = await panels.findOne({ _id: CHANNEL_ID });
@@ -47,6 +49,7 @@ async function ensurePanel(client) {
 }
 
 async function handle(i, request = fetch) {
+  const CHANNEL_ID=(await require("./discipline").settings(i.guildId)).verification;
   if (!i.inGuild() || i.channelId !== CHANNEL_ID) throw new Error('Use the verification panel in the verification channel.');
   if (i.isButton() && i.customId === BUTTON_ID) {
     return i.showModal(new D.ModalBuilder().setCustomId(MODAL_ID).setTitle('Roblox Verification').addComponents(row(

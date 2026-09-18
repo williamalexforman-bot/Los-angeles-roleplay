@@ -12,7 +12,7 @@ test('help includes every registered command and subcommand plus prefix commands
     for (const sub of (command.options || []).filter(o => o.type === D.ApplicationCommandOptionType.Subcommand)) assert.ok(text.includes(`/${command.name} ${sub.name}`));
   }
   for (const [usage] of PREFIX_COMMANDS) assert.ok(text.includes(usage));
-  assert.ok(text.includes('roblox:<value>')); assert.ok(text.includes('[evidence:value]'));
+  assert.ok(text.includes('[evidence:value]'));
   for (const payload of payloads) {
     assert.ok(payload.flags & D.MessageFlags.Ephemeral);
     assert.deepEqual(payload.allowedMentions, { parse: [] });

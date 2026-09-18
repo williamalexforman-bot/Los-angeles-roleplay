@@ -9,7 +9,7 @@ test('task failures are handled and scheduling survives first-run failure',async
 });
 test('additional infraction role does not grant unrelated management access',()=>{
  const {allowed}=require('../src/access');const member={roles:{cache:new Set(['1538393098185613352'])}};
- assert.equal(allowed(member,'infraction'),true);assert.equal(allowed(member,'promotion'),false);
+ assert.equal(allowed(member,'infraction',{role_infraction:'1538393098185613352'}),true);assert.equal(allowed(member,'promotion'),false);
 });
 test('slow scheduled jobs cannot overlap',async()=>{
  let calls=0,release;

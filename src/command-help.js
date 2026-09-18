@@ -7,15 +7,14 @@ const PREFIX_COMMANDS = [
   ['-force delete', 'Administrator: cancel the current emoji operation and restart bot-pack deletion.'],
   ['-continue emojis', 'Administrator: install the next 5 missing emojis or check the active batch.'],
   ['-delete emojis', 'Administrator: remove pack emojis verified as created by this bot.'],
-  ['-addemojis (or -add emojis)', 'Administrator: install up to 5 Valenti emojis, skipping existing names.'],
+  ['-addemojis (or -add emojis)', 'Administrator: install up to 5 PCSO emojis, skipping existing names.'],
   ['-say <message>', 'Send the supplied text as the bot.'],
   ['-deployment', 'Post the deployment announcement and ping the deployment role.'],
   ['-close', 'Save the transcript and close the current ticket.'],
   ['-closerequest <reason>', 'Ask the ticket opener to approve closing their ticket.'],
   ['-purge <amount>', 'Delete 1–100 recent messages; messages older than 14 days are skipped.'],
   ['-ticketpanel', 'Post a ticket launcher in the current channel.'],
-  ['-applicationpanel', 'Post the Valenti application launcher in the current channel.'],
-  ['-verificationpanel', 'Post or reuse the Roblox verification panel in <#1538390763476357130>.'],
+  ['-verificationpanel', 'Post or reuse the Roblox verification panel in the configured verification channel.'],
 ];
 
 function slashEntries(commands) {

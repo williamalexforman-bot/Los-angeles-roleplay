@@ -16,7 +16,7 @@ let staff=true,admin=false;
 const messages=new Map();let sent=0;
 const logs=[];
 const activeChannel={id:'active',send:async p=>{const id=String(++sent);messages.set(id,p);return {id};},messages:{fetch:async id=>{if(!messages.has(id))throw {code:10008};return {edit:async p=>messages.set(id,p)};},delete:async id=>messages.delete(id)}};
-require.cache[require.resolve('../src/discipline')]={exports:{settings:async()=>({shiftRole:'staff'}),destination:async(g,key)=>key==='shiftLogs'?{send:async p=>logs.push(p)}:activeChannel}};
+require.cache[require.resolve('../src/discipline')]={exports:{settings:async()=>({shiftRole:'staff',shiftLogs:'logs',activeShifts:'active'}),destination:async(g,key)=>key==='shiftLogs'?{send:async p=>logs.push(p)}:activeChannel}};
 const {ROLES}=require('../src/settings');
 let subjectRoles=new Set();
 const guild={id:'guild',members:{fetch:async()=>({permissions:{has:()=>admin},roles:{cache:{has:id=>id==='staff'?staff:subjectRoles.has(id)}}})}};

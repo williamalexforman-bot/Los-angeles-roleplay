@@ -6,6 +6,7 @@ const { v2 } = require('./panels');
 async function settings(guildId) { return { ...CHANNELS, ...(await collection('config').findOne({ _id: guildId })) }; }
 async function destination(guild, key) {
   const config = await settings(guild.id);
+  if(!config[key]) throw new Error(`Set ${key} with /config channel first.`);
   const channel = await guild.channels.fetch(config[key]);
   if (!channel?.isTextBased() || !channel.send) throw new Error(`Configure a text channel for ${key}.`);
   const me = guild.members.me || await guild.members.fetchMe();
@@ -85,7 +86,7 @@ async function issue(interaction, data, reason, dateText) {
       checkRole(oldRole, actor, me, interaction.guild); checkRole(newRole, actor, me, interaction.guild);
       if (oldRole.id === newRole.id || !target.roles.cache.has(oldRole.id)) throw new Error('Select two different ranks; the member must currently hold the previous rank.');
       if (target.roles.cache.has(newRole.id)) throw new Error('The member already has the new rank.');
-      if ([...ROLES.warnings, ...ROLES.strikes, ROLES.suspended, ROLES.retained].includes(oldRole.id) || [...ROLES.warnings, ...ROLES.strikes, ROLES.suspended, ROLES.retained].includes(newRole.id)) throw new Error('Select rank roles rather than disciplinary or protected roles.');
+      if ([...ROLES.warnings, ...ROLES.strikes, ROLES.suspended, ROLES.retained, ROLES.termination, ROLES.blacklisted, ROLES.investigation].includes(oldRole.id) || [...ROLES.warnings, ...ROLES.strikes, ROLES.suspended, ROLES.retained, ROLES.termination, ROLES.blacklisted, ROLES.investigation].includes(newRole.id)) throw new Error('Select rank roles rather than disciplinary or protected roles.');
       add.push(newRole.id); remove.push(oldRole.id);
       summary = `**Member:** <@${target.id}>\n**Previous rank:** <@&${oldRole.id}>\n**New rank:** <@&${newRole.id}>`;
     } else {
@@ -96,11 +97,11 @@ async function issue(interaction, data, reason, dateText) {
         const ends = dateText?.trim() ? endDate(dateText.trim()) : undefined;
         const roles = target.roles.cache.filter(r => r.id !== interaction.guildId && !r.managed);
         for (const role of roles.values()) checkRole(role, actor, me, interaction.guild);
-        for (const id of [ROLES.retained, ROLES.suspended]) checkRole(interaction.guild.roles.cache.get(id), actor, me, interaction.guild);
+        for (const id of [ROLES.retained, ROLES.suspended].filter(Boolean)) checkRole(interaction.guild.roles.cache.get(id), actor, me, interaction.guild);
         // Save the full removable-role snapshot before any role is removed.
         next.suspension = { ...(ends ? { ends } : {}), roles: roles.map(r => r.id), caseId: interaction.id };
         remove.push(...roles.filter(r => r.id !== ROLES.retained).map(r => r.id));
-        add.push(ROLES.retained, ROLES.suspended);
+        add.push(...[ROLES.retained, ROLES.suspended].filter(Boolean));
       } else if (data.type === 'Warning' || data.type === 'Strike') {
         const markers = [...ROLES.warnings, ...ROLES.strikes];
         const desired = [ROLES.warnings[counts.warnings - 1], ROLES.strikes[Math.min(counts.strikes, 2) - 1]].filter(Boolean);
@@ -108,6 +109,8 @@ async function issue(interaction, data, reason, dateText) {
         remove.push(...markers.filter(id => target.roles.cache.has(id) && !desired.includes(id)));
         add.push(...desired);
       }
+      const marker={Termination:ROLES.termination,Blacklisted:ROLES.blacklisted,'Under Investigation':ROLES.investigation}[data.type];
+      if(marker){checkRole(interaction.guild.roles.cache.get(marker),actor,me,interaction.guild);add.push(marker);}
       summary = `**Member:** <@${target.id}>\n**Type:** ${data.type}\n**Infraction count:** ${next.total}\n**Warnings:** ${next.warnings}/3\n**Strikes:** ${next.strikes}`;
       if (data.type === 'Warning' && counts.warnings === 0) summary += '\n**Escalation:** Third warning converted to a strike.';
       if (next.suspension?.ends) summary += `\n**Suspended until:** <t:${Math.floor(next.suspension.ends / 1000)}:F>`;

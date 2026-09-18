@@ -14,7 +14,7 @@ require.cache[require.resolve('../src/discipline')]={exports:{destination:async(
 const {processGuild,quotaCommand}=require('../src/quota');
 const {MANAGER}=require('../src/access');
 const deadline=Date.parse('2026-09-18T14:00:00Z');
-const guild={id:'g',members:{fetch:async arg=>arg?{roles:{cache:new Set([MANAGER])}}:new D.Collection(['done','missed'].map(id=>[id,{id,user:{username:id,bot:false},joinedTimestamp:1}]))}};
+const guild={id:'g',members:{fetch:async arg=>arg?{permissions:{has:()=>true},roles:{cache:new Set([MANAGER])}}:new D.Collection(['done','missed'].map(id=>[id,{id,user:{username:id,bot:false},joinedTimestamp:1}]))}};
 test('missed-deadline recovery saves one complete report and retries delivery',async()=>{
  const old=Date.now;Date.now=()=>deadline+1000;
  try {

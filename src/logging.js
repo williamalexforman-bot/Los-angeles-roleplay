@@ -2,12 +2,12 @@ const D=require('discord.js');
 const {createHash,randomUUID}=require('node:crypto');
 const {collection,locked}=require('./store');
 const {v2}=require('./panels');
-const CHANNELS={messages:'1549588089096245258',infractions:'1549589454568558735',promotions:'1549589488928424076',claims:'1549589552451031101',roles:'1549589572961173594',raids:'1549589600102518864',moderation:'1549589628758007868',members:'1549589652879704105',applications:'1549590420244402206'};
+const CHANNELS=Object.fromEntries(['messages','infractions','promotions','claims','roles','raids','moderation','members'].map(k=>[k,null]));
 const buffer=new Map();
 const safe=(value,max=1200)=>D.escapeMarkdown(String(value??'Unavailable')).slice(0,max);
 async function persist(row){try{await collection('event_logs').insertOne(row);}catch(e){if(e.code!==11000)throw e;}}
 async function record(kind,guildId,title,body,key=randomUUID()){
- if(!CHANNELS[kind])throw new Error('Unknown log type');
+ if(!Object.hasOwn(CHANNELS,kind))throw new Error('Unknown log type');
  const _id=createHash('sha256').update(`${kind}:${guildId}:${key}`).digest('hex').slice(0,24);
  const entry={_id,kind,guildId,title,body:String(body).slice(0,3500),created:Date.now(),nextAttempt:0,attempts:0,delivered:false};
  try{await persist(entry);}catch(e){
@@ -25,7 +25,10 @@ async function flushLogs(client){
     await collection('event_logs').updateOne({_id:item._id},{$set:{delivered:true,suppressed:true,expires:new Date(Date.now()+7*86400000)}});
     return;
    }
-   const guild=await client.guilds.fetch(item.guildId),channel=await guild.channels.fetch(CHANNELS[item.kind]);
+   const guild=await client.guilds.fetch(item.guildId);
+   const config=await require('./discipline').settings(item.guildId);
+   if(!config['log_'+item.kind]){await collection('event_logs').updateOne({_id:item._id},{$set:{delivered:true,suppressed:true}});return;}
+   const channel=await guild.channels.fetch(config['log_'+item.kind]);
    if(!channel?.send)throw new Error('Log channel unavailable');
    await channel.send({...v2(item.title,`${item.body}\n\n-# <t:${Math.floor(item.created/1000)}:F>`),nonce:item._id,enforceNonce:true});
    await collection('event_logs').updateOne({_id:item._id},{$set:{delivered:true,expires:new Date(Date.now()+7*86400000)}});

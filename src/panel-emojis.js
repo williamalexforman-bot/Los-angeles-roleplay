@@ -4,7 +4,15 @@ function configure(value) { client = value; }
 function find(name, guildId = process.env.GUILD_ID) {
   const guilds = client?.guilds?.cache;
   const guild = guildId ? guilds?.get(guildId) : guilds?.size === 1 ? guilds.first() : null;
-  return guild?.emojis?.cache?.find(e => e.name === `valenti_${name}` && e.available !== false && !e.managed && !e.roles?.cache?.size);
+  const normalize=s=>String(s).toLowerCase().replace(/[^a-z0-9]/g,'');
+  const aliases={infraction:['infraction','infractions','discipline'],promotion:['promotion','promotions'],support:['support','assistance','general_support'],internal_affairs:['ops','ops_reports','internal_affairs'],high_rank:['administrative','admin','management'],welcome:['welcome','wave','wave1'],close:['close','closing_ticket','lock'],claim:['claim','claimed','staff'],deployment:['deployment','patrol','deploy'],approved:['approved','accept','check'],denied:['denied','reject','cross']};
+  const names=[name,...(aliases[name]||[])];
+  const candidates=[...names.map(n=>'pcso_'+n),...names];
+  for(const candidate of candidates){
+    const emoji=guild?.emojis?.cache?.find(e=>normalize(e.name)===normalize(candidate) && e.available!==false && !e.managed && !e.roles?.cache?.size);
+    if(emoji)return emoji;
+  }
+  return undefined;
 }
 function icon(name, fallback = '', guildId) {
   const e = find(name, guildId);
@@ -19,7 +27,7 @@ function key(label) {
   const s = String(label).toLowerCase();
   const rules = [
     [/not completed|failed|rejected|denied|cancel/, 'denied'], [/accept|approv|success|saved|recorded/, 'approved'],
-    [/internal affairs/,'internal_affairs'], [/senior|high rank/,'high_rank'], [/general support/,'support'],
+    [/ops reports|internal affairs/,'internal_affairs'], [/administrative|senior|high rank/,'high_rank'], [/general support/,'support'],
     [/claim/,'claim'], [/clos|delete|purge/,'close'], [/escalat/,'arrow_up'], [/appeal|review/,'appeal'],
     [/promot|new role/,'promotion'], [/old role|demot/,'demotion'], [/warning/,'warning'], [/strike/,'strike'],
     [/suspension/,'suspension'], [/infraction|disciplin|action recorded/,'infraction'], [/investigat/,'investigation'],

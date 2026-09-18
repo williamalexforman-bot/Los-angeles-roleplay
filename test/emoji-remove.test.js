@@ -2,7 +2,7 @@ const test=require('node:test'),assert=require('node:assert/strict'),D=require('
 const {remove,install}=require('../src/emoji-install');
 function fixture(){
  const removed=[],emojis=new D.Collection();
- for(const [id,name,author,managed]of [['1','valenti_ticket','bot',false],['2','valenti_promotion','human',false],['3','valenti_infraction',null,false],['4','unrelated','bot',false],['5','valenti_claim','bot',true]])emojis.set(id,{id,name,author:author?{id:author}:null,managed,delete:async()=>{removed.push(id);emojis.delete(id);}});
+ for(const [id,name,author,managed]of [['1','pcso_ticket','bot',false],['2','pcso_promotion','human',false],['3','pcso_infraction',null,false],['4','unrelated','bot',false],['5','pcso_claim','bot',true]])emojis.set(id,{id,name,author:author?{id:author}:null,managed,delete:async()=>{removed.push(id);emojis.delete(id);}});
  const c={user:{id:'admin'},guild:{id:'server',members:{fetch:async()=>({permissions:{has:()=>true}}),fetchMe:async()=>({id:'bot',permissions:{has:()=>true}})},emojis:{fetch:async()=>emojis}}};return {c,removed,emojis};
 }
 test('removes only bot-created pack names; repeat is harmless',async()=>{const {c,removed}=fixture();assert.match(await remove(c),/Deleted:\*\* 1/);assert.deepEqual(removed,['1']);assert.match(await remove(c),/Deleted:\*\* 0/);});
