@@ -1,0 +1,17 @@
+name: Keep Render bot awake
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Ping Render service
+        run: curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 10 --max-time 30 https://los-angeles-roleplay-gnm7.onrender.com/
