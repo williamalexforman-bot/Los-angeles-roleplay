@@ -2,6 +2,7 @@ const D = require('discord.js');
 const pack = require('../assets/emojis/pack.json');
 const { staticLimit, staticUsed } = require('./emoji-capacity');
 const { v2 } = require('./panels');
+const BATCH_SIZE = 5;
 const running = new Map();
 function begin(guildId, kind, force = false) {
   const previous = running.get(guildId);
@@ -15,7 +16,7 @@ function begin(guildId, kind, force = false) {
 }
 const jobs = new Map();
 function progressText(job) {
-  return `**Installed:** ${job.done}/${Object.keys(pack).length} • **Added this run:** ${job.added}\n${job.current ? `Processing: ${job.current}` : "Checking existing emojis…"}\n${job.capacity || ""}\nLast completed upload: ${Math.floor((Date.now()-job.last)/1000)} seconds ago. Discord can delay emoji uploads while rate-limited; the queue remains active.`;
+  return `**Installed:** ${job.done}/${Object.keys(pack).length} • **Batch progress:** ${job.added}/${BATCH_SIZE}\n${job.current ? `Processing: ${job.current}` : "Checking existing emojis…"}\n${job.capacity || ""}\nLast completed upload: ${Math.floor((Date.now()-job.last)/1000)} seconds ago. Discord can delay emoji uploads while rate-limited; the queue remains active.`;
 }
 async function install(context, progress = async () => {}) {
   const { guild, user } = context;
@@ -41,7 +42,8 @@ async function install(context, progress = async () => {}) {
     const limit = staticLimit(guild);
     let used = staticUsed(existing), full = false;
     const names = new Set(existing.map(e => e.name));
-    job.done = Object.keys(pack).filter(name => names.has(name)).length;
+    const alreadyInstalled = Object.keys(pack).filter(name => names.has(name)).length;
+    job.done = alreadyInstalled;
     job.capacity = `Static emoji slots: ${used}/${limit}`;
     await report();
     timer = setInterval(() => { if (!reporting) reportTask = report(); }, 15000);
@@ -52,6 +54,7 @@ async function install(context, progress = async () => {}) {
       // Include current gateway cache changes, plus uploads confirmed during this run.
       used = Math.max(used, guild.emojis.cache ? staticUsed(guild.emojis.cache) : 0);
       if (used >= staticLimit(guild)) { full = true; break; }
+      if (added.length >= BATCH_SIZE) break;
       job.current = name;
       try {
         const emoji = await guild.emojis.create({ attachment: Buffer.from(data, 'base64'), name, reason: `Valenti emoji pack requested by ${user.id}` });
@@ -69,7 +72,7 @@ async function install(context, progress = async () => {}) {
     if (op.cancelled) return `Installation stopped. Added ${added.length} emojis before stopping.`;
     const remaining = Object.keys(pack).filter(name => !names.has(name)).length;
     if (full) return `**Server emoji limit reached.**\nAdded: ${added.length} • Pack installed: ${job.done}/${Object.keys(pack).length} • Not added: ${remaining}\nStatic slots: ${used}/${staticLimit(guild)}. Uploads have stopped. Free up static emoji slots before running -continue emojis.`;
-    return `**Added:** ${added.length} • **Already installed:** ${skipped.length}\n\n${added.slice(0,20).join(' ')}${added.length>20 ? `\n…and ${added.length-20} more added.` : ''}${failed.length ? `\n\n${failed.join('\n')} Run -continue emojis after fixing this to add the remaining emojis.` : '\n\nThe pack is ready. Find it by typing :valenti_ in Discord.'}`;
+    return `**Added:** ${added.length} • **Already installed:** ${alreadyInstalled}\n\n${added.slice(0,20).join(' ')}${added.length>20 ? `\n…and ${added.length-20} more added.` : ''}${failed.length ? `\n\n${failed.join('\n')} Run -continue emojis after fixing this to add the remaining emojis.` : remaining ? `\n\nBatch complete. **${remaining} emojis remaining.** Run -continue emojis to install the next ${BATCH_SIZE}.` : '\n\nThe pack is ready. Find it by typing :valenti_ in Discord.'}`;
   } finally { clearInterval(timer); await reportTask; jobs.delete(guild.id); op.finish(); }
 }
 async function slash(i) {

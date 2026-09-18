@@ -4,9 +4,9 @@ const { v2 } = require('./panels');
 const PREFIX_COMMANDS = [
   ['-stop deleting', 'Administrator: stop the current emoji deletion after its pending request.'],
   ['-force delete', 'Administrator: cancel the current emoji operation and restart bot-pack deletion.'],
-  ['-continue emojis', 'Administrator: resume missing emojis or check the active upload queue.'],
+  ['-continue emojis', 'Administrator: install the next 5 missing emojis or check the active batch.'],
   ['-delete emojis', 'Administrator: remove pack emojis verified as created by this bot.'],
-  ['-addemojis (or -add emojis)', 'Administrator: install the Valenti server emoji pack, skipping existing names.'],
+  ['-addemojis (or -add emojis)', 'Administrator: install up to 5 Valenti emojis, skipping existing names.'],
   ['-say <message>', 'Send the supplied text as the bot.'],
   ['-deployment', 'Post the deployment announcement and ping the deployment role.'],
   ['-close', 'Save the transcript and close the current ticket.'],
