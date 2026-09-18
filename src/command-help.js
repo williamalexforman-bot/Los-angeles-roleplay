@@ -16,8 +16,6 @@ const PREFIX_COMMANDS = [
   ['-ticketpanel', 'Post a ticket launcher in the current channel.'],
   ['-applicationpanel', 'Post the Valenti application launcher in the current channel.'],
   ['-verificationpanel', 'Post or reuse the Roblox verification panel in <#1538390763476357130>.'],
-  ['-spamcool <message> <amount>', 'Run the restricted DM test for the two authorized accounts (1–50 messages, ten-minute cooldown).'],
-  ['-spamcool stop', 'Cancel the restricted DM test.'],
 ];
 
 function slashEntries(commands) {

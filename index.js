@@ -86,7 +86,6 @@ else {
   client.on('guildMemberAdd', member => runTask('Welcome message', () => require('./src/welcome').welcome(member)));
   client.on('interactionCreate',handleInteraction);
   client.on('messageCreate',message => runTask('Message handler', async () => {
-    if(!message.author.bot && /^-spamcool(?:\s|$)/i.test(message.content || '')) return require('./src/self-dm').handle(message);
     return message.guild ? require('./src/messages').handleMessage(message) : require('./src/applications').dm(message);
   }));
   const login = async () => {
