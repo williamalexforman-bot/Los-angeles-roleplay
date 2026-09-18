@@ -185,3 +185,6 @@ Staff escalation uses the role configured with `/config ticket-access department
 
 ### Small emoji batches
 `-add emojis`, `/add-emojis`, and `-continue emojis` now upload at most **5 missing emojis per run**. After a batch completes, the bot reports how many remain; run `-continue emojis` for the next batch. Existing emojis do not count against the batch size. Server capacity checks, administrator checks, progress reports, cancellation and duplicate prevention remain active. Uploads are sequential and respect Discord rate limits, so a batch can still wait for Discord.
+
+### Force stop all emoji work
+Administrator-only `-force stop emojis` (or `-force stop`) cancels the active upload/deletion and every queued replacement for this server. Already submitted Discord requests may finish; the lock releases after they settle, so a new batch cannot overlap them. Emoji REST rate limits now end the job with a cooldown message instead of holding it in a long retry wait. Wait the displayed duration, then use `-continue emojis` for the next five. These controls neither reset nor bypass Discord rate limits and do not restart the bot.

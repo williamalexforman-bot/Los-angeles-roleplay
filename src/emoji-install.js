@@ -9,12 +9,17 @@ function begin(guildId, kind, force = false) {
   if (previous && !force) throw new Error('An emoji operation is already running in this server.');
   if (previous) previous.cancelled = true;
   let finish;
-  const op = { kind, cancelled: false, previous: previous?.done, done: new Promise(resolve => { finish = resolve; }) };
+  const op = { kind, cancelled: false, previousOp: previous, previous: previous?.done, done: new Promise(resolve => { finish = resolve; }) };
   op.finish = () => { if (running.get(guildId) === op) running.delete(guildId); finish(); };
   running.set(guildId, op);
   return op;
 }
 const jobs = new Map();
+function cooldown(e) {
+  if (e.name !== 'RateLimitError') return null;
+  const seconds = Math.max(1, Math.ceil((e.retryAfter || e.timeToReset || 1000)/1000));
+  return `Discord paused emoji requests. Wait at least ${seconds} seconds, then run -continue emojis to add more (or rerun your deletion command). The current job has stopped; no requests are being retried by this job.`;
+}
 function progressText(job) {
   return `**Installed:** ${job.done}/${Object.keys(pack).length} • **Batch progress:** ${job.added}/${BATCH_SIZE}\n${job.current ? `Processing: ${job.current}` : "Checking existing emojis…"}\n${job.capacity || ""}\nLast completed upload: ${Math.floor((Date.now()-job.last)/1000)} seconds ago. Discord can delay emoji uploads while rate-limited; the queue remains active.`;
 }
@@ -63,6 +68,7 @@ async function install(context, progress = async () => {}) {
         used++; job.capacity = `Static emoji slots: ${used}/${staticLimit(guild)}`;
       } catch (e) {
         if (e.code === 30008) { full = true; break; }
+        if (cooldown(e)) { failed.push(cooldown(e)); break; }
         const reason = e.code === 30008 ? 'Server emoji slots are full.' : e.code === 50013 ? 'Bot permission was denied.' : `Discord upload failed (${e.code || e.name}).`;
         failed.push(`${name}: ${reason}`);
         // Stop on errors: avoids a burst of failing requests and is safe to rerun.
@@ -73,7 +79,7 @@ async function install(context, progress = async () => {}) {
     const remaining = Object.keys(pack).filter(name => !names.has(name)).length;
     if (full) return `**Server emoji limit reached.**\nAdded: ${added.length} • Pack installed: ${job.done}/${Object.keys(pack).length} • Not added: ${remaining}\nStatic slots: ${used}/${staticLimit(guild)}. Uploads have stopped. Free up static emoji slots before running -continue emojis.`;
     return `**Added:** ${added.length} • **Already installed:** ${alreadyInstalled}\n\n${added.slice(0,20).join(' ')}${added.length>20 ? `\n…and ${added.length-20} more added.` : ''}${failed.length ? `\n\n${failed.join('\n')} Run -continue emojis after fixing this to add the remaining emojis.` : remaining ? `\n\nBatch complete. **${remaining} emojis remaining.** Run -continue emojis to install the next ${BATCH_SIZE}.` : '\n\nThe pack is ready. Find it by typing :valenti_ in Discord.'}`;
-  } finally { clearInterval(timer); await reportTask; jobs.delete(guild.id); op.finish(); }
+  } catch(e) { if(cooldown(e))return cooldown(e); throw e; } finally { clearInterval(timer); await reportTask; jobs.delete(guild.id); op.finish(); }
 }
 async function slash(i) {
   await i.deferReply({ flags: D.MessageFlags.Ephemeral });
@@ -113,12 +119,12 @@ async function remove(context, progress = async () => {}, force = false) {
       try { await emoji.delete(`Valenti emoji pack removal requested by ${user.id}`); deleted++; }
       catch (e) {
         if (e.code === 10014) continue; // Already removed elsewhere.
-        failure = e.code === 50013 ? 'Discord denied permission to delete an emoji.' : `Discord deletion failed (${e.code || e.name}).`;
+        failure = cooldown(e) || (e.code === 50013 ? 'Discord denied permission to delete an emoji.' : `Discord deletion failed (${e.code || e.name}).`);
         break;
       }
     }
     return `**Deleted:** ${deleted} • **Kept because ownership did not match or could not be verified:** ${skipped}\n\n${op.cancelled ? 'Deletion stopped. A pending Discord request may have completed before stopping.' : failure ? `${failure} Fix the issue and rerun to continue.` : 'Finished. Other server emojis were left alone.'}`;
-  } finally { await op.previous; op.finish(); }
+  } catch(e) { if(cooldown(e))return cooldown(e); throw e; } finally { await op.previous; op.finish(); }
 }
 async function removePrefix(context, force = false) {
   let status;
@@ -147,4 +153,12 @@ async function stopDeleting(context) {
   op.cancelled = true;
   return 'Deletion stop requested. No further deletes will be started; a request already sent to Discord may still finish.';
 }
-module.exports = { install, slash, prefix, remove, removePrefix, continuePrefix, stopDeleting };
+async function forceStop(context) {
+  const member = await context.guild.members.fetch({ user: context.user.id, force: true });
+  if (!member.permissions.has(D.PermissionFlagsBits.Administrator)) throw new Error('Administrator permission is required to force stop emoji jobs.');
+  let op = running.get(context.guild.id);
+  if (!op) return 'No emoji job is running. You can use -continue emojis to start the next batch.';
+  while (op) { op.cancelled = true; op = op.previousOp; }
+  return 'All current and queued emoji jobs have been cancelled. No further uploads or deletes will start from those jobs. A request already sent to Discord may still finish; the lock is released when it settles. Discord cooldowns still apply.';
+}
+module.exports = { forceStop, install, slash, prefix, remove, removePrefix, continuePrefix, stopDeleting };

@@ -2,6 +2,7 @@ const D = require('discord.js');
 const { v2 } = require('./panels');
 
 const PREFIX_COMMANDS = [
+  ['-force stop emojis', 'Administrator: cancel current and queued emoji uploads/deletions.'],
   ['-stop deleting', 'Administrator: stop the current emoji deletion after its pending request.'],
   ['-force delete', 'Administrator: cancel the current emoji operation and restart bot-pack deletion.'],
   ['-continue emojis', 'Administrator: install the next 5 missing emojis or check the active batch.'],

@@ -33,7 +33,7 @@ http.createServer((req,res) => {
 }).listen(Number(process.env.PORT || 10000),'0.0.0.0');
 if (!token) console.warn('bot_token / BOT_TOKEN missing: Discord commands are offline.');
 else {
-  client = new D.Client({ intents: [D.GatewayIntentBits.Guilds, D.GatewayIntentBits.GuildEmojisAndStickers, D.GatewayIntentBits.GuildMembers, D.GatewayIntentBits.GuildMessages, D.GatewayIntentBits.MessageContent, D.GatewayIntentBits.DirectMessages, D.GatewayIntentBits.GuildModeration], partials:[D.Partials.Channel,D.Partials.Message,D.Partials.GuildMember] });
+  client = new D.Client({ rest: { rejectOnRateLimit: data => /\/guilds\/[^/]+\/emojis(?:\/|$)/.test(data.route) }, intents: [D.GatewayIntentBits.Guilds, D.GatewayIntentBits.GuildEmojisAndStickers, D.GatewayIntentBits.GuildMembers, D.GatewayIntentBits.GuildMessages, D.GatewayIntentBits.MessageContent, D.GatewayIntentBits.DirectMessages, D.GatewayIntentBits.GuildModeration], partials:[D.Partials.Channel,D.Partials.Message,D.Partials.GuildMember] });
   const health = connectionHealth({ isReady: () => client.isReady(), restart: () => {
     console.error('Discord has been unavailable for 120 seconds; exiting so Render can restart the bot. Check BOT_TOKEN, privileged intents and network connectivity.');
     lifecycle('discord_watchdog_restart');
