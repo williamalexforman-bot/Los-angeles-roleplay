@@ -17,15 +17,14 @@ const QUESTIONS=[
 ];
 const apps=()=>collection('applications');
 const safe=s=>D.escapeMarkdown(String(s));
-function applicationPanel(){return v2('Valenti Crime Family Application Process',[
- 'Become part of **Valenti Crime Family**. Select **Valenti Crime Family** below to begin your application in DMs.',
- section('preparation','Before You Begin','Enable direct messages from this server. Have your Roblox username and user ID ready, and allow time to answer all eight questions.'),
- section('step_1','Complete the Questions','Tell us about your experience, interest in Valenti, ER:LC knowledge, and availability. Write your own answers and answer honestly.'),
- section('step_2','Submit for Staff Review','The first six questions use written replies. The final two use Yes/No menus. Review the final prompt and press **Submit Application** when finished.'),
- section('review_queue','What Happens Next','Staff review your answers and make the decision. You will receive the result by DM when the bot can reach you. Submitting an application does not guarantee acceptance.'),
- section('ride_along','Required Ride Along','After acceptance, complete a ride along with a high rank before going on shift by yourself.'),
- section('saved','Need to Resume?','Your progress is saved. Select the application option again to continue. Type **cancel** during the DM questions if you want to stop.')
- ],[new D.StringSelectMenuBuilder().setCustomId('application:start').setPlaceholder('Begin or resume your application').addOptions({label:'Valenti Crime Family',description:'Eight questions • DM application • Staff review',value:'valenti'})]);}
+function applicationPanel(){return v2('Applications',[
+ '> Ready to join **Valenti Crime Family**? We are looking for committed applicants who will represent the family well and help maintain a welcoming, respectful community. Give thoughtful, honest answers so our reviewers can understand your experience and what you would bring to the team.',
+ section('application','Valenti Crime Family Applications','You must be **13 or older** to apply. Have your **Roblox username**, **Roblox user ID**, **timezone**, and relevant experience ready before you begin.'),
+ section('instructions','How to Apply','Choose **Valenti Crime Family** from the dropdown below. The bot will DM you eight questions, followed by a submission prompt. Enable DMs from this server so you can receive the questions and your result.'),
+ section('ride_along','After Acceptance','Successful applicants must complete a ride along with a high rank before going on duty independently.'),
+ section('saved','Continue an Application','Already started? Select the option below to resume your saved progress. Type **cancel** during the DM questions if you want to stop.'),
+ '-# The review team checks each submission and sends the outcome by DM. Please allow time for a decision. Troll applications or deliberately false information will result in a permanent application blacklist.'
+ ],[new D.StringSelectMenuBuilder().setCustomId('application:start').setPlaceholder('Choose an application to begin or resume').addOptions({label:'Valenti Crime Family',description:'Eight questions • DM application • Staff review',value:'valenti'})]);}
 
 function prompt(a){
  if(a.step===8)return v2('Application Ready', 'All eight answers are saved. Submit your application for staff review, or cancel it.',[button(`application:submit:${a._id}`,'Submit Application',D.ButtonStyle.Success),button(`application:cancel:${a._id}`,'Cancel',D.ButtonStyle.Secondary)]);
