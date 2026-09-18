@@ -16,8 +16,9 @@ function begin(guildId, kind, force = false) {
 }
 const jobs = new Map();
 function cooldown(e) {
-  if (e.name !== 'RateLimitError') return null;
-  const seconds = Math.max(1, Math.ceil((e.retryAfter || e.timeToReset || 1000)/1000));
+  if (!/^RateLimitError(?:\[|$)/.test(e.name || '')) return null;
+  const delays = [e.retryAfter, e.timeToReset, e.sublimitTimeout].filter(value => Number.isFinite(value) && value >= 0);
+  const seconds = Math.max(1, Math.ceil(Math.max(1000, ...delays)/1000));
   return `Discord paused emoji requests. Wait at least ${seconds} seconds, then run -continue emojis to add more (or rerun your deletion command). The current job has stopped; no requests are being retried by this job.`;
 }
 function progressText(job) {
