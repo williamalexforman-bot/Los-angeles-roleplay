@@ -14,8 +14,17 @@ const { runTask, startTask } = require('./src/runtime');
 const { botToken, connectionHealth } = require('./src/connection-health');
 const token = botToken();
 let client, databaseReady = false;
+const { writeSync } = require('node:fs');
+function lifecycle(event, details = {}) {
+  const memory = process.memoryUsage();
+  const record = { event, at: new Date().toISOString(), pid: process.pid, uptimeSeconds: Math.floor(process.uptime()), discord: client?.isReady() || false, database: databaseReady, rssMB: Math.round(memory.rss / 1048576), commit: process.env.RENDER_GIT_COMMIT || 'local', ...details };
+  try { writeSync(2, JSON.stringify(record) + '\n'); } catch {}
+}
+process.on('exit', code => lifecycle('process_exit', { code }));
+process.on('uncaughtExceptionMonitor', (error, origin) => lifecycle('fatal_error', { origin, errorType: error?.name, errorCode: error?.code }));
+setInterval(() => lifecycle('heartbeat'), 60000).unref();
 console.log('Bot starting:', process.env.RENDER_GIT_COMMIT || 'local', 'Node', process.version);
-process.on('SIGTERM', () => { console.log('Host sent SIGTERM; stopping bot.'); process.exit(0); });
+process.on('SIGTERM', () => { lifecycle('host_sigterm'); process.exit(0); });
 http.createServer((req,res) => {
   const discordReady = client?.isReady() || false;
   const readinessCheck = req.url.split('?')[0] === '/readyz';
@@ -27,6 +36,7 @@ else {
   client = new D.Client({ intents: [D.GatewayIntentBits.Guilds, D.GatewayIntentBits.GuildEmojisAndStickers, D.GatewayIntentBits.GuildMembers, D.GatewayIntentBits.GuildMessages, D.GatewayIntentBits.MessageContent, D.GatewayIntentBits.DirectMessages, D.GatewayIntentBits.GuildModeration], partials:[D.Partials.Channel,D.Partials.Message,D.Partials.GuildMember] });
   const health = connectionHealth({ isReady: () => client.isReady(), restart: () => {
     console.error('Discord has been unavailable for 120 seconds; exiting so Render can restart the bot. Check BOT_TOKEN, privileged intents and network connectivity.');
+    lifecycle('discord_watchdog_restart');
     process.exit(1);
   } });
   setInterval(() => health.check(), 10000).unref();
@@ -41,12 +51,13 @@ else {
     if (event.code === 4014) console.error('Enable Server Members Intent and Message Content Intent for this bot in the Discord Developer Portal.');
   });
   client.on('shardReconnecting', id => console.log('Discord reconnecting:', id));
-  client.on('invalidated', () => { console.error('Discord session invalidated; restarting process.'); process.exit(1); });
+  client.on('invalidated', () => { lifecycle('discord_session_invalidated'); process.exit(1); });
   client.on('shardResume', id => console.log('Discord session resumed:', id));
   client.once('clientReady', () => runTask('Startup', async () => {
     health.check();
     console.log('Discord connected as', client.user.tag);
-    await client.guilds.cache.get(process.env.GUILD_ID)?.emojis.fetch().catch(e => console.error('Emoji refresh failed:', e.code || e.name));
+    // Emoji REST rate limits must not hold up database/jobs/command registration.
+    void runTask('Emoji refresh', async () => { await client.guilds.cache.get(process.env.GUILD_ID)?.emojis.fetch(); });
     let jobsStarted = false;
     void startTask('Database connection', async () => {
       if (!databaseReady) { await store.connect(); databaseReady = true; }
