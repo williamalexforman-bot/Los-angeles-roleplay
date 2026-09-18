@@ -1,6 +1,6 @@
 const D=require('discord.js');
 const {collection,locked}=require('./store');
-const {v2,button,row}=require('./panels');
+const {v2,button,row,section}=require('./panels');
 const {requireAccess}=require('./access');
 const {suggest}=require('./application-ai');
 const REVIEW_CHANNEL='1538603960909168680';
@@ -17,7 +17,16 @@ const QUESTIONS=[
 ];
 const apps=()=>collection('applications');
 const safe=s=>D.escapeMarkdown(String(s));
-function applicationPanel(){return v2('Valenti Crime Family Application Process','Select the "Valenti Crime Family" option below to begin the application. After you pass you will be required to do a ride along with a high rank before you can go on shift on your own.',[new D.StringSelectMenuBuilder().setCustomId('application:start').setPlaceholder('Select an application').addOptions({label:'Valenti Crime Family',value:'valenti'})]);}
+function applicationPanel(){return v2('Valenti Crime Family Application Process',[
+ 'Become part of **Valenti Crime Family**. Select **Valenti Crime Family** below to begin your application in DMs.',
+ section('preparation','Before You Begin','Enable direct messages from this server. Have your Roblox username and user ID ready, and allow time to answer all eight questions.'),
+ section('step_1','Complete the Questions','Tell us about your experience, interest in Valenti, ER:LC knowledge, and availability. Write your own answers and answer honestly.'),
+ section('step_2','Submit for Staff Review','The first six questions use written replies. The final two use Yes/No menus. Review the final prompt and press **Submit Application** when finished.'),
+ section('review_queue','What Happens Next','Staff review your answers and make the decision. You will receive the result by DM when the bot can reach you. Submitting an application does not guarantee acceptance.'),
+ section('ride_along','Required Ride Along','After acceptance, complete a ride along with a high rank before going on shift by yourself.'),
+ section('saved','Need to Resume?','Your progress is saved. Select the application option again to continue. Type **cancel** during the DM questions if you want to stop.')
+ ],[new D.StringSelectMenuBuilder().setCustomId('application:start').setPlaceholder('Begin or resume your application').addOptions({label:'Valenti Crime Family',description:'Eight questions • DM application • Staff review',value:'valenti'})]);}
+
 function prompt(a){
  if(a.step===8)return v2('Application Ready', 'All eight answers are saved. Submit your application for staff review, or cancel it.',[button(`application:submit:${a._id}`,'Submit Application',D.ButtonStyle.Success),button(`application:cancel:${a._id}`,'Cancel',D.ButtonStyle.Secondary)]);
  const controls=a.step>=6?[new D.StringSelectMenuBuilder().setCustomId(`application:answer:${a._id}:${a.step}`).setPlaceholder('Select Yes or No').addOptions({label:'Yes',value:'Yes'},{label:'No',value:'No'})]:[];

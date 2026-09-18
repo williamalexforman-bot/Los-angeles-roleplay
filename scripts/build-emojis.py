@@ -95,3 +95,49 @@ for name,shape in {**symbols,**badges}.items():
  b=io.BytesIO();im.save(b,format='PNG',optimize=True);pack['valenti_'+name]=base64.b64encode(b.getvalue()).decode()
 assert len(pack)==80
 Path('assets/emojis/pack.json').write_text(json.dumps(pack,indent=2)+'\n')
+
+# Additional transparent panel badges and numbered guides.
+extra = {
+ 'checklist':'LIST','requirements':'REQ','instructions':'HOW','process':'FLOW','preparation':'PREP',
+ 'review_queue':'REV','interview':'CHAT','ride_along':'RIDE','training':'LEARN','experience':'XP',
+ 'activity':'ACT','availability':'TIME','identity':'ID','username':'USER','roblox':'RBLX',
+ 'game':'GAME','server':'SRV','community':'COM','family':'VCF','team':'TEAM',
+ 'communication':'COMMS','radio':'RAD','briefing':'BRF','attendance':'ATT','rally':'JOIN',
+ 'join_game':'PLAY','game_rules':'RULES','conduct':'CARE','respect':'RSP','teamwork':'COOP',
+ 'check_in':'IN','check_out':'OUT','schedule':'PLAN','deadline':'DUE','timezone':'UTC',
+ 'duration':'HRS','weekly':'WEEK','monthly':'MON','daily':'DAY','session':'LIVE',
+ 'session_start':'GO','session_end':'END','session_full':'FULL','session_vote':'VOTE','session_boost':'UP',
+ 'feedback':'NOTE','suggestion':'IDEA','report':'RPT','privacy':'PVT','confidential':'SAFE',
+ 'resolved':'DONE','unresolved':'OPEN','assigned':'ASGN','unassigned':'FREE','escalated':'ESC',
+ 'archived':'ARCH','reopened':'OPEN','waiting':'WAIT','in_progress':'WIP','completed':'OK',
+ 'submitted':'SENT','draft':'EDIT','saved':'SAVE','synced':'SYNC','retry':'AGAIN',
+ 'download':'GET','upload':'SEND','attachment':'FILE','image':'IMG','document':'DOC',
+ 'history':'HIST','reference':'REF','case':'CASE','case_open':'NEW','case_closed':'END',
+ 'reason':'WHY','note':'NOTE','result':'RES','decision':'DEC','reviewer':'REV',
+ 'recipient':'TO','issuer':'BY','effective':'DATE','expires':'EXP','restored':'BACK',
+ 'rank':'RANK','rank_up':'UP','rank_down':'DOWN','leadership':'LEAD','supervisor':'SUP',
+ 'mentor':'HELP','recruit':'REC','veteran':'VET','milestone':'GOAL','achievement':'WIN',
+ 'notification':'PING','reminder':'REM','update':'NEW','maintenance':'FIX','connection':'LINK',
+}
+assert len(extra)==100
+for n in range(1,11):
+ extra[f'step_{n}']=str(n)
+ extra[f'rating_{n}']=f'{n}/10'
+for n,(name,label) in enumerate(extra.items()):
+ assert 'valenti_'+name not in pack,name
+ im=Image.new('RGBA',(128,128));d=ImageDraw.Draw(im)
+ # Light cream linework remains legible on Discord's dark surfaces; no filled tile.
+ color=cream
+ family=n%5
+ if family==0:d.rounded_rectangle((12,22,116,106),radius=14,outline=color,width=5)
+ elif family==1:d.ellipse((10,10,118,118),outline=color,width=5)
+ elif family==2:d.polygon([(64,8),(116,32),(106,93),(64,120),(22,93),(12,32)],outline=color,width=5)
+ elif family==3:
+  d.line([(13,43),(13,19),(37,19)],fill=color,width=5);d.line([(91,109),(115,109),(115,85)],fill=color,width=5)
+ else:
+  d.line([(21,23),(107,23)],fill=color,width=5);d.line([(21,105),(107,105)],fill=color,width=5)
+ font=ImageFont.truetype(font_path,48 if len(label)<=2 else 30 if len(label)<=4 else 25)
+ d.text((64,63),label,font=font,anchor='mm',fill=color)
+ b=io.BytesIO();im.save(b,format='PNG',optimize=True);pack['valenti_'+name]=base64.b64encode(b.getvalue()).decode()
+assert len(pack)==200
+Path('assets/emojis/pack.json').write_text(json.dumps(pack,indent=2)+'\n')

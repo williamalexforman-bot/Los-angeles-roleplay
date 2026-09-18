@@ -172,3 +172,8 @@ Run `-continue emojis` (also `-continueemojis` or `-continue-emojis`) as an admi
 
 ### Stop and restart emoji deletion
 Administrator-only `-stop deleting` cancels the active or queued deletion. `-force delete` cancels the current emoji upload/deletion and reserves a fresh deletion run, even while that operation is running. It waits for any request already sent to Discord to settle, then fetches the current emoji list and removes bot-created pack emojis using the same ownership checks as normal deletion. Repeated force commands replace the queued run; they do not run overlapping deletion loops. Unrelated server emojis are preserved. Neither command bypasses Discord rate limits or retracts an already submitted request. No operation automatically resumes after a process restart; run the desired command again.
+
+### Expanded 200-emoji panels
+The pack now contains 200 transparent icons and compact badges, keeping the original 80 names and images. Added categories cover application stages, readiness, staff reviews, identity, teamwork, communications, schedules, sessions, case tracking, role changes, numbered steps and ratings. Run `-continue emojis` after deployment to install the missing 120; no deletion is needed. Existing server emojis still consume slots and Discord may queue uploads.
+
+Deployment, application and shift launchers now use separate V2 sections, dividers and relevant emoji headings. Deployment keeps its original announcement and role ping, with shift and coordination guidance underneath. The application menu, eight questions, staff decision process and ride-along requirement are unchanged. Repost application and shift launchers to replace older messages; new deployment notices use the expanded design automatically.

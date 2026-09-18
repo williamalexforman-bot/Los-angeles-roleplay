@@ -1,6 +1,6 @@
 const D=require('discord.js');
 const {requireAccess}=require('./access');
-const {v2}=require('./panels');
+const {v2,section}=require('./panels');
 const DEPLOYMENT_CHANNEL='1538399056986906715';
 const DEPLOYMENT_ROLE='1538395272986755173';
 const DEPLOYMENT_TEXT='Hello Valenti, we have an active deployment going on so make sure to join game and start shift and get playing!';
@@ -28,7 +28,13 @@ async function deployment(context) {
   const permissions=channel.permissionsFor(me);
   if(!permissions?.has([D.PermissionFlagsBits.ViewChannel,D.PermissionFlagsBits.SendMessages]))throw new Error('The bot needs View Channel and Send Messages in the deployment channel.');
   if(!role.mentionable&&!permissions.has(D.PermissionFlagsBits.MentionEveryone))throw new Error('Make the deployment role mentionable, or grant the bot Mention Everyone in the deployment channel, so the role ping works.');
-  return channel.send({...v2('Active Deployment',`<@&${DEPLOYMENT_ROLE}>\n\n${DEPLOYMENT_TEXT}`,[],false,'deployment'),allowedMentions:{parse:[],roles:[DEPLOYMENT_ROLE]}});
+  return channel.send({...v2('Active Deployment',[`<@&${DEPLOYMENT_ROLE}>\n\n${DEPLOYMENT_TEXT}`,
+    section('join_game','Join the Deployment','Join the server in ER:LC and get ready to participate with the family.'),
+    section('check_in','Start Your Shift','Use `/shift start` or the **Start Shift** button when you begin. Your time is saved when you end your shift.'),
+    section('briefing','Stay Coordinated','Watch server announcements and follow the directions of the high ranks leading the session. Ask for help if you are unsure what to do.'),
+    section('conduct','Represent Valenti','Follow server rules, respect other players, and keep your roleplay professional.'),
+    section('check_out','Before You Leave','Use `/shift end` to save your time. Check `/quota status` for the current weekly requirement.')
+  ],[],false,'deployment'),allowedMentions:{parse:[],roles:[DEPLOYMENT_ROLE]}});
 }
 async function handleMessage(message) {
   if(!message.guild||message.author.bot||message.webhookId)return;

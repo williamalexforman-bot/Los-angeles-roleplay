@@ -2,13 +2,13 @@ const D = require('discord.js');
 const { collection, locked } = require('./store');
 const { settings, destination } = require('./discipline');
 const { ROLES } = require('./settings');
-const { v2, button } = require('./panels');
+const { v2, button, section } = require('./panels');
 function duration(ms) {
   const minutes = Math.floor(Math.max(0,ms)/60000);
   return `${Math.floor(minutes/60)}h ${minutes%60}m`;
 }
 function shiftPanel() {
-  return v2('Staff Shifts', 'Start your shift when you begin working and end it when you finish. End your shift to save your time. Weekly quota: 30 minutes; use /quota status to check progress.', [button('shift:start','Start Shift',D.ButtonStyle.Success),button('shift:end','End Shift',D.ButtonStyle.Danger),button('shift:status','My Shift')]);
+  return v2('Staff Shifts', [section('on_duty','Start Your Shift','Press **Start Shift** when you begin playing. The bot records your start time and shows you on the active-shift board.'),section('duration','Track Your Time','Use **My Shift** to check your current session. Only one shift can be active at a time.'),section('off_duty','Save Your Shift','Press **End Shift** when you finish. Ending a shift saves its duration to your record.'),section('quota','Weekly Quota','The weekly target is **30 minutes** when quota is enabled. Use `/quota status` to check your progress and the configured deadline.')], [button('shift:start','Start Shift',D.ButtonStyle.Success),button('shift:end','End Shift',D.ButtonStyle.Danger),button('shift:status','My Shift')]);
 }
 async function changeShift(i, action) {
   return locked(`shift:${i.guildId}:${i.user.id}`,async()=>{

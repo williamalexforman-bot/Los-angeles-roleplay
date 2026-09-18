@@ -7,8 +7,12 @@ function button(id, label, style = D.ButtonStyle.Primary) { const b = new D.Butt
 function v2(title, body, controls = [], ephemeral = false, header) {
   const box = new D.ContainerBuilder().setAccentColor(0x247bf1)
     .addTextDisplayComponents(new D.TextDisplayBuilder().setContent(`## ${E.heading(title)}`))
-    .addSeparatorComponents(new D.SeparatorBuilder())
-    .addTextDisplayComponents(new D.TextDisplayBuilder().setContent(body || ' '));
+    .addSeparatorComponents(new D.SeparatorBuilder());
+  const sections=Array.isArray(body)?body:[body || ' '];
+  sections.forEach((section,index)=>{
+    if(index)box.addSeparatorComponents(new D.SeparatorBuilder());
+    box.addTextDisplayComponents(new D.TextDisplayBuilder().setContent(section));
+  });
   for (const control of controls) box.addActionRowComponents(row(control));
   decorate(box, header);
   return { components: [box], flags: D.MessageFlags.IsComponentsV2 | (ephemeral ? D.MessageFlags.Ephemeral : 0), allowedMentions: { parse: [] } };
@@ -28,4 +32,5 @@ function panel(type) {
   decorate(box, 'assistance');
   return { components: [box], flags: D.MessageFlags.IsComponentsV2, allowedMentions: { parse: [] } };
 }
-module.exports = { row, button, v2, panel };
+function section(icon, title, text) { return `${E.icon(icon,'•')} **${title}**\n${text}`; }
+module.exports = { row, button, v2, panel, section };
