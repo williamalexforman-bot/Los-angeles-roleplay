@@ -1,66 +1,73 @@
-# Pierce County Sheriff Office bot
+# Sheriff office Discord bot
 
-Discord Components V2 tickets, disciplinary notices, promotions, deployments, shifts and configurable event logs. Prefix: `-`. Target guild: `1521905971004444743`. Applications, most-wanted and spam-DM functionality are removed.
+This version targets server `1536150657440948324`. Only infractions, promotions, tickets, welcomes, deployments and logs remain active. Configuration and command help support those systems. Shifts, quota, arrest reports, applications, most-wanted, spam DMs, verification, say, purge and emoji installation/deletion are not available.
 
-## Hosting and restore
+## Hosting and preservation
 
-Render build: `npm install`; start: `node index.js`; Node 22.22.0. Set `BOT_TOKEN` and either `MONGODB_URI` or `MONGODB_HOST`, `MONGODB_USERNAME`, `MONGODB_PASSWORD`. `MONGODB_DATABASE` is optional. Never commit tokens. This deployment explicitly targets the PCSO guild from `src/settings.js`; update Render's `GUILD_ID` to the same ID for consistency.
+Render: build `npm install`, start `node index.js`, Node 22.22.0. Set `BOT_TOKEN` and either `MONGODB_URI` or `MONGODB_HOST`, `MONGODB_USERNAME`, `MONGODB_PASSWORD`. `MONGODB_DATABASE` is optional. The code explicitly targets the server in `src/settings.js`; set Render `GUILD_ID` to the same ID. Enable Server Members and Message Content intents in Discord.
 
-Enable Server Members and Message Content intents. The bot must belong to PCSO and its role must be above roles it manages. Channel overwrites must allow the necessary sends, embeds, attachments and ticket management.
+Restore point: `backup/before-server-change-2026-09-19`. Previous data remains untouched. This server uses separate `guild_1536150657440948324_` MongoDB collections, so old tickets, counts and role-change retries cannot run against the new server. MongoDB credentials stay in Render. Existing image files remain saved but no banner or underbanner is emitted until replacements are supplied.
 
-The previous code is saved in `backup/valenti-before-pcso-2026-09-18`. PCSO uses `pcso_` MongoDB collections; existing `fresh_` records remain untouched and are not replayed into the new server. This starts PCSO counts, shifts and settings separately. The database credentials stay in Render.
+Connection recovery, heartbeat diagnostics and `/readyz` remain. No code can guarantee uninterrupted hosting on a suspended or stopped Render service.
 
-`/` reports process health; `/readyz` reports Discord readiness. Heartbeat, disconnect and host-shutdown logs remain enabled. Hosting suspension or restarts cannot be prevented by a bot token or service ID.
+## Destinations
 
-## Initial destinations
-
-| Destination | ID |
+| Use | Channel/category ID |
 | --- | --- |
-| Welcome | 1521905971885248734 |
-| Deployment | 1549277165617549382 |
-| Infractions | 1521905972430241913 |
-| Promotions | 1521905972128256240 |
-| General Support tickets | 1521905971717210155 |
-| OPS Reports tickets | 1521905971717210157 |
-| Administrative tickets | 1521905971717210158 |
+| Ticket launcher | 1536201127950024714 |
+| Opened tickets | 1548331533197115563 |
+| Infraction notices | 1539959958903455815 |
+| Promotion notices | 1539959822680592415 |
+| Bot logs | 1548066902629294131 |
+| Ticket logs and transcripts | 1536274703050612797 |
+| Infraction logs | 1544603710192357387 |
+| Infraction appeals | 1544620247527465040 |
 
-Use `/config view` and `/config channel` to adjust destinations. Ticket destinations accept a category or a text channel: for text channels, private ticket channels are created under their parent category (or at the server root if no parent exists), with explicit private overwrites. Report details are never posted into the destination text channel itself.
+Welcome and deployment channels were not supplied. Welcome uses the server system channel until `/config channel destination:welcome` is set; deployment requires `/config channel destination:deployment`. Other event logs default to the bot-log channel and remain individually configurable. Logs never trigger mention pings.
 
-Configure `transcripts` before closing tickets. Configure `shiftLogs` and `activeShifts` before starting shifts. Scheduled quota reports wait until both shift channels are configured. Extra `log_*` destinations and verification are unset until configured, so no old server channels are used.
+## Commands and permissions
 
-## Access and tickets
+- `/config view`, `/config channel`, `/config panel panel:ticket`, `/config staff-role`, `/config ticket-access`
+- `/infraction issue`, `/promotion issue`, `/suspension end`
+- `/deployment`, `/close`, `/closerequest`, `/ticketpanel`, `/cmds`
+- Prefix equivalents: `-deployment`, `-close`, `-closerequest reason`, `-ticketpanel`
 
-Administrators and the server owner can use staff commands. `/config staff-role` grants `management`, `infraction` or `promotion` access. Management grants access to staff commands; the other purposes grant only the named action. `deployment_ping` sets the role mentioned by deployments; without it deployments send without a role ping.
+Configuration requires Administrator. The owner and administrators have staff access. Configure `management`, `infraction`, and `promotion` roles with `/config staff-role`; no previous-server staff IDs are reused. The management role grants general staff-command access. Set `deployment_ping` to enable a deployment role ping.
 
-Set each department's staff role with `/config ticket-access`. New tickets grant the selected department role access, falling back to the configured management role. If neither exists, only the opener, bot and server administrators can view them. Existing tickets retain their saved support role. Administrative escalation requires its configured support role or management role and bot permission to edit channel overwrites.
+Ticket staff access is set per department with `/config ticket-access`. Without a department role, new tickets use the management role; without either, the opener, bot and administrators retain access. Existing tickets retain their saved support role. Escalation grants access to the configured HR Support role and notifies it.
 
-Post `/ticketpanel` or `-ticketpanel`. Ticket opening requires a reason. Claim, Close and Escalate controls remain. Opening panels retry failed delivery. Closing saves the transcript before posting a plain-text closing notice and waiting 10 seconds to delete. `/close`, `/closerequest reason:...`, `/purge amount:...` also support their prefix versions. Successful prefix invocation messages are deleted when permissions allow.
+## Tickets
 
-## Disciplinary roles
+All five options create private channels in the configured opened-ticket destination:
 
-| Marker | ID |
+- General Support — General questions or server issues.
+- OPR Report — Office of Professional Responsibility reports.
+- Divisional Inquiries — Questions relating to specific divisions.
+- HR Support — Human Resources assistance.
+- Recruitment Support — Assistance with applications and joining.
+
+Recruitment Support is a support ticket, not an application workflow. A reason is required before opening. OPR also collects the reported member and evidence. The V2 opening message includes Claim, Close and Escalate controls. Failed opening-panel delivery retries automatically.
+
+If the destination is a text channel, private ticket channels are created in its parent category, or at the server root if it has no parent. Explicit overwrites deny public access. `/ticketpanel` and `-ticketpanel` use the configured launcher channel. `/config panel` allows an explicit override.
+
+Closing saves all transcript parts to the ticket-log channel first, then sends a plain-text closing notice and waits 10 seconds before deletion. Open, claim and close events are logged. Appeals are limited to the recipient of an appealable case; submission opens or reuses a private OPR ticket and posts the appeal details and ticket link to the configured appeal-review channel.
+
+## Discipline
+
+| Marker | Role ID |
 | --- | --- |
-| Warning 1 | 1544509652891475998 |
-| Warning 2 | 1544509655949246604 |
-| Strike 1 | 1543551522716262450 |
-| Strike 2 | 1543551599228751902 |
-| Termination | 1544509652891475998 |
-| Blacklisted | 1540811483955335358 |
-| Suspended | 1544510578913968148 |
-| Under Investigation | 1544815910802427944 |
+| Warning 1 | 1550972697830367263 |
+| Warning 2 | 1550972751496487102 |
+| Strike 1 | 1550972916005478562 |
+| Strike 2 | 1550972965363912754 |
+| Suspended | 1550973028114890752 |
+| Terminated | 1550973091000090655 |
+| Blacklisted | 1550973143785410650 |
 
-Warning 1 and Termination deliberately use the same supplied ID; supply a distinct ID if those must be different roles. Warning 3 converts to a strike; strike 3 suspends. Suspension saves removable roles, removes them and adds the suspension marker. No retained role was supplied for PCSO. An optional expiry or `/suspension end` restores saved roles. Missing roles/hierarchy permissions leave recovery pending. Termination, Blacklisted and Under Investigation add their respective marker roles; they do not ban or kick members. Demotion is recorded; rank changes use the promotion command's selected old/new roles.
+Warning 3 converts to a strike. Strike 3 suspends. Suspension saves/removes manageable roles and gives the suspension marker. Optional expiry or `/suspension end` restores saved roles; missing roles or hierarchy restrictions keep restoration pending. No retained role was supplied. Termination and Blacklisted apply their marker roles without kicking or banning. Under Investigation is recorded without a marker because no role was supplied. Demotion is recorded; selected rank changes use `/promotion issue`.
 
-Reasons are slash-command options. Promotions apply immediately; the effective date is displayed only. Infraction and promotion notices are V2 with the supplied new upper banners and shared underbanner. Optional member DMs remain ordinary one-notice notifications.
-
-## Branding and emojis
-
-The three supplied images are in `assets/banners/pcso`: infraction, promotion and footer. Assistance and deployment upper banners are omitted until PCSO versions are supplied. All V2 containers retain the PCSO underbanner. Welcomes and closing notices remain normal text.
-
-At startup the bot reads PCSO's emoji cache and matches semantic names such as `infraction`, `promotions`, `support`, `ops`, `administrative`, `wave`, `claim`, `close`, and their `pcso_` equivalents. Restricted/unavailable emojis fall back to standard symbols. Newly created/deleted emoji cache entries are used on subsequent messages. No live emoji names are hard-coded from another server.
-
-The optional administrator emoji tools install up to five missing `pcso_` pack emojis per invocation. They stop at server capacity and respect Discord rate limits. `-continue emojis`, `-force stop emojis`, `-stop deleting`, `-delete emojis` and `-force delete` remain. Deletion is limited to matching pack emojis verified as created by this bot; existing server artwork is not deleted automatically.
+Infraction and promotion notices remain Components V2, without banners. Matching existing server emojis are used with standard-symbol fallbacks. The bot fetches the target server's emoji cache on startup. Member-supplied reasons are escaped and not rewritten.
 
 ## Validation
 
-Run `npm test`. Tests exercise role permissions, private ticket creation and delivery recovery, V2 payloads, migration settings, emoji matching/cancellation, case role changes, logging, shifts, quota and connection recovery without using a real bot token. Real guild permissions and Render deployment require a live smoke test after deployment.
+Run `npm test`. Tests cover the active commands, new mappings, five ticket choices, private channel routing, permissions, disciplinary recovery, V2 rendering, logs and connection health. Real Discord permissions and Render deployment still require live verification.

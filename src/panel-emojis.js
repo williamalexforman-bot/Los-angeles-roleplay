@@ -5,7 +5,7 @@ function find(name, guildId = process.env.GUILD_ID) {
   const guilds = client?.guilds?.cache;
   const guild = guildId ? guilds?.get(guildId) : guilds?.size === 1 ? guilds.first() : null;
   const normalize=s=>String(s).toLowerCase().replace(/[^a-z0-9]/g,'');
-  const aliases={infraction:['infraction','infractions','discipline'],promotion:['promotion','promotions'],support:['support','assistance','general_support'],internal_affairs:['ops','ops_reports','internal_affairs'],high_rank:['administrative','admin','management'],welcome:['welcome','wave','wave1'],close:['close','closing_ticket','lock'],claim:['claim','claimed','staff'],deployment:['deployment','patrol','deploy'],approved:['approved','accept','check'],denied:['denied','reject','cross']};
+  const aliases={infraction:['infraction','infractions','discipline'],promotion:['promotion','promotions'],support:['support','assistance','general_support'],internal_affairs:['ops','ops_reports','opr','opr_report','internal_affairs'],high_rank:['hr','hr_support','administrative','admin','management'],welcome:['welcome','wave','wave1'],close:['close','closing_ticket','lock'],claim:['claim','claimed','staff'],deployment:['deployment','patrol','deploy'],approved:['approved','accept','check'],denied:['denied','reject','cross']};
   const names=[name,...(aliases[name]||[])];
   const candidates=[...names.map(n=>'pcso_'+n),...names];
   for(const candidate of candidates){

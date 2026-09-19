@@ -57,6 +57,7 @@ async function openTicket(i, type, reason, extra = '') {
       await collection('tickets').updateOne({_id:channel.id},{$set:{panelPending:true,panelErrorCode:String(error.code||error.name)}}).catch(()=>{});
       return `Your ticket was created: <#${channel.id}>. Its opening panel could not be posted yet; the bot will retry automatically.`;
     }
+    await require('./logging').record('tickets',i.guildId,'Ticket Opened',`**Ticket:** <#${channel.id}>\n**Opener:** <@${i.user.id}>\n**Department:** ${TICKETS[type]}`,`open:${channel.id}`).catch(()=>{});
     return `Your ${TICKETS[type]} ticket is ready: <#${channel.id}>.`;
   });
 }
@@ -109,6 +110,7 @@ async function closeTicket(i) {
     await new Promise(resolve => setTimeout(resolve, 10000));
     await i.channel.delete(`Ticket closed by ${i.user.id}; transcript saved`);
     await collection('tickets').updateOne({ _id: i.channelId }, { $set: { status: 'closed', closed: Date.now() } });
+    await require('./logging').record('tickets',i.guildId,'Ticket Closed',`**Ticket ID:** ${i.channelId}\n**Closed by:** <@${i.user.id}>`,`close:${i.channelId}`).catch(()=>{});
   });
 }
 module.exports = { recoverTicketPanels, ensureOpeningPanel, syncTicketAccess, ticketAction, openTicket, ticketAccess, closeTicket, transcriptLine };

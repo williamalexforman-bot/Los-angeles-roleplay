@@ -7,8 +7,6 @@ const { commands } = require('./src/commands/config');
 const { handleInteraction } = require('./src/interactions');
 const { recover, destination } = require('./src/discipline');
 const { syncTicketAccess } = require('./src/tickets');
-const { syncShifts } = require('./src/shifts');
-const { tickQuota } = require('./src/quota');
 const { v2 } = require('./src/panels');
 const { runTask, startTask } = require('./src/runtime');
 const { botToken, connectionHealth } = require('./src/connection-health');
@@ -65,9 +63,7 @@ else {
       jobsStarted = true;
       void startTask('Event log delivery', () => require('./src/logging').flushLogs(client), 5000);
       void startTask('Ticket opening panels', () => require('./src/tickets').recoverTicketPanels(client), 15000);
-      await startTask('Quota', () => tickQuota(client), 30000);
       await startTask('Ticket access', () => syncTicketAccess(client), 300000);
-      await startTask('Shifts', () => syncShifts(client), 30000);
       await startTask('Recovery', () => recover(client), 30000);
       await startTask('V2 case notices', () => require('./src/case-panels').syncCasePanels(client), 300000);
     }, 30000);
@@ -76,7 +72,7 @@ else {
       await client.application.commands.set([]);
       for (const guild of guilds) {
         await guild.commands.set(commands.map(c => c.toJSON()));
-        if (databaseReady) await destination(guild,'deployment').then(c => c.send(v2('Bot Deployment', 'The bot is online. Panel configuration, tickets, infractions, promotions and staff shifts are ready.'))).catch(() => console.error('Could not post deployment notice.'));
+        if(databaseReady) await require('./src/logging').record('bot',guild.id,'Bot Online','Discord connected and commands registered.',`startup:${process.env.RENDER_GIT_COMMIT || Date.now()}`);
       }
       console.log('Registered commands: ' + commands.map(c => '/' + c.name).join(', '));
     } catch (e) { console.error('Command registration failed:', e.name === 'Error' ? e.message : e.code || e.name); }

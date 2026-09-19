@@ -52,11 +52,11 @@ test('warning escalation resets warning tier and adds exactly one strike',()=>{
 test('invalid or past suspension dates are rejected',()=>{
   for(const date of ['', '2026-02-30 12:00','2001-01-01 12:00','tomorrow']) assert.throws(()=>endDate(date));
 });
-test('all panels serialize as V2 with the shared underbanner',()=>{
+test('all panels serialize as V2 without old banners',()=>{
   for(const type of ['ticket']) {
     const p=panel(type); assert.equal(p.flags,D.MessageFlags.IsComponentsV2);
     const json=p.components[0].toJSON(); assert.equal(json.type,17);
-    assert.ok(JSON.stringify(json).includes('/footer.png'));
+    assert.ok(!JSON.stringify(json).includes('/footer.png'));
   }
 });
 test('invalid expiry changes nothing; suspension snapshot survives for recovery',async()=>{
@@ -89,7 +89,7 @@ test('owner may issue a warning on own record when the marker role is manageable
   await issue(f.i,{kind:'infraction',userId:'owner',type:'Warning'},'Self test','');
   assert.ok(f.target.roles.cache.has(ROLES.warnings[0]));
 });
-test('case layouts preserve saved fields with hosted banner assets',()=>{
+test('case layouts preserve saved fields while banners are disabled',()=>{
   const {caseNotice,ticketNotice}=require('../src/legacy-layout');
   const common={_id:'1',userId:'2',actorId:'3',created:Date.now(),reason:'Reason',username:'User',next:{warnings:1,strikes:0,total:1}};
   for(const payload of [caseNotice({...common,kind:'infraction',type:'Warning',notes:'Rule',appealable:true}),caseNotice({...common,kind:'promotion',previous:'4',newRole:'5',newRoleName:'Staff',approvedBy:'3',effectiveDate:'Today'}),ticketNotice({type:'general',owner:'2',reason:'Help'})]) {
@@ -97,7 +97,7 @@ test('case layouts preserve saved fields with hosted banner assets',()=>{
   }
   const cmds=require('../src/commands/config').commands.map(c=>c.toJSON());
   const panels=cmds.find(c=>c.name==='config').options.find(o=>o.name==='panel').options[0].choices.map(c=>c.value);
-  assert.deepEqual(panels,['ticket','shift']);
+  assert.deepEqual(panels,['ticket']);
 });
 
 test('blank suspension expiry creates an indefinite suspension',async()=>{
@@ -109,7 +109,7 @@ test('blank suspension expiry creates an indefinite suspension',async()=>{
 });
 
 test('PCSO status infractions grant the supplied marker without removing rank roles',async()=>{
- for(const [type,marker] of [['Termination',ROLES.termination],['Blacklisted',ROLES.blacklisted],['Under Investigation',ROLES.investigation]]){
+ for(const [type,marker] of [['Termination',ROLES.termination],['Blacklisted',ROLES.blacklisted]]){
   const f=setup({strikes:0});f.guild.roles.cache.set(marker,{id:marker,managed:false});
   await issue(f.i,{kind:'infraction',userId:'member',type},'Recorded reason','');
   assert.ok(f.target.roles.cache.has(marker));assert.ok(f.target.roles.cache.has('rank'));

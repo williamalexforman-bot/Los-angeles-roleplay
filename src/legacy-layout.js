@@ -3,7 +3,7 @@ const E=require('./panel-emojis');
 const {v2,button}=require('./panels');
 const {TICKETS,TICKET_ACCESS_ROLE}=require('./settings');
 const clean=(s)=>D.escapeMarkdown(String(s||'Not provided.')).slice(0,1000);
-const NOTICE_VERSION=8;
+const NOTICE_VERSION=9;
 function caseNotice(item, url) {
   const box=new D.ContainerBuilder();
   const text=content=>box.addTextDisplayComponents(new D.TextDisplayBuilder().setContent(content));
@@ -57,14 +57,12 @@ function ticketNotice(record) {
   ];
   if(record.extra)text.push(`${icon('evidence','•')} **Additional Information**\n${clean(record.extra)}`);
   if(record.claimedBy)text.push(`${icon('claim','•')} **Claimed by:** <@${record.claimedBy}>`);
-  if(record.escalatedBy)text.push(`${icon('escalated','•')} **Escalated to Administrative** by <@${record.escalatedBy}>`);
+  if(record.escalatedBy)text.push(`${icon('escalated','•')} **Escalated to HR Support** by <@${record.escalatedBy}>`);
   const controls=[
     button('ticket:claim',record.claimedBy?'Claimed':'Claim',D.ButtonStyle.Success).setEmoji(E.component('claim',{name:'🙋'},record.guildId)).setDisabled(Boolean(record.claimedBy)),
     button('ticket:close','Close',D.ButtonStyle.Danger).setEmoji(E.component('close',{name:'🔒'},record.guildId)),button('ticket:escalate',record.escalatedBy?'Escalated':'Escalate',D.ButtonStyle.Secondary).setEmoji(E.component('escalated',{name:'⬆️'},record.guildId)).setDisabled(Boolean(record.escalationNotified))];
   const payload=v2('Support Ticket',text, [], false, 'assistance');
-  const footer=payload.components[0].components.pop();
   payload.components[0].addSeparatorComponents(new D.SeparatorBuilder()).addActionRowComponents(new D.ActionRowBuilder().addComponents(...controls));
-  payload.components[0].components.push(footer);
   return payload;
 }
 module.exports={NOTICE_VERSION,caseNotice,ticketNotice};

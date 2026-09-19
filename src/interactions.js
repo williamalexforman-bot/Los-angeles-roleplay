@@ -1,4 +1,3 @@
-const { shiftPanel, handleShift } = require('./shifts');
 const D = require('discord.js');
 const { collection } = require('./store');
 const { CHANNELS, TYPES, TICKETS } = require('./settings');
@@ -20,11 +19,11 @@ async function config(i) {
   const sub = i.options.getSubcommand();
   if (sub === 'view') {
     const s = await settings(i.guildId);
-    return i.editReply(v2('Channel Configuration', Object.keys(CHANNELS).map(k => `**${k}:** ${s[k] ? `<#${s[k]}>` : 'Not configured'}`).join('\n') + '\n\n**Role mapping note:** Warning 1 and Termination share role `1544509652891475998`, as supplied.', [], true));
+    return i.editReply(v2('Channel Configuration', Object.keys(CHANNELS).map(k => `**${k}:** ${s[k] ? `<#${s[k]}>` : 'Not configured'}`).join('\n'), [], true));
   }
   if (sub === 'channel') {
     const key = i.options.getString('destination', true), channel = i.options.getChannel('channel', true);
-    if (key.startsWith('tickets_') ? ![D.ChannelType.GuildCategory,D.ChannelType.GuildText].includes(channel.type) : ![D.ChannelType.GuildText,D.ChannelType.GuildAnnouncement].includes(channel.type)) throw new Error('Ticket destinations require a category or text channel; other destinations require a text channel.');
+    if (key === 'tickets' ? ![D.ChannelType.GuildCategory,D.ChannelType.GuildText].includes(channel.type) : ![D.ChannelType.GuildText,D.ChannelType.GuildAnnouncement].includes(channel.type)) throw new Error('Ticket destinations require a category or text channel; other destinations require a text channel.');
     await collection('config').updateOne({ _id: i.guildId }, { $set: { [key]: channel.id } }, { upsert: true });
     return i.editReply(v2('Configuration Saved', `**${key}:** <#${channel.id}>`, [], true));
   }
@@ -34,12 +33,7 @@ async function config(i) {
     await collection('config').updateOne({_id:i.guildId},{$set:{['role_'+purpose]:role.id}},{upsert:true});
     return i.editReply(v2('Access Saved',`${purpose}: <@&${role.id}>`,[],true));
   }
-  if (sub === 'shift-role') {
-    const role = i.options.getRole('role', true);
-    if (role.id === i.guildId || role.managed) throw new Error('Choose a staff role, not @everyone or a managed role.');
-    await collection('config').updateOne({ _id: i.guildId }, { $set: { shiftRole: role.id } }, { upsert: true });
-    return i.editReply(v2('Shift Access Saved', `Staff with <@&${role.id}> can start shifts.`, [], true));
-  }
+
   if (sub === 'ticket-access') {
     const type = i.options.getString('department', true), role = i.options.getRole('role', true);
     if (role.id === i.guildId || role.managed) throw new Error('Choose a staff role, not @everyone or a managed role.');
@@ -47,32 +41,32 @@ async function config(i) {
     return i.editReply(v2('Ticket Access Saved', `New ${TICKETS[type]} tickets will allow <@&${role.id}>. Existing tickets retain their access.`, [], true));
   }
   const type = i.options.getString('panel',true);
-  if (!['ticket','shift'].includes(type)) throw new Error('Use /infraction issue or /promotion issue. Those do not have launcher panels.');
+  if (!['ticket'].includes(type)) throw new Error('Use /infraction issue or /promotion issue. Those do not have launcher panels.');
   let channel = i.options.getChannel('channel');
   if (!channel) {
-    if (['ticket','shift'].includes(type)) channel = i.channel;
+    if (type==='ticket') channel=await destination(i.guild,'ticketPanel');
     else channel = await destination(i.guild, type === 'infraction' ? 'infractions' : 'promotions');
   }
-  await require('./config-delivery').sendPanel(channel, i.guild, type === 'shift' ? shiftPanel() : panel(type));
+  await require('./config-delivery').sendPanel(channel, i.guild, panel(type));
   return i.editReply(v2('Panel Posted', `Posted in <#${channel.id}>.`, [], true));
 }
 async function handleInteraction(i) {
   try {
     if(i.guildId !== require('./settings').GUILD_ID) return;
-    if(i.customId?.startsWith('verification:')) return await require('./verification').handle(i);
+
 
     if (!i.inGuild()) return;
     if(i.isButton() && ['close-request:accept','close-request:decline'].includes(i.customId))return await require('./utilities').respond(i);
-    if (i.isButton() && i.customId.startsWith('shift:')) return await handleShift(i, i.customId.split(':')[1]);
+
     if (i.isChatInputCommand()) {
-      if(i.commandName==='add-emojis')return await require('./emoji-install').slash(i);
+
       if(i.commandName === 'cmds') return await require('./command-help').handle(i);
 
       if(require('./utilities').COMMANDS.includes(i.commandName))return await require('./utilities').slash(i);
-      if(['say','deployment'].includes(i.commandName)) return await require('./messages').handleMessageCommand(i);
+      if(i.commandName==='deployment') return await require('./messages').handleMessageCommand(i);
       if(i.commandName === 'suspension') { await i.deferReply({flags:D.MessageFlags.Ephemeral}); return await i.editReply(v2('Suspension',await endSuspension(i,i.options.getUser('member',true).id),[],true)); }
-      if (i.commandName === 'quota') return await require('./quota').quotaCommand(i);
-      if (i.commandName === 'shift') return await handleShift(i, i.options.getSubcommand());
+
+
       if (i.commandName === 'config') return await config(i);
       if (!['infraction','promotion'].includes(i.commandName)) return;
       await i.deferReply({ flags: D.MessageFlags.Ephemeral });
@@ -127,7 +121,10 @@ async function handleInteraction(i) {
       const record=await collection('cases').findOne({_id:i.customId.split(':')[1],guildId:i.guildId});
       if(!record || !record.appealable || record.userId!==i.user.id) throw new Error('This appeal is not available to you.');
       const reason=i.fields.getTextInputValue('reason').trim();if(!reason)throw new Error('An appeal reason is required.');
-      return await i.editReply(v2('Infraction Appeal',await openTicket(i,'affairs',reason,`Infraction: INF-${record._id}`),[],true));
+      const review=await destination(i.guild,'appeals');
+      const result=await openTicket(i,'affairs',reason,`Infraction: INF-${record._id}`);
+      await review.send({...v2('Infraction Appeal',`**Member:** <@${i.user.id}>\n**Case:** INF-${record._id}\n**Reason:** ${D.escapeMarkdown(reason)}\n\n${result}`),nonce:i.id,enforceNonce:true});
+      return await i.editReply(v2('Infraction Appeal',result,[],true));
     }
   } catch(e) {
     console.error('Interaction failed:', i.commandName || i.customId, i.commandName==='config' ? i.options.getSubcommand() : '', i.id, e.code || e.name, 'status:', e.status, 'invalid fields:', require('./config-delivery').errorFields(e));

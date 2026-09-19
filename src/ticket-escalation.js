@@ -4,12 +4,12 @@ const {settings}=require('./discipline');
 const {v2}=require('./panels');
 const {deliver}=require('./ticket-panel-delivery');
 async function escalate(i,record){
- if(record.escalationNotified)return 'This ticket has already been escalated to Administrative.';
+ if(record.escalationNotified)return 'This ticket has already been escalated to HR Support.';
  const config=await settings(i.guildId);
  const roleId=config.support_high || config.role_management;
- if(!roleId)throw new Error('Configure Administrative staff using /config ticket-access department:high.');
+ if(!roleId)throw new Error('Configure HR Support staff using /config ticket-access department:high.');
  const role=await i.guild.roles.fetch(roleId);
- if(!role || role.id===i.guildId)throw new Error('Set a valid Administrative role using /config ticket-access department:high.');
+ if(!role || role.id===i.guildId)throw new Error('Set a valid HR Support role using /config ticket-access department:high.');
  const me=await i.guild.members.fetchMe();
  const permissions=i.channel.permissionsFor(me);
  if(!permissions?.has(D.PermissionFlagsBits.ManageRoles))throw new Error('The bot needs Manage Roles in this ticket to grant high-rank access.');
@@ -26,6 +26,6 @@ async function escalate(i,record){
   const result=await deliver(i.channel,record,message);
   await collection('tickets').updateOne({_id:record._id},{$set:{panelPending:false,panelId:result.message.id}});
  } catch(e){ console.error('Escalated ticket panel refresh pending:',record._id,e.code||e.name); }
- return 'Ticket escalated to Administrative. The role has access and has been notified.';
+ return 'Ticket escalated to HR Support. The role has access and has been notified.';
 }
 module.exports={escalate};

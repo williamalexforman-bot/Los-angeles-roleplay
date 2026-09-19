@@ -8,15 +8,12 @@ const configCommand = admin(new D.SlashCommandBuilder().setName('config').setDes
   .addStringOption(o => o.setName('destination').setDescription('Destination').setRequired(true).addChoices(...Object.keys(CHANNELS).map(value => ({ name: value, value }))))
   .addChannelOption(o => o.setName('channel').setDescription('Channel or ticket category').setRequired(true).addChannelTypes(D.ChannelType.GuildCategory, D.ChannelType.GuildText, D.ChannelType.GuildAnnouncement)))
 .addSubcommand(s => s.setName('panel').setDescription('Post a V2 panel')
-  .addStringOption(o => o.setName('panel').setDescription('Panel').setRequired(true).addChoices(...['ticket','shift'].map(value => ({ name: value, value }))))
+  .addStringOption(o => o.setName('panel').setDescription('Panel').setRequired(true).addChoices(...['ticket'].map(value => ({ name: value, value }))))
   .addChannelOption(o => o.setName('channel').setDescription('Optional panel channel override').addChannelTypes(D.ChannelType.GuildText, D.ChannelType.GuildAnnouncement)))
 .addSubcommand(s => s.setName('ticket-access').setDescription('Set the support role for one department')
   .addStringOption(o => o.setName('department').setDescription('Department').setRequired(true).addChoices(...Object.entries(TICKETS).map(([value,name]) => ({name,value}))))
   .addRoleOption(o => o.setName('role').setDescription('Role allowed to read this department’s tickets').setRequired(true)));
-configCommand.addSubcommand(s => s.setName('shift-role').setDescription('Set the role allowed to start staff shifts').addRoleOption(o => o.setName('role').setDescription('Staff role').setRequired(true)));
 configCommand.addSubcommand(s=>s.setName('staff-role').setDescription('Configure staff access or deployment mentions').addStringOption(o=>o.setName('purpose').setDescription('Role purpose').setRequired(true).addChoices(...['management','infraction','promotion','deployment_ping'].map(value=>({name:value,value})))).addRoleOption(o=>o.setName('role').setDescription('Server role').setRequired(true)));
-const shift = new D.SlashCommandBuilder().setName('shift').setDescription('Manage your staff shift').setDMPermission(false);
-for (const name of ['start','end','status']) shift.addSubcommand(s => s.setName(name).setDescription(`${name} your staff shift`));
 const infraction = roleGated(new D.SlashCommandBuilder().setName('infraction').setDescription('Manage staff infraction cases'))
 .addSubcommand(s => s.setName('issue').setDescription('Issue a staff infraction')
 .addUserOption(o => o.setName('member').setDescription('Member').setRequired(true))
@@ -36,15 +33,9 @@ const promotion = roleGated(new D.SlashCommandBuilder().setName('promotion').set
 .addUserOption(o => o.setName('approved-by').setDescription('Who approved this promotion').setRequired(true))
 .addStringOption(o => o.setName('effective-date').setDescription('Displayed effective date; roles change when submitted').setRequired(true).setMaxLength(100)));
 const suspension = roleGated(new D.SlashCommandBuilder().setName('suspension').setDescription('Manage saved suspensions')).addSubcommand(s=>s.setName('end').setDescription('End a suspension and restore saved roles').addUserOption(o=>o.setName('member').setDescription('Suspended member').setRequired(true)));
-const quota = roleGated(new D.SlashCommandBuilder().setName('quota').setDescription('Weekly 30-minute shift quota'));
-for(const name of ['status','enable','disable'])quota.addSubcommand(s=>s.setName(name).setDescription(`${name} weekly quota`));
-quota.addSubcommand(s=>s.setName('timezone').setDescription('Set Friday 10 AM timezone and start a new period').addStringOption(o=>o.setName('zone').setDescription('IANA timezone, e.g. America/New_York').setRequired(true)));
-const say = roleGated(new D.SlashCommandBuilder().setName('say').setDescription('Send a message as the bot').addStringOption(o=>o.setName('message').setDescription('Message to send').setRequired(true).setMaxLength(2000)));
 const deployment = roleGated(new D.SlashCommandBuilder().setName('deployment').setDescription('Announce an active deployment and ping the deployment role'));
 const close = roleGated(new D.SlashCommandBuilder().setName('close').setDescription('Save the transcript and close this ticket'));
 const closerequest = roleGated(new D.SlashCommandBuilder().setName('closerequest').setDescription('Ask the ticket opener to close this ticket').addStringOption(o=>o.setName('reason').setDescription('Why should this ticket close?').setRequired(true).setMaxLength(1000)));
-const purge = roleGated(new D.SlashCommandBuilder().setName('purge').setDescription('Delete recent messages in this channel').addIntegerOption(o=>o.setName('amount').setDescription('Number of messages, from 1 to 100').setRequired(true).setMinValue(1).setMaxValue(100)));
-const ticketpanel = roleGated(new D.SlashCommandBuilder().setName('ticketpanel').setDescription('Post the ticket panel in this channel'));
+const ticketpanel = roleGated(new D.SlashCommandBuilder().setName('ticketpanel').setDescription('Post the ticket panel in the configured channel'));
 const cmds = new D.SlashCommandBuilder().setName('cmds').setDescription('List every command and what it does').setDMPermission(false);
-const addEmojis = admin(new D.SlashCommandBuilder().setName('add-emojis').setDescription('Install up to 5 missing PCSO emojis'));
-module.exports = { configCommand, commands: [addEmojis, configCommand, infraction, promotion, shift, suspension, quota, say, deployment, close, closerequest, purge, ticketpanel, cmds] };
+module.exports = { configCommand, commands: [configCommand, infraction, promotion, suspension, deployment, close, closerequest, ticketpanel, cmds] };

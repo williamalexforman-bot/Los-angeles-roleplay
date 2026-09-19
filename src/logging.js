@@ -2,7 +2,7 @@ const D=require('discord.js');
 const {createHash,randomUUID}=require('node:crypto');
 const {collection,locked}=require('./store');
 const {v2}=require('./panels');
-const CHANNELS=Object.fromEntries(['messages','infractions','promotions','claims','roles','raids','moderation','members'].map(k=>[k,null]));
+const CHANNELS=Object.fromEntries(['bot','tickets','messages','infractions','promotions','claims','roles','raids','moderation','members'].map(k=>[k,null]));
 const buffer=new Map();
 const safe=(value,max=1200)=>D.escapeMarkdown(String(value??'Unavailable')).slice(0,max);
 async function persist(row){try{await collection('event_logs').insertOne(row);}catch(e){if(e.code!==11000)throw e;}}
@@ -56,8 +56,10 @@ function registerLogs(client){
  const valid=m=>eligible(m.guild)&&!m.author?.bot&&!m.webhookId&&!Object.values(CHANNELS).includes(m.channelId);
  const header=m=>`**Member:** ${m.author?`<@${m.author.id}> (${m.author.id})`:'Unknown (message not cached)'}\n**Channel:** <#${m.channelId}>\n**Message ID:** ${m.id}`;
  const attachments=m=>m.attachments?.size?'\n**Attachments:**\n'+[...m.attachments.values()].slice(0,5).map(a=>safe(a.url,300)).join('\n'):'';
+ on('interactionCreate',async i=>{if(eligible(i.guild)&&i.isChatInputCommand?.())await record('bot',i.guildId,'Command Used',`**Member:** <@${i.user.id}>\n**Command:** /${i.commandName}\n**Channel:** <#${i.channelId}>`,i.id);});
  on('messageCreate',async m=>{
   if(!valid(m))return;
+  const command=require('./messages').parsePrefix(m.content);if(command)await record('bot',m.guild.id,'Command Used',`**Member:** <@${m.author.id}>\n**Command:** -${command.command}\n**Channel:** <#${m.channelId}>`,m.id);
   if(isThreat(m.content))await record('raids',m.guild.id,'Possible Raid Threat',`${header(m)}\n[Review message](${m.url})\n\n${safe(m.content)}\n\nKeyword alert only. Staff must verify; no automatic punishment.`,`threat:${m.id}`);
  });
  on('messageUpdate',async(old,m)=>{

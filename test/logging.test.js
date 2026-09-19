@@ -6,7 +6,7 @@ require('../src/discipline').settings=async()=>Object.fromEntries(['messages','r
 const L=require('../src/logging');
 const tick=()=>new Promise(r=>setImmediate(r));
 test('old log destinations are disabled until configured',()=>{
- assert.equal(Object.keys(L.CHANNELS).length,8);assert.ok(Object.values(L.CHANNELS).every(v=>v===null));
+ assert.equal(Object.keys(L.CHANNELS).length,10);assert.ok(Object.values(L.CHANNELS).every(v=>v===null));
 });
 test('queue deduplicates, recovers startup outages, and suppresses mentions',async()=>{
  rows=new Map();offline=true;await L.record('messages','guild','Message Edited','@everyone','message:1');offline=false;

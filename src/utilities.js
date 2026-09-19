@@ -2,7 +2,7 @@ const D=require('discord.js');
 const {requireAccess}=require('./access');
 const {ticketAccess,closeTicket}=require('./tickets');
 const {v2,panel,button}=require('./panels');
-const COMMANDS=['close','closerequest','purge','ticketpanel'];
+const COMMANDS=['close','closerequest','ticketpanel'];
 async function execute(context,command,arg='') {
   if(command==='close') {await closeTicket(context);return 'closed';}
   if(command==='closerequest') {
@@ -12,21 +12,13 @@ async function execute(context,command,arg='') {
     return 'Close request sent to the ticket opener.';
   }
   await requireAccess(context,command);
-  if(command==='ticketpanel') {await context.channel.send(panel('ticket'));return 'Ticket panel posted.';}
-  if(command==='purge') {
-    if(!/^\d+$/.test(String(arg))||Number(arg)<1||Number(arg)>100)throw new Error('Enter a whole number from 1 to 100.');
-    const me=await context.guild.members.fetchMe();
-    if(!context.channel.permissionsFor(me)?.has([D.PermissionFlagsBits.ViewChannel,D.PermissionFlagsBits.ReadMessageHistory,D.PermissionFlagsBits.ManageMessages]))throw new Error('The bot needs View Channel, Read Message History and Manage Messages here.');
-    if(!context.channel.bulkDelete)throw new Error('Messages cannot be purged in this channel.');
-    const messages=await context.channel.messages.fetch({limit:Number(arg),...(context.sourceMessageId?{before:context.sourceMessageId}:{})});
-    const deleted=await context.channel.bulkDelete(messages,true);
-    return `Deleted ${deleted.size} messages. Messages older than 14 days are skipped.`;
-  }
+  if(command==='ticketpanel') {const channel=await require('./discipline').destination(context.guild,'ticketPanel');await require('./config-delivery').sendPanel(channel,context.guild,panel('ticket'));return `Ticket panel posted in <#${channel.id}>.`;}
+
   throw new Error('Unknown command.');
 }
 async function slash(i) {
   await i.deferReply({flags:D.MessageFlags.Ephemeral});
-  const arg=i.commandName==='closerequest'?i.options.getString('reason',true):i.commandName==='purge'?String(i.options.getInteger('amount',true)):'';
+  const arg=i.commandName==='closerequest'?i.options.getString('reason',true):'';
   const result=await execute(i,i.commandName,arg);
   if(result!=='closed')await i.editReply(v2('Command Completed',result,[],true));
 }
