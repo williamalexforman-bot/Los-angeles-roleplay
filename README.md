@@ -1,4 +1,4 @@
-# Sheriff office Discord bot
+# United States Marshals Service Discord bot
 
 This version targets server `1536150657440948324`. Only infractions, promotions, tickets, welcomes, deployments and logs remain active. Configuration and command help support those systems. Shifts, quota, arrest reports, applications, most-wanted, spam DMs, verification, say, purge and emoji installation/deletion are not available.
 
@@ -6,7 +6,7 @@ This version targets server `1536150657440948324`. Only infractions, promotions,
 
 Render: build `npm install`, start `node index.js`, Node 22.22.0. Set `BOT_TOKEN` and either `MONGODB_URI` or `MONGODB_HOST`, `MONGODB_USERNAME`, `MONGODB_PASSWORD`. `MONGODB_DATABASE` is optional. The code explicitly targets the server in `src/settings.js`; set Render `GUILD_ID` to the same ID. Enable Server Members and Message Content intents in Discord.
 
-Restore point: `backup/before-server-change-2026-09-19`. Previous data remains untouched. This server uses separate `guild_1536150657440948324_` MongoDB collections, so old tickets, counts and role-change retries cannot run against the new server. MongoDB credentials stay in Render. Existing image files remain saved but no banner or underbanner is emitted until replacements are supplied.
+Restore point: `backup/before-server-change-2026-09-19`. Previous data remains untouched. This server uses separate `guild_1536150657440948324_` MongoDB collections, so old tickets, counts and role-change retries cannot run against the new server. MongoDB credentials stay in Render. USMS banners are in `assets/banners/usms`. Promotions, infractions, deployments, ticket launchers and opening panels use their matching upper banner; every V2 container has the USMS footer. Welcome and closing messages remain plain text.
 
 Connection recovery, heartbeat diagnostics and `/readyz` remain. No code can guarantee uninterrupted hosting on a suspended or stopped Render service.
 
@@ -66,8 +66,10 @@ Closing saves all transcript parts to the ticket-log channel first, then sends a
 
 Warning 3 converts to a strike. Strike 3 suspends. Suspension saves/removes manageable roles and gives the suspension marker. Optional expiry or `/suspension end` restores saved roles; missing roles or hierarchy restrictions keep restoration pending. No retained role was supplied. Termination and Blacklisted apply their marker roles without kicking or banning. Under Investigation is recorded without a marker because no role was supplied. Demotion is recorded; selected rank changes use `/promotion issue`.
 
-Infraction and promotion notices remain Components V2, without banners. Matching existing server emojis are used with standard-symbol fallbacks. The bot fetches the target server's emoji cache on startup. Member-supplied reasons are escaped and not rewritten.
+Infraction and promotion notices remain Components V2 with the supplied USMS banners. Matching existing server emojis are used with standard-symbol fallbacks. The bot fetches the target server's emoji cache on startup. Member-supplied reasons are escaped and not rewritten.
 
 ## Validation
 
 Run `npm test`. Tests cover the active commands, new mappings, five ticket choices, private channel routing, permissions, disciplinary recovery, V2 rendering, logs and connection health. Real Discord permissions and Render deployment still require live verification.
+
+Repost the ticket launcher with `/ticketpanel` after deployment. Saved case notices and existing open-ticket panels refresh automatically. The full-size `Infractions_Banner.png` is used; the additional `image(1).png` is a smaller copy of the same design.

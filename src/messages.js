@@ -14,7 +14,7 @@ async function deployment(context){
  return require('./config-delivery').sendPanel(channel,context.guild,{...v2('Active Deployment',[
  `${role?`<@&${role.id}>\n\n`:''}${DEPLOYMENT_TEXT}`,
  section('briefing','Briefing','Review the current assignment and coordinate with your supervisor.'),
- section('conduct','Professional Conduct','Follow server rules and maintain professional roleplay.')]),allowedMentions:{parse:[],roles:role?[role.id]:[]}});
+ section('conduct','Professional Conduct','Follow server rules and maintain professional roleplay.')],[],false,'deployment'),allowedMentions:{parse:[],roles:role?[role.id]:[]}});
 }
 async function handleMessage(message){
  if(!message.guild||message.author.bot||message.webhookId)return;

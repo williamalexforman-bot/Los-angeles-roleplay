@@ -16,13 +16,13 @@ test('registration and prefix routing expose only retained systems',()=>{
  for(const command of ['say','purge','shift','quota','arrestreport','mostwanted','spamcool','verificationpanel','applicationpanel','add emojis','force delete','force stop emojis'])assert.equal(parsePrefix('-'+command),null);
  for(const command of ['deployment','close','closerequest','ticketpanel'])assert.equal(parsePrefix('-'+command).command,command);
 });
-test('bannerless V2 ticket launcher has all five requested categories and descriptions',()=>{
+test('USMS V2 ticket launcher has all five requested categories and descriptions',()=>{
  const p=require('../src/panels').panel('ticket'),box=p.components[0].toJSON();
  assert.equal(p.flags,D.MessageFlags.IsComponentsV2);assert.equal(box.type,17);
  const menu=box.components.find(c=>c.type===1).components[0];
  assert.deepEqual(menu.options.map(o=>o.label),['General Support','OPR Report','Divisional Inquiries','HR Support','Recruitment Support']);
  for(const o of menu.options)assert.equal(o.description,TICKET_DESCRIPTIONS[o.value]);
- assert.ok(!JSON.stringify(box).includes('https://'));
+ assert.ok(JSON.stringify(box).includes('/usms/assistance.png'));assert.ok(JSON.stringify(box).includes('/usms/footer.png'));
  const opening=require('../src/legacy-layout').ticketNotice({_id:'ticket',owner:'u',type:'division',reason:'Help',guildId:GUILD_ID}).components[0].toJSON();
  const controls=opening.components.find(c=>c.type===1).components;
  assert.deepEqual(controls.map(c=>c.custom_id),['ticket:claim','ticket:close','ticket:escalate']);

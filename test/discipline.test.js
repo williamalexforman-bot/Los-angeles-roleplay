@@ -52,11 +52,11 @@ test('warning escalation resets warning tier and adds exactly one strike',()=>{
 test('invalid or past suspension dates are rejected',()=>{
   for(const date of ['', '2026-02-30 12:00','2001-01-01 12:00','tomorrow']) assert.throws(()=>endDate(date));
 });
-test('all panels serialize as V2 without old banners',()=>{
+test('all panels serialize as V2 with USMS banners',()=>{
   for(const type of ['ticket']) {
     const p=panel(type); assert.equal(p.flags,D.MessageFlags.IsComponentsV2);
     const json=p.components[0].toJSON(); assert.equal(json.type,17);
-    assert.ok(!JSON.stringify(json).includes('/footer.png'));
+    assert.ok(JSON.stringify(json).includes('/usms/footer.png'));
   }
 });
 test('invalid expiry changes nothing; suspension snapshot survives for recovery',async()=>{

@@ -7,7 +7,7 @@ function find(name, guildId = process.env.GUILD_ID) {
   const normalize=s=>String(s).toLowerCase().replace(/[^a-z0-9]/g,'');
   const aliases={infraction:['infraction','infractions','discipline'],promotion:['promotion','promotions'],support:['support','assistance','general_support'],internal_affairs:['ops','ops_reports','opr','opr_report','internal_affairs'],high_rank:['hr','hr_support','administrative','admin','management'],welcome:['welcome','wave','wave1'],close:['close','closing_ticket','lock'],claim:['claim','claimed','staff'],deployment:['deployment','patrol','deploy'],approved:['approved','accept','check'],denied:['denied','reject','cross']};
   const names=[name,...(aliases[name]||[])];
-  const candidates=[...names.map(n=>'pcso_'+n),...names];
+  const candidates=[...names.map(n=>'usms_'+n),...names,...names.map(n=>'pcso_'+n)];
   for(const candidate of candidates){
     const emoji=guild?.emojis?.cache?.find(e=>normalize(e.name)===normalize(candidate) && e.available!==false && !e.managed && !e.roles?.cache?.size);
     if(emoji)return emoji;

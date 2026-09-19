@@ -1,5 +1,5 @@
 const { settings } = require('./discipline');
-const TEXT = 'Welcome to Pierce County Sheriff Office!';
+const TEXT = 'Welcome to United States Marshals Service!';
 async function welcome(member) {
   const config = await settings(member.guild.id);
   const channelId = config.welcome || member.guild.systemChannelId;
