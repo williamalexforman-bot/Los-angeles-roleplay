@@ -28,7 +28,7 @@ Welcome and deployment channels were not supplied. Welcome uses the server syste
 ## Commands and permissions
 
 - `/config view`, `/config channel`, `/config panel panel:ticket`, `/config staff-role`, `/config ticket-access`
-- `/infraction issue`, `/promotion issue`, `/suspension end`
+- `/infraction issue`, `/infraction edit`, `/infraction revoke`, `/promotion issue`, `/suspension end`
 - `/deployment`, `/close`, `/closerequest`, `/ticketpanel`, `/cmds`
 - Prefix equivalents: `-deployment`, `-close`, `-closerequest reason`, `-ticketpanel`
 
@@ -73,3 +73,11 @@ Infraction and promotion notices remain Components V2 with the supplied USMS ban
 Run `npm test`. Tests cover the active commands, new mappings, five ticket choices, private channel routing, permissions, disciplinary recovery, V2 rendering, logs and connection health. Real Discord permissions and Render deployment still require live verification.
 
 Repost the ticket launcher with `/ticketpanel` after deployment. Saved case notices and existing open-ticket panels refresh automatically. The full-size `Infractions_Banner.png` is used; the additional `image(1).png` is a smaller copy of the same design.
+
+## Edit and revoke infractions
+
+Use the Case ID printed on a notice, optionally prefixed with `INF-`. `/infraction edit case-id:... change-reason:...` accepts optional replacement `reason`, `notes`, `evidence` and `appealable` values. At least one field is required. Recipient and action type are immutable: revoke and reissue to correct them. `/infraction revoke case-id:... reason:...` marks the case revoked without deleting history. Both use the existing infraction permissions and log the moderator and reason; full before/after changes persist in `case_changes`.
+
+Revocation replays remaining active infractions to recalculate warnings, strikes and totals. It synchronizes warning/strike markers, removes a revoked status marker only if no remaining case requires it, and restores saved roles when removing the basis of a current suspension. It does not re-suspend a member for a suspension that already ended. Other rank roles are preserved. Revoked notices disable appeals; edited and revoked notices update in place without pings. Existing delivered DMs are historical copies and are not rewritten. Deleted public notices remain absent, while the audit log retains the change.
+
+Changes are saved before Discord role operations. Interrupted operations retry every 30 seconds and block conflicting member changes until roles and counts finish. Discord hierarchy or missing roles can keep recovery pending. Once revoked, a case cannot be edited or revoked again.

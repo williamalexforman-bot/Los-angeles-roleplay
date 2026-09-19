@@ -32,17 +32,19 @@ function caseNotice(item, url) {
     const fields=[detail('Reason for this action',clean(item.reason))];
     if(item.notes)fields.push(detail('Staff notes',clean(item.notes)));
     if(item.evidence)fields.push(detail('Supporting evidence',clean(item.evidence)));
-    if(item.next?.suspension)fields.push(detail('Suspension ends',item.next.suspension.ends?`<t:${Math.floor(item.next.suspension.ends/1000)}:F>`:'Until ended by staff'));
+    if(item.next?.suspension&&!item.revoked)fields.push(detail('Suspension ends',item.next.suspension.ends?`<t:${Math.floor(item.next.suspension.ends/1000)}:F>`:'Until ended by staff'));
     text(fields.join('\n\n'));
     divider();
-    text(`**Review details**\nRecorded by <@${item.actorId}>\n${item.appealable?'You may request a review using the appeal button below.':'This action is not open for appeal.'}`);
+    if(item.revoked)text(`**REVOKED** by <@${item.revoked.actorId}> • <t:${Math.floor(item.revoked.at/1000)}:F>\n${clean(item.revoked.reason).slice(0,220)}`);
+    if(item.lastEdited)text(`-# Edited by <@${item.lastEdited.actorId}> • <t:${Math.floor(item.lastEdited.at/1000)}:F>`);
+    text(`**Review details**\nRecorded by <@${item.actorId}>\n${item.revoked?'This infraction is revoked and no longer counts.':item.appealable?'You may request a review using the appeal button below.':'This action is not open for appeal.'}`);
   }
   divider();
   text(`-# Case ID: ${item._id} • <t:${Math.floor(item.created/1000)}:F>`);
-  if(item.kind==='infraction'&&item.next)text(`-# Warnings: ${item.next.warnings || 0}/3 • Strikes: ${item.next.strikes || 0} • Total infractions: ${item.next.total || 0}`);
+  if(item.kind==='infraction'&&item.next)text(`-# Counts when issued — Warnings: ${item.next.warnings || 0}/3 • Strikes: ${item.next.strikes || 0} • Total infractions: ${item.next.total || 0}`);
   if(item.kind==='promotion') {
     if(item.approvedBy)text(`-# Approved by <@${item.approvedBy}>${item.effectiveDate?` • Effective: ${clean(item.effectiveDate)}`:''}`);
-  } else if(item.appealable)box.addActionRowComponents(new D.ActionRowBuilder().addComponents(button(`appeal:${item._id}`,'Appeal Infraction')));
+  } else if(item.appealable&&!item.revoked)box.addActionRowComponents(new D.ActionRowBuilder().addComponents(button(`appeal:${item._id}`,'Appeal Infraction')));
   if(url)text(`[View ${item.kind==='promotion'?'Promotion':'Infraction'}](${url})`);
   require('./branding').decorate(box, item.kind==='promotion'?'promotion':'infraction');
   return {components:[box],flags:D.MessageFlags.IsComponentsV2,allowedMentions:{parse:[]}};

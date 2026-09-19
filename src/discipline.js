@@ -70,6 +70,7 @@ async function logCase(guild, item) {
 }
 async function issue(interaction, data, reason, dateText) {
   return locked(`member:${interaction.guildId}:${data.userId}`, async () => {
+    if(await require('./infraction-management').pending(interaction.guildId,data.userId))throw new Error('An infraction change is still pending for this member. Wait for recovery.');
     const { actor, target, me } = await authorize(interaction, data.userId, data.kind);
     await interaction.guild.roles.fetch();
     const prior = await collection('cases').findOne({ _id: interaction.id });
@@ -130,6 +131,7 @@ async function recover(client) {
   if (busy) return;
   busy = true;
   try {
+    await require('./infraction-management').recover(client);
     const pending = await collection('cases').find({ status: { $in: ['prepared','applied'] } }).toArray();
     for (const item of pending) {
       try { await locked(`member:${item.guildId}:${item.userId}`, async () => {
@@ -141,6 +143,7 @@ async function recover(client) {
     }
     for (const state of await collection('members').find({ 'suspension.ends': { $lte: Date.now() } }).toArray()) {
       try { await locked(`member:${state.guildId}:${state.userId}`, async () => {
+        if(await require('./infraction-management').pending(state.guildId,state.userId))return;
         const fresh = await collection('members').findOne({ _id: state._id });
         if (!fresh.suspension || !Number.isFinite(fresh.suspension.ends) || fresh.suspension.ends > Date.now()) return;
         const guild = await client.guilds.fetch(state.guildId);
@@ -163,6 +166,7 @@ module.exports = { settings, destination, advance, endDate, authorize, issue, re
 async function endSuspension(i,userId) {
   return locked(`member:${i.guildId}:${userId}`,async()=>{
     await authorize(i,userId);
+    if(await require('./infraction-management').pending(i.guildId,userId))throw new Error('An infraction change is pending. Wait for recovery.');
     const state=await collection('members').findOne({_id:`${i.guildId}:${userId}`});
     if(!state?.suspension)throw new Error('This member is not suspended.');
     await collection('members').updateOne({_id:state._id},{$set:{suspension:{...state.suspension,ends:Date.now(),endedBy:i.user.id}}});

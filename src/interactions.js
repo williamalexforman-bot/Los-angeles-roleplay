@@ -71,6 +71,15 @@ async function handleInteraction(i) {
       if (!['infraction','promotion'].includes(i.commandName)) return;
       await i.deferReply({ flags: D.MessageFlags.Ephemeral });
       await require('./access').requireAccess(i,i.commandName);
+      if(i.commandName==='infraction'&&['edit','revoke'].includes(i.options.getSubcommand())){
+        const action=i.options.getSubcommand(),updates={};
+        if(action==='edit'){
+          for(const field of ['reason','notes','evidence']){const value=i.options.getString(field);if(value!==null)updates[field]=value;}
+          const appealable=i.options.getBoolean('appealable');if(appealable!==null)updates.appealable=appealable;
+        }
+        const result=await require('./infraction-management').change(i,action,i.options.getString('case-id',true),updates,i.options.getString(action==='edit'?'change-reason':'reason',true));
+        return i.editReply(v2('Infraction Updated',result,[],true));
+      }
       const data = { kind: i.commandName, userId: i.options.getUser('member',true).id };
       if(data.kind === 'infraction') {
         data.type=i.options.getString('action',true); data.notes=i.options.getString('notes',true);
@@ -113,13 +122,13 @@ async function handleInteraction(i) {
     if (i.isButton() && i.customId.startsWith('staff:')) return await i.reply(v2('Use the Slash Command','Use `/infraction issue` or `/promotion issue`; launcher panels are no longer used.',[],true));
     if (i.isButton() && i.customId.startsWith('appeal:')) {
       const record=await collection('cases').findOne({_id:i.customId.split(':')[1],guildId:i.guildId});
-      if(!record || !record.appealable || record.userId!==i.user.id) throw new Error('Only the recipient of an appealable infraction may submit an appeal.');
+      if(!record || record.revoked || !record.appealable || record.userId!==i.user.id) throw new Error('Only the recipient of an appealable infraction may submit an appeal.');
       return await i.showModal(new D.ModalBuilder().setCustomId(`appeal-submit:${record._id}`).setTitle('Appeal Infraction').addComponents(textInput('reason','Why should this infraction be appealed?')));
     }
     if(i.isModalSubmit() && i.customId.startsWith('appeal-submit:')) {
       await i.deferReply({flags:D.MessageFlags.Ephemeral});
       const record=await collection('cases').findOne({_id:i.customId.split(':')[1],guildId:i.guildId});
-      if(!record || !record.appealable || record.userId!==i.user.id) throw new Error('This appeal is not available to you.');
+      if(!record || record.revoked || !record.appealable || record.userId!==i.user.id) throw new Error('This appeal is not available to you.');
       const reason=i.fields.getTextInputValue('reason').trim();if(!reason)throw new Error('An appeal reason is required.');
       const review=await destination(i.guild,'appeals');
       const result=await openTicket(i,'affairs',reason,`Infraction: INF-${record._id}`);
