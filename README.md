@@ -1,6 +1,6 @@
 # United States Marshals Service Discord bot
 
-This version targets server `1536150657440948324`. Only infractions, promotions, tickets, welcomes, deployments and logs remain active. Configuration and command help support those systems. Shifts, quota, arrest reports, applications, most-wanted, spam DMs, verification, say, purge and emoji installation/deletion are not available.
+This version targets server `1536150657440948324`. Infractions, promotions, tickets, welcomes, deployments, logs, HR role requests and emoji installation are active. Configuration and command help support those systems. Shifts, quota, arrest reports, applications, most-wanted, spam DMs, verification, say, purge and emoji deletion are not available.
 
 ## Hosting and preservation
 
@@ -81,3 +81,21 @@ Use the Case ID printed on a notice, optionally prefixed with `INF-`. `/infracti
 Revocation replays remaining active infractions to recalculate warnings, strikes and totals. It synchronizes warning/strike markers, removes a revoked status marker only if no remaining case requires it, and restores saved roles when removing the basis of a current suspension. It does not re-suspend a member for a suspension that already ended. Other rank roles are preserved. Revoked notices disable appeals; edited and revoked notices update in place without pings. Existing delivered DMs are historical copies and are not rewritten. Deleted public notices remain absent, while the audit log retains the change.
 
 Changes are saved before Discord role operations. Interrupted operations retry every 30 seconds and block conflicting member changes until roles and counts finish. Discord hierarchy or missing roles can keep recovery pending. Once revoked, a case cannot be edited or revoked again.
+
+## Ticket names and reasons
+
+New ticket channel names use a cleaned, shortened version of the opening reason plus the last six digits of the opener ID. Empty/non-Latin-only slugs use `support` as a fallback. Existing custom channel names are not renamed. Opening panels display **Reason** followed by inline code; embedded backticks and line breaks are normalized so the format stays intact.
+
+## Transparent emojis
+
+`-add emojis` or `/add-emojis` installs five missing icons from the 33-icon transparent USMS pack. Use `-continue emojis` for the next batch. `-force stop emojis` stops current/queued work after the current request completes. Administrators only; the bot needs Create Expressions. Installation stops when the server is full or Discord rate-limits it. Existing same-name emojis are skipped. The existing server emoji lookup immediately uses new `usms_` icons in V2 headings and controls. All bundled icons used here have a transparent alpha channel. Installation requires invoking the command in Discord; it does not run automatically at startup.
+
+## HR role requests
+
+`/requestrole trainee:@member role:@role` posts a V2 request to `1550639906039136359`, with an HR-only ping and Approve/Deny buttons. Configure `/config staff-role purpose:hr role:@HR` first; the configured HR ticket support role is the fallback. The new HR role ID was not supplied, so no role is guessed. The destination can be changed with `/config channel destination:roleRequests`.
+
+Any server member can submit. Only current HR members or administrators may decide. Self-approval is blocked. The bot needs Manage Roles and a higher role than the requested one. Roles at/above a non-admin reviewer or carrying Administrator/Manage Roles require an administrator's approval. Pending requests and approvals survive restarts; duplicate clicks do not grant twice. Approvals pause while a trainee is suspended or a disciplinary role change is incomplete. The reviewer must still have approval permission when an interrupted assignment retries.
+
+## Availability
+
+Startup jobs now start independently so a slow ticket refresh cannot delay disciplinary or HR-request recovery. BOT_TOKEN authentication, Discord reconnects, the disconnected-session watchdog and heartbeat logs remain. None of these prevent Render Free idle sleep, host restarts, exhausted free hours or network outages. See https://render.com/docs/free. Use an always-on hosting instance to avoid free-tier sleep; this code does not change your hosting plan or create synthetic keepalive traffic.

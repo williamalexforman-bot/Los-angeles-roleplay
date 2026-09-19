@@ -55,7 +55,7 @@ function ticketNotice(record) {
   const text=[
     `${icon("welcome","👋")} Thanks <@${record.owner}> for contacting support!`,
     `Thank you for creating a ticket with **United States Marshals Service**. ${staff ? `<@&${staff}>` : "Our support team"} will be with you shortly. Please do not ping staff unless your ticket has had no response for more than **12 hours**. If you are reporting a user, include their **User ID**, a **screenshot**, and a **clear reason** below.`,
-    `${icon('ticket','🎫')} **Ticket Information**\n${icon('member','•')} **Opener:** <@${record.owner}>\n${icon('reference','•')} **Ticket ID:** \`TICKET-${record._id}\`\n${icon('support','•')} **Department:** ${TICKETS[record.type] || 'Support'}\n${icon('reason','•')} **Inquiry:**\n${clean(record.reason)}`
+    `${icon('ticket','🎫')} **Ticket Information**\n${icon('member','•')} **Opener:** <@${record.owner}>\n${icon('reference','•')} **Ticket ID:** \`TICKET-${record._id}\`\n${icon('support','•')} **Department:** ${TICKETS[record.type] || 'Support'}\n${icon('reason','•')} **Reason** ${require('./ticket-format').ticketReason(record.reason)}`
   ];
   if(record.extra)text.push(`${icon('evidence','•')} **Additional Information**\n${clean(record.extra)}`);
   if(record.claimedBy)text.push(`${icon('claim','•')} **Claimed by:** <@${record.claimedBy}>`);

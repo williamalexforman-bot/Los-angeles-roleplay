@@ -1,7 +1,7 @@
 const D = require('discord.js');
 const { v2 } = require('./panels');
 
-const PREFIX_COMMANDS = [['-deployment','Post a deployment.'],['-close','Save the transcript and close a ticket.'],['-closerequest <reason>','Ask the opener to close their ticket.'],['-ticketpanel','Post the configured ticket panel.']];
+const PREFIX_COMMANDS = [['-add emojis','Install five missing transparent panel emojis (Administrator).'],['-continue emojis','Install the next missing batch.'],['-force stop emojis','Stop current and queued emoji work.'],['-deployment','Post a deployment.'],['-close','Save the transcript and close a ticket.'],['-closerequest <reason>','Ask the opener to close their ticket.'],['-ticketpanel','Post the configured ticket panel.']];
 
 function slashEntries(commands) {
   const entries = [];

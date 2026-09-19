@@ -56,10 +56,13 @@ async function handleInteraction(i) {
 
 
     if (!i.inGuild()) return;
+    if(i.isButton()&&i.customId.startsWith('role-request:'))return await require('./role-requests').handle(i);
     if(i.isButton() && ['close-request:accept','close-request:decline'].includes(i.customId))return await require('./utilities').respond(i);
 
     if (i.isChatInputCommand()) {
 
+      if(i.commandName==='requestrole')return await require('./role-requests').submit(i);
+      if(i.commandName==='add-emojis')return await require('./emoji-install').slash(i);
       if(i.commandName === 'cmds') return await require('./command-help').handle(i);
 
       if(require('./utilities').COMMANDS.includes(i.commandName))return await require('./utilities').slash(i);

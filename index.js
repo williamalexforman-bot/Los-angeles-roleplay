@@ -63,9 +63,10 @@ else {
       jobsStarted = true;
       void startTask('Event log delivery', () => require('./src/logging').flushLogs(client), 5000);
       void startTask('Ticket opening panels', () => require('./src/tickets').recoverTicketPanels(client), 15000);
-      await startTask('Ticket access', () => syncTicketAccess(client), 300000);
-      await startTask('Recovery', () => recover(client), 30000);
-      await startTask('V2 case notices', () => require('./src/case-panels').syncCasePanels(client), 300000);
+      void startTask('Role requests',()=>require('./src/role-requests').recover(client),30000);
+      void startTask('Ticket access', () => syncTicketAccess(client), 300000);
+      void startTask('Recovery', () => recover(client), 30000);
+      void startTask('V2 case notices', () => require('./src/case-panels').syncCasePanels(client), 300000);
     }, 30000);
     try {
       const guilds = await require('./src/guild-config').commandGuilds(client);

@@ -13,7 +13,7 @@ const configCommand = admin(new D.SlashCommandBuilder().setName('config').setDes
 .addSubcommand(s => s.setName('ticket-access').setDescription('Set the support role for one department')
   .addStringOption(o => o.setName('department').setDescription('Department').setRequired(true).addChoices(...Object.entries(TICKETS).map(([value,name]) => ({name,value}))))
   .addRoleOption(o => o.setName('role').setDescription('Role allowed to read this department’s tickets').setRequired(true)));
-configCommand.addSubcommand(s=>s.setName('staff-role').setDescription('Configure staff access or deployment mentions').addStringOption(o=>o.setName('purpose').setDescription('Role purpose').setRequired(true).addChoices(...['management','infraction','promotion','deployment_ping'].map(value=>({name:value,value})))).addRoleOption(o=>o.setName('role').setDescription('Server role').setRequired(true)));
+configCommand.addSubcommand(s=>s.setName('staff-role').setDescription('Configure staff access or deployment mentions').addStringOption(o=>o.setName('purpose').setDescription('Role purpose').setRequired(true).addChoices(...['management','infraction','promotion','deployment_ping','hr'].map(value=>({name:value,value})))).addRoleOption(o=>o.setName('role').setDescription('Server role').setRequired(true)));
 const infraction = roleGated(new D.SlashCommandBuilder().setName('infraction').setDescription('Manage staff infraction cases'))
 .addSubcommand(s => s.setName('issue').setDescription('Issue a staff infraction')
 .addUserOption(o => o.setName('member').setDescription('Member').setRequired(true))
@@ -47,5 +47,7 @@ const deployment = roleGated(new D.SlashCommandBuilder().setName('deployment').s
 const close = roleGated(new D.SlashCommandBuilder().setName('close').setDescription('Save the transcript and close this ticket'));
 const closerequest = roleGated(new D.SlashCommandBuilder().setName('closerequest').setDescription('Ask the ticket opener to close this ticket').addStringOption(o=>o.setName('reason').setDescription('Why should this ticket close?').setRequired(true).setMaxLength(1000)));
 const ticketpanel = roleGated(new D.SlashCommandBuilder().setName('ticketpanel').setDescription('Post the ticket panel in the configured channel'));
+const requestrole=new D.SlashCommandBuilder().setName('requestrole').setDescription('Ask HR to approve a trainee role').setDMPermission(false).addUserOption(o=>o.setName('trainee').setDescription('Member receiving the role').setRequired(true)).addRoleOption(o=>o.setName('role').setDescription('Requested role').setRequired(true));
+const addEmojis=admin(new D.SlashCommandBuilder().setName('add-emojis').setDescription('Install a batch of transparent USMS panel emojis'));
 const cmds = new D.SlashCommandBuilder().setName('cmds').setDescription('List every command and what it does').setDMPermission(false);
-module.exports = { configCommand, commands: [configCommand, infraction, promotion, suspension, deployment, close, closerequest, ticketpanel, cmds] };
+module.exports = { configCommand, commands: [configCommand, infraction, promotion, suspension, deployment, close, closerequest, ticketpanel, requestrole, addEmojis, cmds] };

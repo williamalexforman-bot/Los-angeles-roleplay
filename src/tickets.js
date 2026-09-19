@@ -47,7 +47,7 @@ async function openTicket(i, type, reason, extra = '') {
       if (!role || role.id === i.guildId) throw new Error('The configured ticket support role is invalid.');
       overwrites.push({ id: support, type: D.OverwriteType.Role, allow });
     }
-    const channel = await i.guild.channels.create({ name: `${type}-${i.user.id}`, type: D.ChannelType.GuildText, parent: category?.id || null, topic: `ticket-owner:${i.user.id}`, permissionOverwrites: overwrites });
+    const channel = await i.guild.channels.create({ name: require('./ticket-format').ticketName(reason,i.user.id), type: D.ChannelType.GuildText, parent: category?.id || null, topic: `ticket-owner:${i.user.id}`, permissionOverwrites: overwrites });
     const record={ _id:channel.id, guildId:i.guildId, owner:i.user.id, type, reason, extra, support, status:'open', opened:Date.now(), panelPending:true };
     try { await collection('tickets').insertOne(record); }
     catch(error) { await channel.delete('Ticket record could not be saved').catch(()=>{}); throw error; }

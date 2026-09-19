@@ -3,7 +3,7 @@ const {requireAccess}=require('./access');
 const {v2,section}=require('./panels');
 const {settings,destination}=require('./discipline');
 const DEPLOYMENT_TEXT='An active deployment is underway. Join the game, check in with the deployment lead, and follow the session instructions.';
-function parsePrefix(content){const match=/^-(deployment|close|closerequest|ticketpanel)(?:\s+([\s\S]*))?$/i.exec(content);return match?{command:match[1].toLowerCase(),text:(match[2]||'').trim()}:null;}
+function parsePrefix(content){content=content.replace(/^-continue-emojis\s*$/i,'-continueemojis');content=content.replace(/^-add\s+emojis\s*$/i,'-addemojis').replace(/^-continue\s+emojis\s*$/i,'-continueemojis').replace(/^-force\s+stop(?:\s+emojis)?\s*$/i,'-forcestopemojis');const match=/^-(addemojis|add-emojis|continueemojis|forcestopemojis|deployment|close|closerequest|ticketpanel)(?:\s+([\s\S]*))?$/i.exec(content);return match?{command:match[1].toLowerCase(),text:(match[2]||'').trim()}:null;}
 async function deployment(context){
  await requireAccess(context,'deployment');
  const config=await settings(context.guild.id),channel=await destination(context.guild,'deployment');
@@ -22,7 +22,10 @@ async function handleMessage(message){
  const context={guild:message.guild,guildId:message.guild.id,channel:message.channel,channelId:message.channel.id,user:message.author,sourceMessageId:message.id};
  try{
   if(parsed.command!=='closerequest'&&parsed.text)throw new Error('This command takes no additional text.');
-  if(parsed.command==='deployment')await deployment(context);
+  if(['addemojis','add-emojis'].includes(parsed.command))await require('./emoji-install').prefix(context);
+  else if(parsed.command==='continueemojis')await require('./emoji-install').continuePrefix(context);
+  else if(parsed.command==='forcestopemojis')await context.channel.send(v2('Emoji Jobs Stopped',await require('./emoji-install').forceStop(context)));
+  else if(parsed.command==='deployment')await deployment(context);
   else {const result=await require('./utilities').execute(context,parsed.command,parsed.text);if(result==='closed')return;}
   await message.delete().catch(e=>{if(e.code!==10008)console.error('Prefix cleanup failed:',e.code||e.name);});
  }catch(e){await message.reply({...v2('Command Not Completed',require('./config-delivery').describeError(e)),allowedMentions:{parse:[],repliedUser:false}}).catch(()=>{});}

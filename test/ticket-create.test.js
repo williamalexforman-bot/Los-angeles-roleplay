@@ -9,6 +9,7 @@ test('ticket opens with empty user cache using explicitly typed overwrites',asyn
  const guild={id:'guild',client:{users:{cache:new D.Collection(),resolve:()=>null}},roles:{cache:new D.Collection(),fetch:async id=>({id})},members:{fetchMe:async()=>({id:'bot',permissions:{has:()=>true}})},channels:{fetch:async()=>({id:'category',type:D.ChannelType.GuildCategory}),create:async data=>{
   for(const overwrite of data.permissionOverwrites)assert.doesNotThrow(()=>D.PermissionOverwrites.resolve(overwrite,guild));
   assert.equal(data.permissionOverwrites.find(o=>o.id==='requester').type,D.OverwriteType.Member);
+  assert.equal(data.name,'help-please-uester');
   created=true;return {id:'ticket',messages:{fetch:async()=>new D.Collection()},send:async()=>({id:'notice'})};
  }}};
  assert.match(await openTicket({guild,guildId:'guild',user:{id:'requester'}},'general','Help please'),/ticket is ready/);
