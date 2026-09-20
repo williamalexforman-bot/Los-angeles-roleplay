@@ -96,6 +96,7 @@ async function issue(interaction, data, reason, dateText, systemAuthorize) {
       const counts = advance(state, data.type);
       next = { ...next, warnings: counts.warnings, strikes: counts.strikes, total: (state.total || 0) + 1 };
       if (counts.suspend) {
+        if (!ROLES.suspended) throw new Error('A role named Suspended is required before issuing a suspension or third strike.');
         const ends = dateText?.trim() ? endDate(dateText.trim()) : undefined;
         const roles = target.roles.cache.filter(r => r.id !== interaction.guildId && !r.managed);
         for (const role of roles.values()) checkRole(role, actor, me, interaction.guild);
