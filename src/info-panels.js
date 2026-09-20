@@ -2,7 +2,7 @@ const D=require('discord.js');
 const {createHash}=require('node:crypto');
 const {collection,locked}=require('./store');
 const specs=require('./info-panel-content');
-const marker=spec=>`USMS information • ${spec.key}`;
+const marker=spec=>`Clearwater Fire Department information • ${spec.key}`;
 function payload(spec){
  const box=new D.ContainerBuilder().setAccentColor(0x5685EF);
  for(const [n,text] of spec.sections.entries()){

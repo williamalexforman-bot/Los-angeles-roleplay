@@ -29,13 +29,13 @@ const regulations=`## Discord Regulations
 \`-\` **10. Discord Terms of Service**\n> Failure to follow Discord's Terms of Service results in an immediate ban.\n
 \`-\` **11. Roblox Terms of Service**\n> Failure to follow Roblox's Terms of Service or Terms of Use results in an immediate ban.`;
 
-function information(){return make('information','Central Pierce Fire & Rescue',[
-`Welcome to the **Central Pierce Fire & Rescue**. CPFR is the department responsible for stopping fires, rendering medical aid, and more. Use the menu below to learn about CPFR and navigate the server. Apply today for an immersive firefighting experience.`,
+function information(){return make('information','Clearwater Fire Department',[
+`Welcome to the **Clearwater Fire Department**. CFD is responsible for stopping fires, rendering medical aid, and more. Use the menu below to learn about CFD and navigate the server. Apply today for an immersive firefighting experience.`,
 `### Department Leadership\n\n**Fire Chief:** @FR101 | M. Smith\n**Deputy Fire Chief:** @FR102 | C. Thundercock\n**Assistant Fire Chief:** @FR103 | D. Love\n**Assistant Fire Chief:** @FR104 | J.kripe\n\n> More information can be found below.`
-],[new D.StringSelectMenuBuilder().setCustomId('cpfr:information').setPlaceholder('Explore Central Pierce Fire & Rescue').addOptions({label:'Discord Regulations',value:'regulations',description:'Read the community rules privately.'})]);}
+],[new D.StringSelectMenuBuilder().setCustomId('cpfr:information').setPlaceholder('Explore Clearwater Fire Department').addOptions({label:'Discord Regulations',value:'regulations',description:'Read the community rules privately.'})]);}
 
 function ticket(){return make('assistance','Support',[
-`<:Arrow:1546628745471721633> The **Central Pierce Fire & Rescue Support Center** is the primary system for submitting requests, reports, concerns, and other department-related matters. Tickets are reviewed and assigned by category and priority so they reach the appropriate personnel.`,
+`<:Arrow:1546628745471721633> The **Clearwater Fire Department Support Center** is the primary system for submitting requests, reports, concerns, and other department-related matters. Tickets are reviewed and assigned by category and priority so they reach the appropriate personnel.`,
 `### <:Ticket:1546624901031530596> General Support\n> General questions, assistance, technical issues, and department requests.`,
 `### <:IA:1546629494419492994> Internal Affairs\n> Complaints, staff conduct concerns, policy violations, investigations, or matters requiring confidential internal review.`,
 `### <:guidelines:1546628708109131776> Office of the Chief\n> Command-level matters, department concerns, appeals, or issues requiring the Office of the Chief.`,
@@ -45,10 +45,10 @@ function ticket(){return make('assistance','Support',[
 )]);}
 
 function employee(){return make('employee','Employee Information',[
-`Welcome to the **Central Pierce Fire & Rescue**. This panel explains how to operate in the field and provides the roster, standard operating procedure, and truck roster.`,
+`Welcome to the **Clearwater Fire Department**. This panel explains how to operate in the field and provides the roster, standard operating procedure, and truck roster.`,
 `**Standard Operating Procedure**\nView the SOP to understand how to operate in the field.`,
 `**Truck Roster**\nView the truck roster so you know the approved apparatus.`,
-`**Our Roster**\nView the roster of employed CPFR members.`
+`**Our Roster**\nView the roster of employed CFD members.`
 ],[
 new D.ButtonBuilder().setCustomId('cpfr:sop').setLabel('SOP').setStyle(D.ButtonStyle.Secondary).setDisabled(true),
 new D.ButtonBuilder().setCustomId('cpfr:trucks').setLabel('Truck Roster').setStyle(D.ButtonStyle.Secondary).setDisabled(true),
@@ -56,7 +56,7 @@ new D.ButtonBuilder().setLabel('Open Our Roster').setStyle(D.ButtonStyle.Link).s
 ]);}
 
 function cadet(){return make('cadet','Cadet Information',[
-`Welcome to the Central Pierce Fire & Rescue. As a Cadet, you are entering the first phase of your career. This guide is your foundation: performance, discipline, and willingness to learn determine advancement to Probationary Firefighter or EMT.`,
+`Welcome to the Clearwater Fire Department. As a Cadet, you are entering the first phase of your career. This guide is your foundation: performance, discipline, and willingness to learn determine advancement to Probationary Firefighter or EMT.`,
 `### Guidelines & Conduct\n**Follow the Chain of Command** — listen to instructors, officers, and senior cadets.\n**Rules & Expectations** — stay professional, safe, and respectful.\n**Cadet Responsibilities** — show up prepared, follow directions, and represent the program well.`,
 `### Training & Ride-Along\n**Cadet Training** — complete basic EMS and FD skills training before real-world activities.\n**Ride-Along Experience** — after training, cadets may observe calls under supervision to learn how EMS and FD operate.`,
 `### FD Cadet Quick Facts\n**Perimeter Check** — scan the outside of a scene for hazards, smoke, or changing conditions.\n**Scene Awareness** — stay alert, watch your surroundings, and know where crews and equipment are.\n**Basic Support** — assist with simple tasks only when directed by certified personnel.`,

@@ -48,7 +48,7 @@ const close = roleGated(new D.SlashCommandBuilder().setName('close').setDescript
 const closerequest = roleGated(new D.SlashCommandBuilder().setName('closerequest').setDescription('Ask the ticket opener to close this ticket').addStringOption(o=>o.setName('reason').setDescription('Why should this ticket close?').setRequired(true).setMaxLength(1000)));
 const ticketpanel = roleGated(new D.SlashCommandBuilder().setName('ticketpanel').setDescription('Post the ticket panel in the configured channel'));
 const requestrole=new D.SlashCommandBuilder().setName('requestrole').setDescription('Ask HR to approve a trainee role').setDMPermission(false).addUserOption(o=>o.setName('trainee').setDescription('Member receiving the role').setRequired(true)).addRoleOption(o=>o.setName('role').setDescription('Requested role').setRequired(true));
-const addEmojis=admin(new D.SlashCommandBuilder().setName('add-emojis').setDescription('Install a batch of transparent USMS panel emojis'));
+const addEmojis=admin(new D.SlashCommandBuilder().setName('add-emojis').setDescription('Install a batch of transparent CFD panel emojis'));
 const say=roleGated(new D.SlashCommandBuilder().setName('say').setDescription('Send a message as the bot').addStringOption(o=>o.setName('message').setDescription('Message to send').setRequired(true).setMaxLength(2000)));
 const shift=new D.SlashCommandBuilder().setName('shift').setDescription('Track your shift time').setDMPermission(false);
 for(const action of ['start','end','status'])shift.addSubcommand(s=>s.setName(action).setDescription(`${action} your shift`));

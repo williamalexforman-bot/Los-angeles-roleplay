@@ -59,11 +59,12 @@ async function install(context, progress = async () => {}) {
       if (names.has(name)) { skipped.push(name); continue; }
       // Migrate only old pack icons owned by this bot. Versioned names make
       // continuing after a restart safe without repeatedly replacing white icons.
-      const oldName=name.replace('usms_white_','usms_').replace(/^usms_opr$/,'usms_internal_affairs');
-      const old=existing.find(e=>e.name===oldName&&!e.managed&&e.author?.id===me.id);
+      const suffix=name.slice('cfd_white_'.length);
+      const oldNames=[`cfd_${suffix}`,`usms_${suffix}`,suffix==='internal_affairs'?'usms_opr':null].filter(Boolean);
+      const old=existing.find(e=>oldNames.includes(e.name)&&!e.managed&&e.author?.id===me.id);
       if(old && added.length<BATCH_SIZE){
-        try{await old.delete('Replace bot-created icon with transparent white USMS icon');used=Math.max(0,used-1);}
-        catch(e){failed.push(cooldown(e)||`Cannot replace ${oldName}: ${e.code||e.name}`);break;}
+        try{await old.delete('Replace bot-created icon with transparent white CFD icon');used=Math.max(0,used-1);}
+        catch(e){failed.push(cooldown(e)||`Cannot replace ${old.name}: ${e.code||e.name}`);break;}
       }
       if(op.cancelled)break;
       // Include current gateway cache changes, plus uploads confirmed during this run.
@@ -72,7 +73,7 @@ async function install(context, progress = async () => {}) {
       if (added.length >= BATCH_SIZE) break;
       job.current = name;
       try {
-        const emoji = await guild.emojis.create({ attachment: Buffer.from(data, 'base64'), name, reason: `USMS emoji pack requested by ${user.id}` });
+        const emoji = await guild.emojis.create({ attachment: Buffer.from(data, 'base64'), name, reason: `CFD emoji pack requested by ${user.id}` });
         added.push(`<:${name}:${emoji.id}>`); names.add(name);
         job.done++; job.added++; job.last = Date.now();
         used++; job.capacity = `Static emoji slots: ${used}/${staticLimit(guild)}`;
@@ -88,7 +89,7 @@ async function install(context, progress = async () => {}) {
     if (op.cancelled) return `Installation stopped. Added ${added.length} emojis before stopping.`;
     const remaining = Object.keys(pack).filter(name => !names.has(name)).length;
     if (full) return `**Server emoji limit reached.**\nAdded: ${added.length} • Pack installed: ${job.done}/${Object.keys(pack).length} • Not added: ${remaining}\nStatic slots: ${used}/${staticLimit(guild)}. Uploads have stopped. Free up static emoji slots before running -continue emojis.`;
-    return `**Added:** ${added.length} • **Already installed:** ${alreadyInstalled}\n\n${added.slice(0,20).join(' ')}${added.length>20 ? `\n…and ${added.length-20} more added.` : ''}${failed.length ? `\n\n${failed.join('\n')} Run -continue emojis after fixing this to add the remaining emojis.` : remaining ? `\n\nBatch complete. **${remaining} emojis remaining.** Run -continue emojis to install the next ${BATCH_SIZE}.` : '\n\nThe pack is ready. Find it by typing :usms_ in Discord.'}`;
+    return `**Added:** ${added.length} • **Already installed:** ${alreadyInstalled}\n\n${added.slice(0,20).join(' ')}${added.length>20 ? `\n…and ${added.length-20} more added.` : ''}${failed.length ? `\n\n${failed.join('\n')} Run -continue emojis after fixing this to add the remaining emojis.` : remaining ? `\n\nBatch complete. **${remaining} emojis remaining.** Run -continue emojis to install the next ${BATCH_SIZE}.` : '\n\nThe pack is ready. Find it by typing :cfd_ in Discord.'}`;
   } catch(e) { if(cooldown(e))return cooldown(e); throw e; } finally { clearInterval(timer); await reportTask; jobs.delete(guild.id); op.finish(); }
 }
 async function slash(i) {
@@ -120,13 +121,13 @@ async function remove(context, progress = async () => {}, force = false) {
     }
     if (op.cancelled) return 'Deletion stopped before restarting.';
     const emojis = await guild.emojis.fetch();
-    await progress('Removing USMS pack emojis created by this bot. Other emojis will be kept.');
+    await progress('Removing CFD pack emojis created by this bot. Other emojis will be kept.');
     for (const emoji of emojis.values()) {
       if (op.cancelled) break;
       if (!Object.hasOwn(pack, emoji.name) || emoji.managed) continue;
       // Missing ownership data is not permission to delete a name match.
       if (!emoji.author?.id || emoji.author.id !== me.id) { skipped++; continue; }
-      try { await emoji.delete(`USMS emoji pack removal requested by ${user.id}`); deleted++; }
+      try { await emoji.delete(`CFD emoji pack removal requested by ${user.id}`); deleted++; }
       catch (e) {
         if (e.code === 10014) continue; // Already removed elsewhere.
         failure = cooldown(e) || (e.code === 50013 ? 'Discord denied permission to delete an emoji.' : `Discord deletion failed (${e.code || e.name}).`);

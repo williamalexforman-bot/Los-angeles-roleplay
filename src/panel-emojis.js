@@ -10,7 +10,7 @@ function find(name, guildId = process.env.GUILD_ID) {
   const ids={warning:roles.warnings,strike:roles.strikes,suspension:[roles.suspended],termination:[roles.termination],blacklist:[roles.blacklisted],investigation:[roles.investigation],quota:['1540774157397000202']};
   const roleNames=(ids[name]||[]).map(id=>guild?.roles?.cache?.get(id)?.name).filter(Boolean);
   const names=[name,...(aliases[name]||[]),...roleNames];
-  const candidates=[...names.map(n=>'usms_white_'+n),...names.map(n=>'usms_'+n),...names,...names.map(n=>'pcso_'+n)];
+  const candidates=[...names.map(n=>'cfd_white_'+n),...names.map(n=>'cfd_'+n),...names.map(n=>'usms_white_'+n),...names.map(n=>'usms_'+n),...names,...names.map(n=>'pcso_'+n)];
   for(const candidate of candidates){
     const emoji=guild?.emojis?.cache?.find(e=>normalize(e.name)===normalize(candidate) && e.available!==false && !e.managed && !e.roles?.cache?.size);
     if(emoji)return emoji;

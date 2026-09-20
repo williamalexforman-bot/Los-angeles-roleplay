@@ -1,4 +1,5 @@
-module.exports=[
+module.exports=[];
+/* Retired USMS-only panel definitions. Clearwater panels are in department-panels.js.
 {key:'opr',channel:'1544312835125940294',sections:[
 `# <:OPR:1548686777848561796> | Office of Professional Responsibility
 
@@ -77,4 +78,4 @@ If you are unsure how to proceed with an investigation, **consult your OPR Comma
 >
 > **5. NSFW:** NSFW, sexual, or inappropriate content is strictly prohibited and may result in an immediate blacklist and ban.`
 ]}
-];
+]; */

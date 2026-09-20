@@ -92,7 +92,7 @@ async function processGuild(guild) {
    if(pending)return;
    if(!report.sent) {
      const channel=await destination(guild,'infractions');
-     const header=`United States Marshals Service — Weekly Quota Infraction List\nPeriod: ${new Date(report.start).toISOString()} to ${new Date(report.end).toISOString()}\nDeadline timezone: ${report.zone}\nRequired: 2 hours of shifts\nBelow quota: ${report.missed.length}\n`;
+     const header=`Clearwater Fire Department — Weekly Quota Infraction List\nPeriod: ${new Date(report.start).toISOString()} to ${new Date(report.end).toISOString()}\nDeadline timezone: ${report.zone}\nRequired: 2 hours of shifts\nBelow quota: ${report.missed.length}\n`;
      const full=header+'\n'+report.missed.map((m,n)=>`${n+1}. ${m.name} (${m.id}) — ${progress(m.time)}`).join('\n');
      const preview=report.missed.slice(0,25).map(m=>`<@${m.id}> — ${progress(m.time)}`).join('\n')||'All eligible members completed quota.';
      const payload=v2('Weekly Quota Infraction List',`**Deadline:** <t:${Math.floor(report.end/1000)}:F>\n**Below quota:** ${report.missed.length}\n\n${preview}\n\nThe attached file contains the complete list. Automatic Warnings use the normal escalation rules. Members who left or no longer hold the quota role are skipped; saved cases remain in their history.`);

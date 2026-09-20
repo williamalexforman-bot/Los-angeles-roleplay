@@ -24,7 +24,7 @@ function caseNotice(item, url) {
     if(type==='Warning'&&item.next?.warnings)type=`Warning ${roman(item.next.warnings)}`;
     else if(type==='Strike'&&item.next?.strikes)type=`Strike ${roman(item.next.strikes)}`;
     else if(type==='Warning'&&item.next?.warnings===0&&item.next?.strikes)type=`Strike ${roman(item.next.strikes)} (third warning)`;
-    text(`${E.icon('infraction','',item.guildId)} **UNITED STATES MARSHALS SERVICE**\nDisciplinary Notice`);
+    text(`${E.icon('infraction','',item.guildId)} **CLEARWATER FIRE DEPARTMENT**\nDisciplinary Notice`);
     divider();
     text(`**${E.heading("Member",item.guildId)}**\n<@${item.userId}>\n\n**${E.heading("Action recorded",item.guildId)}**\n${type}`);
     divider();
@@ -54,7 +54,7 @@ function ticketNotice(record) {
   const icon=(name,fallback)=>E.icon(name,fallback,record.guildId);
   const text=[
     `@everyone\n\n${icon("welcome","👋")} Thanks <@${record.owner}> for contacting support!`,
-    `Thank you for creating a ticket with **United States Marshals Service**. ${staff ? `<@&${staff}>` : "Our support team"} will be with you shortly. Please do not ping staff unless your ticket has had no response for more than **12 hours**. If you are reporting a user, include their **User ID**, a **screenshot**, and a **clear reason** below.`,
+    `Thank you for creating a ticket with **Clearwater Fire Department**. ${staff ? `<@&${staff}>` : "Our support team"} will be with you shortly. Please do not ping staff unless your ticket has had no response for more than **12 hours**. If you are reporting a user, include their **User ID**, a **screenshot**, and a **clear reason** below.`,
     `${icon('ticket','🎫')} **Ticket Information**\n${icon('member','•')} **Opener:** <@${record.owner}>\n${icon('reference','•')} **Ticket ID:** \`TICKET-${record._id}\`\n${icon('support','•')} **Department:** ${TICKETS[record.type] || 'Support'}\n${icon('reason','•')} **Reason** ${require('./ticket-format').ticketReason(record.reason)}`
   ];
   if(record.extra)text.push(`${icon('evidence','•')} **Additional Information**\n${clean(record.extra)}`);
