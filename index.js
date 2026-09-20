@@ -61,7 +61,6 @@ else {
       catch(e){databaseReady=false;throw e;}
       if (jobsStarted) return;
       jobsStarted = true;
-      void startTask('Information panels',()=>require('./src/info-panels').sync(client),60000);
       void startTask('Event log delivery', () => require('./src/logging').flushLogs(client), 5000);
       void startTask('Ticket opening panels', () => require('./src/tickets').recoverTicketPanels(client), 15000);
       void startTask('Weekly quota',()=>require('./src/quota').tickQuota(client),30000);

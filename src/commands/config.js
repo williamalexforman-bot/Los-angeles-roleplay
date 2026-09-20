@@ -5,7 +5,7 @@ const admin = cmd => cmd.setDefaultMemberPermissions(D.PermissionFlagsBits.Admin
 const configCommand = admin(new D.SlashCommandBuilder().setName('config').setDescription('Set channels, ticket access and post panels'))
 .addSubcommand(s => s.setName('view').setDescription('View configured destinations'))
 .addSubcommand(s => s.setName('channel').setDescription('Change a destination')
-  .addStringOption(o => o.setName('destination').setDescription('Destination').setRequired(true).addChoices(...Object.keys(CHANNELS).map(value => ({ name: value, value }))))
+  .addStringOption(o => o.setName('destination').setDescription('Destination').setRequired(true).addChoices(...Object.keys(CHANNELS).slice(0,25).map(value => ({ name: value, value }))))
   .addChannelOption(o => o.setName('channel').setDescription('Channel or ticket category').setRequired(true).addChannelTypes(D.ChannelType.GuildCategory, D.ChannelType.GuildText, D.ChannelType.GuildAnnouncement)))
 .addSubcommand(s => s.setName('panel').setDescription('Post a V2 panel')
   .addStringOption(o => o.setName('panel').setDescription('Panel').setRequired(true).addChoices(...['ticket','shift'].map(value => ({ name: value, value }))))

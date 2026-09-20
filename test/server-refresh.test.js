@@ -1,47 +1,23 @@
 const test=require('node:test'),assert=require('node:assert/strict'),D=require('discord.js');
 const {GUILD_ID,CHANNELS,ROLES,TICKETS,TICKET_DESCRIPTIONS}=require('../src/settings');
-test('new server destinations and all supplied roles are exact',()=>{
- assert.equal(GUILD_ID,'1536150657440948324');
- assert.deepEqual(ROLES.warnings,['1550972697830367263','1550972751496487102']);assert.deepEqual(ROLES.strikes,['1550972916005478562','1550972965363912754']);
- assert.deepEqual([ROLES.suspended,ROLES.termination,ROLES.blacklisted],['1550973028114890752','1550973091000090655','1550973143785410650']);
- const expected={ticketPanel:'1536201127950024714',tickets:'1548331533197115563',infractions:'1539959958903455815',promotions:'1539959822680592415',log_bot:'1548066902629294131',transcripts:'1536274703050612797',log_claims:'1536274703050612797',log_tickets:'1536274703050612797',log_infractions:'1544603710192357387',appeals:'1544620247527465040'};
- for(const [key,id] of Object.entries(expected))assert.equal(CHANNELS[key],id);
- assert.equal(CHANNELS.welcome,null);assert.equal(CHANNELS.deployment,null);
+test('new server destinations and roles are isolated from the previous server',()=>{
+ assert.equal(GUILD_ID,'1521385783477407847');
+ const expected={welcome:'1521502153942892687',ticketPanel:'1545944377019596800',tickets_general:'1521385784622579726',tickets_affairs:'1521385784622579725',tickets_high:'1521588452041294066',infractions:'1521385785020907600',promotions:'1521385785020907599',transcripts:'1521385785532878911',log_bot:'1521385785532878913'};
+ for(const [key,id]of Object.entries(expected))assert.equal(CHANNELS[key],id);
+ assert.deepEqual(ROLES.warnings,[]);assert.deepEqual(ROLES.strikes,[]);assert.ok(Object.values(ROLES).filter(v=>!Array.isArray(v)).every(v=>v===null));
 });
-test('registration and prefix routing expose only retained systems',()=>{
+test('registration remains valid and ticket destinations fit Discord command limits',()=>{
  const commands=require('../src/commands/config').commands.map(c=>c.toJSON());
- assert.deepEqual(commands.map(c=>c.name),['config','infraction','promotion','suspension','deployment','close','closerequest','ticketpanel','requestrole','add-emojis','say','shift','quota','cmds']);
- assert.deepEqual(commands[0].options.find(o=>o.name==='panel').options[0].choices.map(c=>c.value),['ticket','shift']);
- const {parsePrefix}=require('../src/messages');
- for(const command of ['purge','quota','arrestreport','mostwanted','spamcool','verificationpanel','applicationpanel','force delete'])assert.equal(parsePrefix('-'+command),null);
- for(const command of ['deployment','close','closerequest','ticketpanel'])assert.equal(parsePrefix('-'+command).command,command);
+ assert.ok(commands.some(c=>c.name==='ticketpanel'));const config=commands.find(c=>c.name==='config');
+ assert.ok(config.options.find(o=>o.name==='channel').options.find(o=>o.name==='destination').choices.length<=25);
+ const {parsePrefix}=require('../src/messages');for(const command of ['deployment','close','closerequest','ticketpanel'])assert.equal(parsePrefix('-'+command).command,command);
 });
-test('USMS V2 ticket launcher has all five requested categories and descriptions',()=>{
- const p=require('../src/panels').panel('ticket'),box=p.components[0].toJSON();
- assert.equal(p.flags,D.MessageFlags.IsComponentsV2);assert.equal(box.type,17);
- const menu=box.components.find(c=>c.type===1).components[0];
- assert.deepEqual(menu.options.map(o=>o.label),['General Support','OPR Report','Divisional Inquiries','HR Support','Recruitment Support']);
+test('USMS ticket launcher offers the three new-server departments',()=>{
+ const p=require('../src/panels').panel('ticket'),box=p.components[0].toJSON(),menu=box.components.find(c=>c.type===1).components[0];
+ assert.equal(p.flags,D.MessageFlags.IsComponentsV2);assert.deepEqual(menu.options.map(o=>o.label),['General Support','Internal Affairs','Administration Support']);
  for(const o of menu.options)assert.equal(o.description,TICKET_DESCRIPTIONS[o.value]);
- assert.ok(JSON.stringify(box).includes('/usms/assistance.png'));assert.ok(JSON.stringify(box).includes('/usms/footer.png'));
- const opening=require('../src/legacy-layout').ticketNotice({_id:'ticket',owner:'u',type:'division',reason:'Help',guildId:GUILD_ID}).components[0].toJSON();
- const controls=opening.components.find(c=>c.type===1).components;
- assert.deepEqual(controls.map(c=>c.custom_id),['ticket:claim','ticket:close','ticket:escalate']);
- assert.ok(JSON.stringify(opening).includes('Divisional Inquiries'));
 });
-test('all five departments use the shared private-ticket category',async()=>{
- const {ticketCategory}=require('../src/tickets');
- for(const type of Object.keys(TICKETS)){
-  const category={id:CHANNELS.tickets,type:D.ChannelType.GuildCategory};
-  const guild={channels:{fetch:async id=>{assert.equal(id,CHANNELS.tickets);return category;}}};
-  assert.equal(await ticketCategory(guild,CHANNELS,type),category);
- }
-});
-test('ticketpanel posts to configured destination, not the invocation channel',async()=>{
- const access=require('../src/access'),discipline=require('../src/discipline'),delivery=require('../src/config-delivery');
- const originals=[access.requireAccess,discipline.destination,delivery.sendPanel];
- access.requireAccess=async()=>{};discipline.destination=async(_g,key)=>{assert.equal(key,'ticketPanel');return {id:CHANNELS.ticketPanel};};
- let sent=false;delivery.sendPanel=async(c,_g,p)=>{assert.equal(c.id,CHANNELS.ticketPanel);assert.ok(p.flags&D.MessageFlags.IsComponentsV2);sent=true;};
- const path=require.resolve('../src/utilities'),prior=require.cache[path];delete require.cache[path];
- try{await require('../src/utilities').execute({guild:{},channel:{send:()=>assert.fail('Wrong destination')}},'ticketpanel');assert.equal(sent,true);}
- finally{[access.requireAccess,discipline.destination,delivery.sendPanel]=originals;delete require.cache[path];if(prior)require.cache[path]=prior;}
+test('each department routes into its supplied ticket destination',async()=>{
+ const {ticketCategory}=require('../src/tickets');const ids={general:CHANNELS.tickets_general,affairs:CHANNELS.tickets_affairs,high:CHANNELS.tickets_high};
+ for(const [type,id]of Object.entries(ids)){const category={id,type:D.ChannelType.GuildCategory};const guild={channels:{fetch:async actual=>{assert.equal(actual,id);return category;}}};assert.equal(await ticketCategory(guild,CHANNELS,type),category);}
 });

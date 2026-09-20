@@ -1,17 +1,18 @@
-const GUILD_ID='1536150657440948324';
+const GUILD_ID='1521385783477407847';
 const CHANNELS={
- roleRequests:'1550639906039136359',
- welcome:null,deployment:null,ticketPanel:'1536201127950024714',tickets:'1548331533197115563',
- infractions:'1539959958903455815',promotions:'1539959822680592415',
- transcripts:'1536274703050612797',appeals:'1544620247527465040',
- log_bot:'1548066902629294131',log_claims:'1536274703050612797',log_tickets:'1536274703050612797',
- log_infractions:'1544603710192357387',
- ...Object.fromEntries(['messages','promotions','roles','raids','moderation','members'].map(k=>['log_'+k,'1548066902629294131'])),
+ roleRequests:null,
+ welcome:'1521502153942892687',deployment:null,
+ ticketPanel:'1545944377019596800',tickets:'1521385784622579726',
+ tickets_general:'1521385784622579726',tickets_affairs:'1521385784622579725',tickets_high:'1521588452041294066',
+ infractions:'1521385785020907600',promotions:'1521385785020907599',transcripts:'1521385785532878911',appeals:null,
+ information:'1521385784622579729',employeeInfo:'1546638883725385870',applicationPanel:'1545944891316510740',applicationResults:'1545945073882234900',verification:'1521568855791767768',cadetInfo:'1521385784878563424',shiftLogs:'1521385785020907600',
+ log_bot:'1521385785532878913',log_claims:'1521385785532878913',log_tickets:'1521385785532878913',log_infractions:'1521385785532878913',
+ ...Object.fromEntries(['messages','promotions','roles','raids','moderation','members'].map(k=>['log_'+k,'1521385785532878913'])),
 };
-const ROLES={warnings:['1550972697830367263','1550972751496487102'],strikes:['1550972916005478562','1550972965363912754'],
- retained:null,suspended:'1550973028114890752',termination:'1550973091000090655',blacklisted:'1550973143785410650',investigation:null};
+// No old-server role IDs are permitted to affect the new server.
+const ROLES={warnings:[],strikes:[],retained:null,suspended:null,termination:null,blacklisted:null,investigation:null};
 const TYPES=['Warning','Strike','Suspension','Demotion','Termination','Under Investigation','Blacklisted'];
-const TICKETS={general:'General Support',affairs:'OPR Report',division:'Divisional Inquiries',high:'HR Support',recruitment:'Recruitment Support'};
-const TICKET_DESCRIPTIONS={general:'General questions or server issues.',affairs:'Office of Professional Responsibility reports.',division:'Questions relating to specific divisions.',high:'Human Resources assistance.',recruitment:'Assistance with applications and joining.'};
+const TICKETS={general:'General Support',affairs:'Internal Affairs',high:'Administration Support'};
+const TICKET_DESCRIPTIONS={general:'General questions or server issues.',affairs:'Report staff misconduct or an internal matter.',high:'Administrative assistance and support.'};
 const TICKET_ACCESS_ROLE=null;
 module.exports={GUILD_ID,CHANNELS,ROLES,TYPES,TICKETS,TICKET_DESCRIPTIONS,TICKET_ACCESS_ROLE};

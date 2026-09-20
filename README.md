@@ -1,29 +1,35 @@
 # United States Marshals Service Discord bot
 
-This version targets server `1536150657440948324`. Infractions, promotions, tickets, welcomes, deployments, logs, HR role requests and emoji installation are active. Configuration and command help support those systems. Shifts, quota, arrest reports, applications, most-wanted, spam DMs, verification, say, purge and emoji deletion are not available.
+This version targets server `1521385783477407847`. Infractions, promotions, tickets, welcomes, deployments, logs, HR role requests and emoji installation are active. Configuration and command help support those systems. Shifts, quota, arrest reports, applications, most-wanted, spam DMs, verification, say, purge and emoji deletion are not available.
 
 ## Hosting and preservation
 
 Render: build `npm install`, start `node index.js`, Node 22.22.0. Set `BOT_TOKEN` and either `MONGODB_URI` or `MONGODB_HOST`, `MONGODB_USERNAME`, `MONGODB_PASSWORD`. `MONGODB_DATABASE` is optional. The code explicitly targets the server in `src/settings.js`; set Render `GUILD_ID` to the same ID. Enable Server Members and Message Content intents in Discord.
 
-This server uses separate `guild_1536150657440948324_` MongoDB collections, so old tickets, counts and role-change retries cannot run against the new server. MongoDB credentials stay in Render. USMS banners are in `assets/banners/usms`. Promotions, infractions, deployments, ticket launchers and opening panels use their matching upper banner; every V2 container has the USMS footer. Welcome and closing messages remain plain text.
+This server uses separate `guild_1521385783477407847_` MongoDB collections, so old tickets, counts and role-change retries cannot run against the new server. MongoDB credentials stay in Render. USMS banners are in `assets/banners/usms`. Promotions, infractions, deployments, ticket launchers and opening panels use their matching upper banner; every V2 container has the USMS footer. Welcome and closing messages remain plain text.
 
 Connection recovery, heartbeat diagnostics and `/readyz` remain. No code can guarantee uninterrupted hosting on a suspended or stopped Render service.
 
 ## Destinations
 
-| Use | Channel/category ID |
+| Use | Channel ID |
 | --- | --- |
-| Ticket launcher | 1536201127950024714 |
-| Opened tickets | 1548331533197115563 |
-| Infraction notices | 1539959958903455815 |
-| Promotion notices | 1539959822680592415 |
-| Bot logs | 1548066902629294131 |
-| Ticket logs and transcripts | 1536274703050612797 |
-| Infraction logs | 1544603710192357387 |
-| Infraction appeals | 1544620247527465040 |
+| Assistance ticket panel | 1545944377019596800 |
+| General Support tickets | 1521385784622579726 |
+| Internal Affairs tickets | 1521385784622579725 |
+| Administration Support tickets | 1521588452041294066 |
+| Infraction notices and shift logs | 1521385785020907600 |
+| Promotion notices | 1521385785020907599 |
+| Ticket transcripts | 1521385785532878911 |
+| Bot logs | 1521385785532878913 |
+| Welcome messages | 1521502153942892687 |
+| Information | 1521385784622579729 |
+| Employee info | 1546638883725385870 |
+| Application panel/results | 1545944891316510740 / 1545945073882234900 |
+| Verification | 1521568855791767768 |
+| Cadet info | 1521385784878563424 |
 
-Welcome and deployment channels were not supplied. Welcome uses the server system channel until `/config channel destination:welcome` is set; deployment requires `/config channel destination:deployment`. Other event logs default to the bot-log channel and remain individually configurable. Logs never trigger mention pings.
+The previous server’s roles and automatic information panels are disabled. Add this server’s new role IDs before using automated disciplinary roles or staff-role restrictions.
 
 ## Commands and permissions
 
@@ -38,15 +44,11 @@ Ticket staff access is set per department with `/config ticket-access`. Without 
 
 ## Tickets
 
-All five options create private channels in the configured opened-ticket destination:
+The three options create private channels in their configured destinations:
 
 - General Support — General questions or server issues.
-- OPR Report — Office of Professional Responsibility reports.
-- Divisional Inquiries — Questions relating to specific divisions.
-- HR Support — Human Resources assistance.
-- Recruitment Support — Assistance with applications and joining.
-
-Recruitment Support is a support ticket, not an application workflow. A reason is required before opening. OPR also collects the reported member and evidence. The V2 opening message includes Claim, Close and Escalate controls. Failed opening-panel delivery retries automatically.
+- Internal Affairs — report staff misconduct or an internal matter.
+- Administration Support — administrative assistance and support. A reason is required before opening. OPR also collects the reported member and evidence. The V2 opening message includes Claim, Close and Escalate controls. Failed opening-panel delivery retries automatically.
 
 If the destination is a text channel, private ticket channels are created in its parent category, or at the server root if it has no parent. Explicit overwrites deny public access. `/ticketpanel` and `-ticketpanel` use the configured launcher channel. `/config panel` allows an explicit override.
 
