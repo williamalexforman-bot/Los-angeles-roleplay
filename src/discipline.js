@@ -74,6 +74,7 @@ async function issue(interaction, data, reason, dateText, systemAuthorize) {
     if(await require('./infraction-management').pending(interaction.guildId,data.userId))throw new Error('An infraction change is still pending for this member. Wait for recovery.');
     const { actor, target, me } = await (systemAuthorize ? systemAuthorize() : authorize(interaction, data.userId, data.kind));
     await interaction.guild.roles.fetch();
+    require('./discipline-roles').readInfractionRoles(interaction.guild);
     const prior = await collection('cases').findOne({ _id: interaction.id });
     if (prior) throw new Error('This submission was already recorded.');
     if (await collection('cases').findOne({ guildId: interaction.guildId, userId: data.userId, status: 'prepared' })) throw new Error('An earlier role change is being retried. Wait for it to finish.');
@@ -102,11 +103,11 @@ async function issue(interaction, data, reason, dateText, systemAuthorize) {
         for (const role of roles.values()) checkRole(role, actor, me, interaction.guild);
         for (const id of [ROLES.retained, ROLES.suspended].filter(Boolean)) checkRole(interaction.guild.roles.cache.get(id), actor, me, interaction.guild);
         // Save the full removable-role snapshot before any role is removed.
-        next.suspension = { ...(ends ? { ends } : {}), roles: roles.map(r => r.id), caseId: interaction.id };
+        next.suspension = { ...(ends ? { ends } : {}), roles: roles.map(r => r.id), caseId: interaction.id, markerRole: ROLES.suspended };
         remove.push(...roles.filter(r => r.id !== ROLES.retained).map(r => r.id));
         add.push(...[ROLES.retained, ROLES.suspended].filter(Boolean));
       } else if (data.type === 'Warning' || data.type === 'Strike') {
-        const markers = [...ROLES.warnings, ...ROLES.strikes];
+        const markers = [...ROLES.warnings, ...ROLES.strikes].filter(Boolean);
         const desired = [ROLES.warnings[counts.warnings - 1], ROLES.strikes[Math.min(counts.strikes, 2) - 1]].filter(Boolean);
         for (const id of new Set([...desired, ...markers.filter(id => target.roles.cache.has(id))])) checkRole(interaction.guild.roles.cache.get(id), actor, me, interaction.guild);
         remove.push(...markers.filter(id => target.roles.cache.has(id) && !desired.includes(id)));
@@ -151,11 +152,13 @@ async function recover(client) {
         const guild = await client.guilds.fetch(state.guildId);
         const member = await guild.members.fetch({ user: state.userId, force: true });
         const me = await guild.members.fetchMe(); await guild.roles.fetch();
-        const roles = fresh.suspension.roles.filter(id => id !== ROLES.suspended);
+        require('./discipline-roles').readInfractionRoles(guild);
+        const markerRole = fresh.suspension.markerRole || ROLES.suspended;
+        const roles = fresh.suspension.roles.filter(id => id !== markerRole);
         // Missing/deleted or unmanageable roles keep the restoration pending.
         for (const id of roles) checkRole(guild.roles.cache.get(id), null, me, guild);
         for (const id of roles) await member.roles.add(id, 'Suspension ended: restore saved roles');
-        await member.roles.remove(ROLES.suspended, 'Suspension ended');
+        if (markerRole && member.roles.cache.has(markerRole)) await member.roles.remove(markerRole, 'Suspension ended');
         // Restoration does not erase the member's infraction history or totals.
         await collection('members').updateOne({ _id: state._id }, { $unset: { suspension: '' } });
         await destination(guild, 'infractions').then(c => c.send(v2('Suspension Ended', `Restored saved roles for <@${state.userId}>. Infraction history and totals are retained.`))).catch(() => {});

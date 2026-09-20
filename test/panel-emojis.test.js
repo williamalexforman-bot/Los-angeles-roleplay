@@ -15,7 +15,7 @@ test('V2 titles, case fields and controls use custom emojis without touching use
  const cache=new D.Collection(Object.keys(pack).map((name,n)=>[String(n),{id:String(100+n),name,available:true}]));E.configure({guilds:{cache:new D.Collection([['g',{emojis:{cache}}]])}});
  for(const title of ['Staff Promotion','Infraction Issued','Active Deployment','Shift Started','Application Accepted','Message Log']){const p=v2(title,'User typed: warning promotion');const json=p.components[0].toJSON();assert.ok(json.components.some(c=>c.content?.includes('<:pcso_')));assert.ok(json.components.some(c=>c.content==='User typed: warning promotion'));}
  assert.ok(button('x','Claim').toJSON().emoji.id);
- assert.match(JSON.stringify(panel('ticket').components[0].toJSON()),/pcso_support/);
+ assert.match(JSON.stringify(panel('ticket').components[0].toJSON()),/Clearwater Fire Department Support Center/);
  const p=caseNotice({_id:'case',kind:'infraction',type:'Warning',created:Date.now(),reason:'user text',userId:'1',actorId:'2',guildId:'g',next:{warnings:1}});assert.match(JSON.stringify(p.components[0].toJSON()),/pcso_infraction/);
  E.configure(null);
 });

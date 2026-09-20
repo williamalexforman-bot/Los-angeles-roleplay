@@ -23,7 +23,8 @@ async function config(i) {
   }
   if (sub === 'channel') {
     const key = i.options.getString('destination', true), channel = i.options.getChannel('channel', true);
-    if (key === 'tickets' ? ![D.ChannelType.GuildCategory,D.ChannelType.GuildText].includes(channel.type) : ![D.ChannelType.GuildText,D.ChannelType.GuildAnnouncement].includes(channel.type)) throw new Error('Ticket destinations require a category or text channel; other destinations require a text channel.');
+    if (!Object.hasOwn(CHANNELS,key)) throw new Error('Choose a valid destination.');
+    if (key === 'tickets' || key.startsWith('tickets_') ? ![D.ChannelType.GuildCategory,D.ChannelType.GuildText].includes(channel.type) : ![D.ChannelType.GuildText,D.ChannelType.GuildAnnouncement].includes(channel.type)) throw new Error('Ticket destinations require a category or text channel; other destinations require a text channel.');
     await collection('config').updateOne({ _id: i.guildId }, { $set: { [key]: channel.id } }, { upsert: true });
     return i.editReply(v2('Configuration Saved', `**${key}:** <#${channel.id}>`, [], true));
   }
@@ -58,6 +59,11 @@ async function handleInteraction(i) {
 
 
     if (!i.inGuild()) return;
+    if (i.isAutocomplete?.()) {
+      if (i.commandName !== 'config' || i.options.getSubcommand() !== 'channel') return;
+      const query=String(i.options.getFocused()).toLowerCase();
+      return await i.respond(Object.keys(CHANNELS).filter(key=>key.toLowerCase().includes(query)).slice(0,25).map(value=>({name:value,value})));
+    }
     if(i.isButton()&&i.customId.startsWith('shift:'))return await require('./shifts').handleShift(i,i.customId.split(':')[1]);
     if(i.isButton()&&i.customId.startsWith('role-request:'))return await require('./role-requests').handle(i);
     if(i.isButton() && ['close-request:accept','close-request:decline'].includes(i.customId))return await require('./utilities').respond(i);
@@ -148,6 +154,7 @@ async function handleInteraction(i) {
       return await i.editReply(v2('Infraction Appeal',result,[],true));
     }
   } catch(e) {
+    if (i.isAutocomplete?.()) { await i.respond([]).catch(()=>{}); return; }
     console.error('Interaction failed:', i.commandName || i.customId, i.commandName==='config' ? i.options.getSubcommand() : '', i.id, e.code || e.name, 'status:', e.status, 'invalid fields:', require('./config-delivery').errorFields(e));
     const message = require('./config-delivery').describeError(e) + `\n\nReference: ${i.id}`;
     const payload = v2('Action Not Completed',message,[],true);

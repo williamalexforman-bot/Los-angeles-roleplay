@@ -6,10 +6,14 @@ store.locked=async(_k,fn)=>fn();
 const access=require('../src/access');access.requireAccess=async()=>({id:'staff'});
 require('../src/logging').record=async(...args)=>logs.push(args);
 const M=require('../src/infraction-management'),{ROLES}=require('../src/settings');
+
+const testRoleNames = {w1:'Warning 1',w2:'Warning 2',s1:'Strike 1',s2:'Strike 2',sus:'Suspended',term:'Terminated',black:'Blacklisted'};
+function seedRoles() { Object.assign(ROLES,{warnings:['w1','w2'],strikes:['s1','s2'],suspended:'sus',termination:'term',blacklisted:'black'}); }
+seedRoles();
 const id=n=>String(1500000000000000000n+BigInt(n));
 function fixture(types=['Warning','Warning']){
  db={cases:types.map((type,n)=>({_id:id(n),guildId:'g',userId:'u',kind:'infraction',type,created:n+1,status:'logged',reason:'Original',notes:'Original note',appealable:true,actorId:'staff'})),members:[{_id:'g:u',guildId:'g',userId:'u',warnings:2,strikes:0,total:types.length}]};notices=[];logs=[];roleCalls=[];failRole=false;
- const roleCache=new D.Collection([...ROLES.warnings,...ROLES.strikes,ROLES.suspended,ROLES.termination,ROLES.blacklisted,'rank'].map(id=>[id,{id,managed:false}]));
+ const roleCache=new D.Collection([...ROLES.warnings,...ROLES.strikes,ROLES.suspended,ROLES.termination,ROLES.blacklisted,'rank'].map(id=>[id,{id,name:testRoleNames[id] || id,managed:false}]));
  const cache=new D.Collection([['rank',roleCache.get('rank')],[ROLES.warnings[1],roleCache.get(ROLES.warnings[1])]]);
  const member={roles:{cache,add:async role=>{roleCalls.push(role);if(failRole){failRole=false;throw Error('Discord unavailable');}cache.set(role,roleCache.get(role));},remove:async role=>{roleCalls.push(role);cache.delete(role);}}};
  const guild={id:'g',members:{fetch:async()=>member,fetchMe:async()=>({permissions:{has:()=>true},roles:{highest:{comparePositionTo:()=>1}}})},roles:{cache:roleCache,fetch:async()=>roleCache},channels:{fetch:async()=>({messages:{fetch:async()=>({edit:async p=>notices.push(p)})}})}};
@@ -58,7 +62,7 @@ test('status marker is removed only when no other active case requires it',()=>{
 });
 test('revoked V2 notice shows revocation and has no appeal control',()=>{
  const p=require('../src/legacy-layout').caseNotice({_id:id(0),kind:'infraction',type:'Warning',created:1,appealable:true,revoked:{actorId:'staff',at:2,reason:'Mistake'}});
- const json=JSON.stringify(p);assert.ok(json.includes('REVOKED'));assert.ok(!json.includes('appeal:'));assert.ok(json.includes('/usms/infraction.png'));
+ const json=JSON.stringify(p);assert.ok(json.includes('REVOKED'));assert.ok(!json.includes('appeal:'));assert.ok(json.includes('/cpfr/infraction.png'));
  const options=require('../src/commands/config').commands.find(c=>c.name==='infraction').toJSON().options;assert.deepEqual(options.map(o=>o.name),['issue','edit','revoke']);
 });
 test('unmanageable role and pending promotion block revocation before any mutation',async()=>{
@@ -66,4 +70,14 @@ test('unmanageable role and pending promotion block revocation before any mutati
  await assert.rejects(M.change(f.i,'revoke',id(0),{},'Correction'),/above the bot/);assert.equal(roleCalls.length,0);assert.equal(db.case_changes?.length||0,0);
  f=fixture();db.cases.push({_id:id(40),guildId:'g',userId:'u',kind:'promotion',status:'prepared'});
  await assert.rejects(M.change(f.i,'revoke',id(0),{},'Correction'),/pending/);assert.equal(roleCalls.length,0);assert.equal(db.case_changes?.length||0,0);
+});
+test('revocation uses roles discovered after module load and removes a saved suspension marker',()=>{
+ const before=structuredClone(ROLES);
+ try {
+  ROLES.warnings=['new-w1','new-w2'];ROLES.suspended=null;
+  const cases=[{_id:id(0),type:'Warning',created:1},{_id:id(1),type:'Suspension',created:2}];
+  const plan=M.revokePlan({warnings:1,strikes:0,total:2,suspension:{caseId:id(1),markerRole:'renamed-suspension',roles:['rank','new-w2']}},cases,cases[1]);
+  assert.ok(plan.remove.includes('new-w2'));assert.ok(plan.remove.includes('renamed-suspension'));
+  assert.deepEqual(plan.add,['rank','new-w1']);
+ } finally {Object.assign(ROLES,before);}
 });

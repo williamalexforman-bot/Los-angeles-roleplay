@@ -2,6 +2,10 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const D = require('discord.js');
 const { ROLES } = require('../src/settings');
+const testRoleNames = {w1:'Warning 1',w2:'Warning 2',s1:'Strike 1',s2:'Strike 2',sus:'Suspended',term:'Terminated',black:'Blacklisted'};
+function seedRoles() { Object.assign(ROLES,{warnings:['w1','w2'],strikes:['s1','s2'],suspended:'sus',termination:'term',blacklisted:'black'}); }
+seedRoles();
+
 const { panel } = require('../src/panels');
 const data = {};
 function matches(doc, query) {
@@ -27,9 +31,10 @@ function collection(name) {
 require.cache[require.resolve('../src/store')]={exports:{collection,locked:async(k,fn)=>fn()}};
 const {advance,endDate,issue,recover}=require('../src/discipline');
 function setup(state={}) {
+  seedRoles();
   for(const key of Object.keys(data)) delete data[key];
-  const roleIds=['rank','1538401039684866143',...ROLES.warnings,...ROLES.strikes,ROLES.suspended];
-  const roles = new D.Collection(roleIds.map(id=>[id,{id,managed:false}]));
+  const roleIds=['rank','1538401039684866143',...ROLES.warnings,...ROLES.strikes,ROLES.suspended,ROLES.termination,ROLES.blacklisted];
+  const roles = new D.Collection(roleIds.map(id=>[id,{id,name:testRoleNames[id] || id,managed:false}]));
   const cache = new D.Collection(['rank',ROLES.retained,ROLES.strikes[1]].filter(Boolean).map(id=>[id,roles.get(id)]));
   const log = [];
   const target = { id:'member',user:{bot:false},manageable:true,roles:{cache,
@@ -52,11 +57,11 @@ test('warning escalation resets warning tier and adds exactly one strike',()=>{
 test('invalid or past suspension dates are rejected',()=>{
   for(const date of ['', '2026-02-30 12:00','2001-01-01 12:00','tomorrow']) assert.throws(()=>endDate(date));
 });
-test('all panels serialize as V2 with USMS banners',()=>{
+test('all panels serialize as V2 with Clearwater banners',()=>{
   for(const type of ['ticket']) {
     const p=panel(type); assert.equal(p.flags,D.MessageFlags.IsComponentsV2);
     const json=p.components[0].toJSON(); assert.equal(json.type,17);
-    assert.ok(JSON.stringify(json).includes('/usms/footer.png'));
+    assert.ok(JSON.stringify(json).includes('/cpfr/footer.png'));
   }
 });
 test('invalid expiry changes nothing; suspension snapshot survives for recovery',async()=>{
@@ -97,7 +102,7 @@ test('case layouts preserve saved fields while banners are disabled',()=>{
   }
   const cmds=require('../src/commands/config').commands.map(c=>c.toJSON());
   const panels=cmds.find(c=>c.name==='config').options.find(o=>o.name==='panel').options[0].choices.map(c=>c.value);
-  assert.deepEqual(panels,['ticket','shift']);
+  assert.deepEqual(panels,['ticket','shift','information','employee','cadet','oia']);
 });
 
 test('blank suspension expiry creates an indefinite suspension',async()=>{
@@ -110,7 +115,7 @@ test('blank suspension expiry creates an indefinite suspension',async()=>{
 
 test('PCSO status infractions grant the supplied marker without removing rank roles',async()=>{
  for(const [type,marker] of [['Termination',ROLES.termination],['Blacklisted',ROLES.blacklisted]]){
-  const f=setup({strikes:0});f.guild.roles.cache.set(marker,{id:marker,managed:false});
+  const f=setup({strikes:0});f.guild.roles.cache.set(marker,{id:marker,name:testRoleNames[marker],managed:false});
   await issue(f.i,{kind:'infraction',userId:'member',type},'Recorded reason','');
   assert.ok(f.target.roles.cache.has(marker));assert.ok(f.target.roles.cache.has('rank'));
  }

@@ -3,22 +3,23 @@ const {collection,locked}=require('./store');
 const {ROLES}=require('./settings');
 const {caseNotice,NOTICE_VERSION}=require('./legacy-layout');
 function caseId(value){const id=String(value).trim().replace(/^INF-/i,'');if(!/^(?:\d{17,20}|quota-\d{13}-\d{17,20})$/.test(id))throw new Error('Enter the Case ID shown on the infraction, with or without INF-.');return id;}
-const tiers=[...ROLES.warnings,...ROLES.strikes];
 const statusRole=type=>({Termination:ROLES.termination,Blacklisted:ROLES.blacklisted,'Under Investigation':ROLES.investigation}[type]);
 function revokePlan(state,cases,item){
+ const tiers=[...ROLES.warnings,...ROLES.strikes].filter(Boolean);
  const active=cases.filter(c=>!c.revoked&&c._id!==item._id).sort((a,b)=>a.created-b.created||a._id.localeCompare(b._id));
  let counts={warnings:0,strikes:0};for(const c of active)counts=require('./discipline').advance(counts,c.type);
  const next={...state,warnings:counts.warnings,strikes:counts.strikes,total:active.length};
  const desired=[ROLES.warnings[counts.warnings-1],ROLES.strikes[Math.min(counts.strikes,2)-1]].filter(Boolean);
  const marker=statusRole(item.type),removeMarker=marker&&!active.some(c=>statusRole(c.type)===marker)?marker:null;
- const obsolete=new Set([...tiers,ROLES.suspended,removeMarker].filter(Boolean));
+ const suspensionMarker=state.suspension?.markerRole || ROLES.suspended;
+ const obsolete=new Set([...tiers,suspensionMarker,removeMarker].filter(Boolean));
  const add=[],remove=[];
  if(state.suspension){
   const source=active.find(c=>c._id===state.suspension.caseId);
   const keep=source&&(source.type==='Suspension'||counts.strikes>=3);
   const saved=state.suspension.roles.filter(id=>!obsolete.has(id));
   if(keep)next.suspension={...state.suspension,roles:[...new Set([...saved,...desired])]};
-  else{delete next.suspension;add.push(...saved,...desired);remove.push(ROLES.suspended);}
+  else{delete next.suspension;add.push(...saved,...desired);if(suspensionMarker)remove.push(suspensionMarker);}
  }
  if(!next.suspension){add.push(...desired);remove.push(...tiers.filter(id=>!desired.includes(id)));}
  if(removeMarker)remove.push(removeMarker);
@@ -75,6 +76,8 @@ async function change(i,action,id,updates,reason){
    if(cases.some(c=>['prepared','applied'].includes(c.status)))throw new Error('Another infraction for this member is still being applied or posted. Wait for recovery.');
    if(await collection('cases').findOne({guildId:i.guildId,userId:item.userId,status:'prepared'}))throw new Error('A member role change is pending. Wait for recovery.');
    const state=await collection('members').findOne({_id:`${i.guildId}:${item.userId}`});if(!state)throw new Error('The saved member record is missing. No changes were made.');
+   await i.guild.roles.fetch();
+   require('./discipline-roles').readInfractionRoles(i.guild);
    const plan=revokePlan(state,cases,item);
    const member=await i.guild.members.fetch({user:item.userId,force:true});const me=await i.guild.members.fetchMe();await i.guild.roles.fetch();
    const changes=[...plan.add.filter(id=>!member.roles.cache.has(id)),...plan.remove.filter(id=>member.roles.cache.has(id))];

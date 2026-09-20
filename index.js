@@ -10,7 +10,7 @@ const { syncTicketAccess } = require('./src/tickets');
 const { runTask, startTask, errorDetails } = require('./src/runtime');
 const { botToken } = require('./src/connection-health');
 const token = botToken();
-let client, databaseReady = false;
+let client, databaseReady = false, commandsRegistered = false;
 const { writeSync } = require('node:fs');
 function lifecycle(event, details = {}) {
   const memory = process.memoryUsage();
@@ -27,19 +27,22 @@ setInterval(() => lifecycle('heartbeat'), 30000).unref();
 console.log('Bot starting:', process.env.RENDER_GIT_COMMIT || 'local', 'Node', process.version);
 process.on('SIGTERM', () => { lifecycle('host_sigterm'); process.exit(0); });
 const healthServer=http.createServer((req,res) => {
-  const discordReady = client?.isReady() || false;
-  const readinessCheck = req.url.split('?')[0] !== '/livez';
-  res.writeHead(readinessCheck && (!discordReady || !databaseReady) ? 503 : 200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-  res.end(JSON.stringify({ service: 'running', discord: discordReady, database: databaseReady, commit: process.env.RENDER_GIT_COMMIT || 'local', uptimeSeconds: Math.floor(process.uptime()) }));
+  const response = require('./src/health').healthResponse(req.url, {
+    discord: client?.isReady(), database: databaseReady, commands: commandsRegistered,
+    commit: process.env.RENDER_GIT_COMMIT || 'local', uptimeSeconds: Math.floor(process.uptime()),
+  });
+  res.writeHead(response.statusCode, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+  res.end(JSON.stringify(response.body));
 });
-healthServer.on('error',error=>lifecycle('health_server_error',errorDetails(error)));
+healthServer.on('error',error=>{lifecycle('health_server_error',errorDetails(error));process.exit(1);});
 healthServer.listen(Number(process.env.PORT || 10000),'0.0.0.0',()=>lifecycle('health_server_listening',{port:Number(process.env.PORT || 10000)}));
 if (!token) { lifecycle('configuration_error',{errorCode:'BOT_TOKEN_MISSING'});process.exit(1); }
 else {
-  let presenceTimer,startupStarted=false,commandsRegistered=false;
-  const recovery=require('./src/discord-recovery').discordRecovery({token,offlineMs:30000,retryMs:15000,log:lifecycle,fatal:()=>process.exit(1),createClient:()=>{
+  let presenceTimer,startupStarted=false;
+  const recovery=require('./src/discord-recovery').discordRecovery({token,offlineMs:120000,retryMs:30000,log:lifecycle,fatal:()=>process.exit(1),createClient:()=>{
   clearInterval(presenceTimer);
-  client = new D.Client({ rest: { rejectOnRateLimit: data => /\/guilds\/[^/]+\/emojis(?:\/|$)/.test(data.route) }, intents: [D.GatewayIntentBits.Guilds, D.GatewayIntentBits.GuildEmojisAndStickers, D.GatewayIntentBits.GuildMembers, D.GatewayIntentBits.GuildMessages, D.GatewayIntentBits.MessageContent, D.GatewayIntentBits.DirectMessages, D.GatewayIntentBits.GuildModeration], partials:[D.Partials.Channel,D.Partials.Message,D.Partials.GuildMember] });
+  commandsRegistered=false;
+  client = new D.Client({ makeCache: D.Options.cacheWithLimits({ ...D.Options.DefaultMakeCacheSettings, MessageManager: 50 }), sweepers: { ...D.Options.DefaultSweeperSettings, messages: { interval: 300, lifetime: 900 } }, rest: { rejectOnRateLimit: data => /\/guilds\/[^/]+\/emojis(?:\/|$)/.test(data.route) }, intents: [D.GatewayIntentBits.Guilds, D.GatewayIntentBits.GuildEmojisAndStickers, D.GatewayIntentBits.GuildMembers, D.GatewayIntentBits.GuildMessages, D.GatewayIntentBits.MessageContent, D.GatewayIntentBits.DirectMessages, D.GatewayIntentBits.GuildModeration], partials:[D.Partials.Channel,D.Partials.Message,D.Partials.GuildMember] });
   require('./src/panel-emojis').configure(client);
   require('./src/logging').registerLogs(client);
   presenceTimer=require('./src/presence').registerPresence(client);
@@ -52,7 +55,8 @@ else {
   });
   client.on('shardReconnecting', id => lifecycle('discord_reconnecting',{shard:id}));
   client.on('shardReady',(id,unavailableGuilds)=>lifecycle('discord_shard_ready',{shard:id,unavailableGuilds:unavailableGuilds?.size||0}));
-  client.on('invalidated', () => recovery.invalidated());
+  const currentClient=client;
+  client.on('invalidated', () => recovery.invalidated(currentClient));
   client.on('shardResume', id => lifecycle('discord_resumed',{shard:id}));
   client.rest.on('rateLimited', info => lifecycle('discord_rate_limited',{route:info.route,timeoutMs:info.timeout,limit:info.limit,global:info.global}));
   client.once('clientReady', () => runTask('Startup', async () => {
@@ -81,15 +85,16 @@ else {
 
     void startTask('Command registration',async()=>{
       if(commandsRegistered||!client.isReady())return;
+      const registeringClient=client;
       try {
-        const guilds = await require('./src/guild-config').commandGuilds(client);
+        const guilds = await require('./src/guild-config').commandGuilds(registeringClient);
         const serialized=commands.map(c=>c.toJSON());
         for (const guild of guilds) {
           await guild.commands.set(serialized);
           if(databaseReady) await require('./src/logging').record('bot',guild.id,'Bot Online','Discord connected and commands registered.',`startup:${process.env.RENDER_GIT_COMMIT || Date.now()}`);
         }
         console.log('Registered commands: ' + commands.map(c => '/' + c.name).join(', '));
-        commandsRegistered=true;
+        if(client===registeringClient)commandsRegistered=true;
       } catch(error) {
         console.error('Command registration failed:',JSON.stringify({name:error?.name,message:error?.message,code:error?.code,status:error?.status,raw:error?.rawError?.message}));
       }

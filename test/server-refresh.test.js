@@ -9,7 +9,7 @@ test('new server destinations and roles are isolated from the previous server',(
 test('registration remains valid and ticket destinations fit Discord command limits',()=>{
  const commands=require('../src/commands/config').commands.map(c=>c.toJSON());
  assert.ok(commands.some(c=>c.name==='ticketpanel'));const config=commands.find(c=>c.name==='config');
- assert.ok(config.options.find(o=>o.name==='channel').options.find(o=>o.name==='destination').choices.length<=25);
+ assert.equal(config.options.find(o=>o.name==='channel').options.find(o=>o.name==='destination').autocomplete,true);
  const {parsePrefix}=require('../src/messages');for(const command of ['deployment','close','closerequest','ticketpanel'])assert.equal(parsePrefix('-'+command).command,command);
 });
 test('CPFR ticket launcher offers the three supplied departments',()=>{

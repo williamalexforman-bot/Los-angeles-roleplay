@@ -21,3 +21,15 @@ test('hung teardown triggers fallback without launching a second live connection
  const r=discordRecovery({token:'x',now:()=>time,destroyMs:5,fatal:()=>fatal++,createClient:()=>{created++;return {isReady:()=>false,login:async()=>{},destroy:()=>new Promise(()=>{})};}});
  await r.start();time=120000;await r.tick();assert.equal(fatal,1);assert.equal(created,1);
 });
+test('invalidated session is rebuilt even if client still reports ready',async()=>{
+ const f=fixture();await f.recovery.start();f.clients[0].ready=true;f.recovery.tick();
+ f.recovery.invalidated();f.time(30000);await f.recovery.tick();assert.equal(f.clients.length,2);
+});
+test('retired client invalidation cannot interrupt its replacement',async()=>{
+ const f=fixture();await f.recovery.start();const old=f.clients[0];f.time(120000);await f.recovery.tick();
+ f.recovery.invalidated(old);f.time(150000);await f.recovery.tick();assert.equal(f.clients.length,2);
+});
+test('slow login gets the full two-minute grace period',async()=>{
+ const f=fixture();await f.recovery.start();f.time(30000);await f.recovery.tick();assert.equal(f.clients.length,1);
+ f.time(90000);f.clients[0].ready=true;await f.recovery.tick();assert.equal(f.clients.length,1);
+});
