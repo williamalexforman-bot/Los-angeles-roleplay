@@ -8,7 +8,7 @@ const configCommand = admin(new D.SlashCommandBuilder().setName('config').setDes
   .addStringOption(o => o.setName('destination').setDescription('Destination').setRequired(true).addChoices(...Object.keys(CHANNELS).slice(0,25).map(value => ({ name: value, value }))))
   .addChannelOption(o => o.setName('channel').setDescription('Channel or ticket category').setRequired(true).addChannelTypes(D.ChannelType.GuildCategory, D.ChannelType.GuildText, D.ChannelType.GuildAnnouncement)))
 .addSubcommand(s => s.setName('panel').setDescription('Post a V2 panel')
-  .addStringOption(o => o.setName('panel').setDescription('Panel').setRequired(true).addChoices(...['ticket','shift'].map(value => ({ name: value, value }))))
+  .addStringOption(o => o.setName('panel').setDescription('Panel').setRequired(true).addChoices(...['ticket','shift','information','employee','cadet','oia'].map(value => ({ name: value, value }))))
   .addChannelOption(o => o.setName('channel').setDescription('Optional panel channel override').addChannelTypes(D.ChannelType.GuildText, D.ChannelType.GuildAnnouncement)))
 .addSubcommand(s => s.setName('ticket-access').setDescription('Set the support role for one department')
   .addStringOption(o => o.setName('department').setDescription('Department').setRequired(true).addChoices(...Object.entries(TICKETS).map(([value,name]) => ({name,value}))))

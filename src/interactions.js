@@ -41,13 +41,15 @@ async function config(i) {
     return i.editReply(v2('Ticket Access Saved', `New ${TICKETS[type]} tickets will allow <@&${role.id}>. Existing tickets retain their access.`, [], true));
   }
   const type = i.options.getString('panel',true);
-  if (!['ticket','shift'].includes(type)) throw new Error('Use /infraction issue or /promotion issue. Those do not have launcher panels.');
+  if (!['ticket','shift','information','employee','cadet','oia'].includes(type)) throw new Error('Choose a supported panel.');
   let channel = i.options.getChannel('channel');
   if (!channel) {
-    if (type==='ticket') channel=await destination(i.guild,'ticketPanel');
+    const defaults={ticket:'ticketPanel',information:'information',employee:'employeeInfo',cadet:'cadetInfo',oia:'oiaInfo'};
+    if(defaults[type]) channel=await destination(i.guild,defaults[type]);
     else channel=i.channel;
   }
-  await require('./config-delivery').sendPanel(channel, i.guild, type==='shift'?require('./shifts').shiftPanel():panel(type));
+  if(!channel)throw new Error('Choose a channel for this panel using the channel option, or configure its destination first.');
+  await require('./config-delivery').sendPanel(channel, i.guild, type==='shift'?require('./shifts').shiftPanel():type==='ticket'?panel(type):require('./department-panels').get(type));
   return i.editReply(v2('Panel Posted', `Posted in <#${channel.id}>.`, [], true));
 }
 async function handleInteraction(i) {
@@ -105,6 +107,9 @@ async function handleInteraction(i) {
       modal.addComponents(textInput('details','Additional details',false));
       if (type === 'affairs') modal.addComponents(textInput('reported','Who are you reporting?'),textInput('evidence','Evidence or explanation'));
       return await i.showModal(modal);
+    }
+    if (i.isStringSelectMenu() && i.customId === 'cpfr:information') {
+      if(i.values[0]==='regulations')return await i.reply({content:require('./department-panels').regulations,flags:D.MessageFlags.Ephemeral,allowedMentions:{parse:[]}});
     }
     if (i.isModalSubmit() && i.customId.startsWith('ticket-reason:')) {
       await i.deferReply({ flags: D.MessageFlags.Ephemeral });

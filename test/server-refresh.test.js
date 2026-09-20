@@ -12,9 +12,9 @@ test('registration remains valid and ticket destinations fit Discord command lim
  assert.ok(config.options.find(o=>o.name==='channel').options.find(o=>o.name==='destination').choices.length<=25);
  const {parsePrefix}=require('../src/messages');for(const command of ['deployment','close','closerequest','ticketpanel'])assert.equal(parsePrefix('-'+command).command,command);
 });
-test('USMS ticket launcher offers the three new-server departments',()=>{
+test('CPFR ticket launcher offers the three supplied departments',()=>{
  const p=require('../src/panels').panel('ticket'),box=p.components[0].toJSON(),menu=box.components.find(c=>c.type===1).components[0];
- assert.equal(p.flags,D.MessageFlags.IsComponentsV2);assert.deepEqual(menu.options.map(o=>o.label),['General Support','Internal Affairs','Administration Support']);
+ assert.equal(p.flags,D.MessageFlags.IsComponentsV2);assert.deepEqual(menu.options.map(o=>o.label),['General Support','Office of Internal Affairs','Office of the Chief']);
  for(const o of menu.options)assert.equal(o.description,TICKET_DESCRIPTIONS[o.value]);
 });
 test('each department routes into its supplied ticket destination',async()=>{

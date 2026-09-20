@@ -19,6 +19,7 @@ function v2(title, body, controls = [], ephemeral = false, header) {
 }
 function panel(type) {
   if(type!=='ticket')throw new Error('Only the ticket panel is available.');
+  if(require('./settings').GUILD_ID==='1521385783477407847')return require('./department-panels').get('ticket');
   const icons={general:'support',affairs:'internal_affairs',division:'staff',high:'high_rank',recruitment:'member'};
   const box=new D.ContainerBuilder().setAccentColor(0x5685EF)
     .addTextDisplayComponents(new D.TextDisplayBuilder().setContent('## '+E.heading('Support Tickets')+'\nSelect the department that best matches your request.'));
