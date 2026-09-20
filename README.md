@@ -6,7 +6,7 @@ This version targets server `1536150657440948324`. Infractions, promotions, tick
 
 Render: build `npm install`, start `node index.js`, Node 22.22.0. Set `BOT_TOKEN` and either `MONGODB_URI` or `MONGODB_HOST`, `MONGODB_USERNAME`, `MONGODB_PASSWORD`. `MONGODB_DATABASE` is optional. The code explicitly targets the server in `src/settings.js`; set Render `GUILD_ID` to the same ID. Enable Server Members and Message Content intents in Discord.
 
-Restore point: `backup/before-server-change-2026-09-19`. Previous data remains untouched. This server uses separate `guild_1536150657440948324_` MongoDB collections, so old tickets, counts and role-change retries cannot run against the new server. MongoDB credentials stay in Render. USMS banners are in `assets/banners/usms`. Promotions, infractions, deployments, ticket launchers and opening panels use their matching upper banner; every V2 container has the USMS footer. Welcome and closing messages remain plain text.
+This server uses separate `guild_1536150657440948324_` MongoDB collections, so old tickets, counts and role-change retries cannot run against the new server. MongoDB credentials stay in Render. USMS banners are in `assets/banners/usms`. Promotions, infractions, deployments, ticket launchers and opening panels use their matching upper banner; every V2 container has the USMS footer. Welcome and closing messages remain plain text.
 
 Connection recovery, heartbeat diagnostics and `/readyz` remain. No code can guarantee uninterrupted hosting on a suspended or stopped Render service.
 
