@@ -5,11 +5,10 @@ const D = require('discord.js');
 const store = require('./src/store');
 const { commands } = require('./src/commands/config');
 const { handleInteraction } = require('./src/interactions');
-const { recover, destination } = require('./src/discipline');
+const { recover } = require('./src/discipline');
 const { syncTicketAccess } = require('./src/tickets');
-const { v2 } = require('./src/panels');
 const { runTask, startTask } = require('./src/runtime');
-const { botToken, connectionHealth } = require('./src/connection-health');
+const { botToken } = require('./src/connection-health');
 const token = botToken();
 let client, databaseReady = false;
 const { writeSync } = require('node:fs');
@@ -25,38 +24,37 @@ console.log('Bot starting:', process.env.RENDER_GIT_COMMIT || 'local', 'Node', p
 process.on('SIGTERM', () => { lifecycle('host_sigterm'); process.exit(0); });
 http.createServer((req,res) => {
   const discordReady = client?.isReady() || false;
-  const readinessCheck = req.url.split('?')[0] === '/readyz';
+  const readinessCheck = req.url.split('?')[0] !== '/livez';
   res.writeHead(readinessCheck && (!discordReady || !databaseReady) ? 503 : 200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
   res.end(JSON.stringify({ service: 'running', discord: discordReady, database: databaseReady, commit: process.env.RENDER_GIT_COMMIT || 'local', uptimeSeconds: Math.floor(process.uptime()) }));
 }).listen(Number(process.env.PORT || 10000),'0.0.0.0');
-if (!token) console.warn('bot_token / BOT_TOKEN missing: Discord commands are offline.');
+if (!token) { lifecycle('configuration_error',{errorCode:'BOT_TOKEN_MISSING'});process.exit(1); }
 else {
+  let presenceTimer,startupStarted=false,commandsRegistered=false;
+  const recovery=require('./src/discord-recovery').discordRecovery({token,log:lifecycle,fatal:()=>process.exit(1),createClient:()=>{
+  clearInterval(presenceTimer);
   client = new D.Client({ rest: { rejectOnRateLimit: data => /\/guilds\/[^/]+\/emojis(?:\/|$)/.test(data.route) }, intents: [D.GatewayIntentBits.Guilds, D.GatewayIntentBits.GuildEmojisAndStickers, D.GatewayIntentBits.GuildMembers, D.GatewayIntentBits.GuildMessages, D.GatewayIntentBits.MessageContent, D.GatewayIntentBits.DirectMessages, D.GatewayIntentBits.GuildModeration], partials:[D.Partials.Channel,D.Partials.Message,D.Partials.GuildMember] });
-  const health = connectionHealth({ isReady: () => client.isReady(), restart: () => {
-    console.error('Discord has been unavailable for 120 seconds; exiting so Render can restart the bot. Check BOT_TOKEN, privileged intents and network connectivity.');
-    lifecycle('discord_watchdog_restart');
-    process.exit(1);
-  } });
-  setInterval(() => health.check(), 10000).unref();
   require('./src/panel-emojis').configure(client);
   require('./src/logging').registerLogs(client);
-  require('./src/presence').registerPresence(client);
+  presenceTimer=require('./src/presence').registerPresence(client);
   client.on('error', e => console.error('Discord client error:', e.code || e.name));
   client.on('shardError', e => console.error('Discord connection error:', e.code || e.name));
   client.on('shardDisconnect', (event, id) => {
-    console.error('Discord disconnected:', id, event.code);
+    lifecycle('discord_disconnected',{shard:id,closeCode:event.code});
     if (event.code === 4004) console.error('Discord rejected authentication. Replace BOT_TOKEN in Render with the bot token from the Discord Developer Portal.');
     if (event.code === 4014) console.error('Enable Server Members Intent and Message Content Intent for this bot in the Discord Developer Portal.');
   });
-  client.on('shardReconnecting', id => console.log('Discord reconnecting:', id));
-  client.on('invalidated', () => { lifecycle('discord_session_invalidated'); process.exit(1); });
-  client.on('shardResume', id => console.log('Discord session resumed:', id));
+  client.on('shardReconnecting', id => lifecycle('discord_reconnecting',{shard:id}));
+  client.on('invalidated', () => recovery.invalidated());
+  client.on('shardResume', id => lifecycle('discord_resumed',{shard:id}));
   client.once('clientReady', () => runTask('Startup', async () => {
-    health.check();
+    commandsRegistered=false;
     console.log('Discord connected as', client.user.tag);
     // Emoji REST rate limits must not hold up database/jobs/command registration.
     void runTask('Emoji refresh', async () => { const emojis=await client.guilds.cache.get(process.env.GUILD_ID)?.emojis.fetch(); console.log('Server emojis available:',emojis?.size || 0); });
     void runTask('Role refresh',()=>client.guilds.cache.get(process.env.GUILD_ID)?.roles.fetch());
+    if(startupStarted)return;
+    startupStarted=true;
     let jobsStarted = false;
     void startTask('Database connection', async () => {
       try { await store.connect(); databaseReady = true; }
@@ -71,7 +69,7 @@ else {
       void startTask('Recovery', () => recover(client), 30000);
       void startTask('V2 case notices', () => require('./src/case-panels').syncCasePanels(client), 300000);
     }, 30000);
-    let commandsRegistered=false;
+
     void startTask('Command registration',async()=>{
       if(commandsRegistered||!client.isReady())return;
       const guilds = await require('./src/guild-config').commandGuilds(client);
@@ -90,12 +88,8 @@ else {
   client.on('messageCreate',message => runTask('Message handler', async () => {
     if(message.guild?.id === process.env.GUILD_ID) return require('./src/messages').handleMessage(message);
   }));
-  const login = async () => {
-    try { await client.login(token); }
-    catch (e) {
-      console.error('Discord login failed. Check BOT_TOKEN and enabled intents. Retrying in 30 seconds:', e.code || e.name);
-      setTimeout(login, 30000);
-    }
-  };
-  void login();
+  return client;
+  }});
+  setInterval(()=>{void recovery.tick();},10000).unref();
+  void recovery.start();
 }

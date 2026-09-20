@@ -7,7 +7,9 @@ function parsePrefix(content){content=content.replace(/^-continue-emojis\s*$/i,'
 async function say(context,text){
  await requireAccess(context,'say');
  if(!text.trim()||text.length>2000)throw new Error('Enter a message between 1 and 2,000 characters.');
- return context.channel.send({content:text,allowedMentions:{parse:['users','roles'],repliedUser:false}});
+ const channel=context.channel||await context.guild.channels.fetch(context.channelId);
+ if(!channel?.send)throw new Error('Use /say in a server text channel or thread.');
+ return channel.send({content:text,allowedMentions:{parse:['users','roles'],repliedUser:false}});
 }
 async function deployment(context){
  await requireAccess(context,'deployment');
