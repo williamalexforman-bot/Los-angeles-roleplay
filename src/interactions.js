@@ -41,13 +41,13 @@ async function config(i) {
     return i.editReply(v2('Ticket Access Saved', `New ${TICKETS[type]} tickets will allow <@&${role.id}>. Existing tickets retain their access.`, [], true));
   }
   const type = i.options.getString('panel',true);
-  if (!['ticket'].includes(type)) throw new Error('Use /infraction issue or /promotion issue. Those do not have launcher panels.');
+  if (!['ticket','shift'].includes(type)) throw new Error('Use /infraction issue or /promotion issue. Those do not have launcher panels.');
   let channel = i.options.getChannel('channel');
   if (!channel) {
     if (type==='ticket') channel=await destination(i.guild,'ticketPanel');
-    else channel = await destination(i.guild, type === 'infraction' ? 'infractions' : 'promotions');
+    else channel=i.channel;
   }
-  await require('./config-delivery').sendPanel(channel, i.guild, panel(type));
+  await require('./config-delivery').sendPanel(channel, i.guild, type==='shift'?require('./shifts').shiftPanel():panel(type));
   return i.editReply(v2('Panel Posted', `Posted in <#${channel.id}>.`, [], true));
 }
 async function handleInteraction(i) {
@@ -56,11 +56,15 @@ async function handleInteraction(i) {
 
 
     if (!i.inGuild()) return;
+    if(i.isButton()&&i.customId.startsWith('shift:'))return await require('./shifts').handleShift(i,i.customId.split(':')[1]);
     if(i.isButton()&&i.customId.startsWith('role-request:'))return await require('./role-requests').handle(i);
     if(i.isButton() && ['close-request:accept','close-request:decline'].includes(i.customId))return await require('./utilities').respond(i);
 
     if (i.isChatInputCommand()) {
 
+      if(i.commandName==='quota')return await require('./quota').quotaCommand(i);
+      if(i.commandName==='shift')return await require('./shifts').handleShift(i,i.options.getSubcommand());
+      if(i.commandName==='say')return await require('./messages').handleMessageCommand(i);
       if(i.commandName==='requestrole')return await require('./role-requests').submit(i);
       if(i.commandName==='add-emojis')return await require('./emoji-install').slash(i);
       if(i.commandName === 'cmds') return await require('./command-help').handle(i);

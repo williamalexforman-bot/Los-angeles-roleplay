@@ -97,7 +97,7 @@ test('case layouts preserve saved fields while banners are disabled',()=>{
   }
   const cmds=require('../src/commands/config').commands.map(c=>c.toJSON());
   const panels=cmds.find(c=>c.name==='config').options.find(o=>o.name==='panel').options[0].choices.map(c=>c.value);
-  assert.deepEqual(panels,['ticket']);
+  assert.deepEqual(panels,['ticket','shift']);
 });
 
 test('blank suspension expiry creates an indefinite suspension',async()=>{
@@ -114,4 +114,16 @@ test('PCSO status infractions grant the supplied marker without removing rank ro
   await issue(f.i,{kind:'infraction',userId:'member',type},'Recorded reason','');
   assert.ok(f.target.roles.cache.has(marker));assert.ok(f.target.roles.cache.has('rank'));
  }
+});
+test('scheduled quota warning uses existing escalation and cannot be duplicated after restart',async()=>{
+ const {guild,target}=setup({warnings:2,strikes:0,total:2});
+ const quotaRole=require('../src/quota').QUOTA_ROLE;
+ target.roles.cache.set(quotaRole,{id:quotaRole,managed:false});
+ guild.client={user:{id:'bot'}};guild.members.me.id='bot';
+ const report={end:Date.now(),missed:[{id:target.id,time:0}]};
+ const issueQuotaWarning=require('../src/discipline').issueQuotaWarning;
+ await issueQuotaWarning(guild,target.id,report);
+ assert.equal(data.cases.length,1);assert.equal(data.members[0].warnings,0);assert.equal(data.members[0].strikes,1);
+ await issueQuotaWarning(guild,target.id,report);assert.equal(data.cases.length,1);
+ target.roles.cache.delete(quotaRole);await issueQuotaWarning(guild,target.id,{...report,end:report.end+1});assert.equal(data.cases.length,1);
 });

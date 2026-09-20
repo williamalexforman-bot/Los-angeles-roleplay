@@ -26,7 +26,7 @@ process.on('SIGTERM', () => { lifecycle('host_sigterm'); process.exit(0); });
 http.createServer((req,res) => {
   const discordReady = client?.isReady() || false;
   const readinessCheck = req.url.split('?')[0] === '/readyz';
-  res.writeHead(readinessCheck && !discordReady ? 503 : 200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+  res.writeHead(readinessCheck && (!discordReady || !databaseReady) ? 503 : 200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
   res.end(JSON.stringify({ service: 'running', discord: discordReady, database: databaseReady, commit: process.env.RENDER_GIT_COMMIT || 'local', uptimeSeconds: Math.floor(process.uptime()) }));
 }).listen(Number(process.env.PORT || 10000),'0.0.0.0');
 if (!token) console.warn('bot_token / BOT_TOKEN missing: Discord commands are offline.');
@@ -56,19 +56,24 @@ else {
     console.log('Discord connected as', client.user.tag);
     // Emoji REST rate limits must not hold up database/jobs/command registration.
     void runTask('Emoji refresh', async () => { const emojis=await client.guilds.cache.get(process.env.GUILD_ID)?.emojis.fetch(); console.log('Server emojis available:',emojis?.size || 0); });
+    void runTask('Role refresh',()=>client.guilds.cache.get(process.env.GUILD_ID)?.roles.fetch());
     let jobsStarted = false;
     void startTask('Database connection', async () => {
-      if (!databaseReady) { await store.connect(); databaseReady = true; }
+      try { await store.connect(); databaseReady = true; }
+      catch(e){databaseReady=false;throw e;}
       if (jobsStarted) return;
       jobsStarted = true;
       void startTask('Event log delivery', () => require('./src/logging').flushLogs(client), 5000);
       void startTask('Ticket opening panels', () => require('./src/tickets').recoverTicketPanels(client), 15000);
+      void startTask('Weekly quota',()=>require('./src/quota').tickQuota(client),30000);
       void startTask('Role requests',()=>require('./src/role-requests').recover(client),30000);
       void startTask('Ticket access', () => syncTicketAccess(client), 300000);
       void startTask('Recovery', () => recover(client), 30000);
       void startTask('V2 case notices', () => require('./src/case-panels').syncCasePanels(client), 300000);
     }, 30000);
-    try {
+    let commandsRegistered=false;
+    void startTask('Command registration',async()=>{
+      if(commandsRegistered||!client.isReady())return;
       const guilds = await require('./src/guild-config').commandGuilds(client);
       await client.application.commands.set([]);
       for (const guild of guilds) {
@@ -76,7 +81,8 @@ else {
         if(databaseReady) await require('./src/logging').record('bot',guild.id,'Bot Online','Discord connected and commands registered.',`startup:${process.env.RENDER_GIT_COMMIT || Date.now()}`);
       }
       console.log('Registered commands: ' + commands.map(c => '/' + c.name).join(', '));
-    } catch (e) { console.error('Command registration failed:', e.name === 'Error' ? e.message : e.code || e.name); }
+      commandsRegistered=true;
+    },30000);
 
   }));
   client.on('guildMemberAdd', member => member.guild.id === process.env.GUILD_ID && runTask('Welcome message', () => require('./src/welcome').welcome(member)));

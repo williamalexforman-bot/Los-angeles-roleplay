@@ -68,10 +68,10 @@ async function logCase(guild, item) {
   await require('./logging').record(item.kind==='promotion'?'promotions':'infractions',guild.id,item.kind==='promotion'?'Promotion Recorded':'Infraction Recorded',`${item.summary}\n**Case:** ${item._id}\n[View notice](${message.url})`,item._id);
   await collection('cases').updateOne({ _id: item._id }, { $set: { status: 'logged', noticeVersion: NOTICE_VERSION } });
 }
-async function issue(interaction, data, reason, dateText) {
+async function issue(interaction, data, reason, dateText, systemAuthorize) {
   return locked(`member:${interaction.guildId}:${data.userId}`, async () => {
     if(await require('./infraction-management').pending(interaction.guildId,data.userId))throw new Error('An infraction change is still pending for this member. Wait for recovery.');
-    const { actor, target, me } = await authorize(interaction, data.userId, data.kind);
+    const { actor, target, me } = await (systemAuthorize ? systemAuthorize() : authorize(interaction, data.userId, data.kind));
     await interaction.guild.roles.fetch();
     const prior = await collection('cases').findOne({ _id: interaction.id });
     if (prior) throw new Error('This submission was already recorded.');
@@ -174,3 +174,19 @@ async function endSuspension(i,userId) {
   });
 }
 module.exports.endSuspension=endSuspension;
+
+// Called only by the persisted quota scheduler, never from user-supplied command data.
+async function issueQuotaWarning(guild,userId,report){
+ const id=`quota-${report.end}-${userId}`;
+ if(await collection('cases').findOne({_id:id}))return;
+ const member=await guild.members.fetch({user:userId,force:true}).catch(e=>{if(e.code===10007)return null;throw e;});
+ if(!member||member.user.bot||!member.roles.cache.has(require('./quota').QUOTA_ROLE))return;
+ const interaction={id,guildId:guild.id,guild,user:guild.client.user};
+ return issue(interaction,{kind:'infraction',userId,type:'Warning',appealable:true,notes:`Weekly quota ending ${new Date(report.end).toISOString()}`,notifyMember:true},`Weekly shift quota not met: ${require('./quota').progress(report.missed.find(m=>m.id===userId).time)}. Deadline: ${new Date(report.end).toISOString()}.`,'',async()=>{
+   const target=await guild.members.fetch({user:userId,force:true}),me=await guild.members.fetchMe();
+   if(!target.roles.cache.has(require('./quota').QUOTA_ROLE))throw new Error('Quota role changed; retry eligibility.');
+   if(!me.permissions.has(D.PermissionFlagsBits.ManageRoles))throw new Error('Quota warnings require Manage Roles.');
+   return {actor:me,target,me};
+ });
+}
+module.exports.issueQuotaWarning=issueQuotaWarning;

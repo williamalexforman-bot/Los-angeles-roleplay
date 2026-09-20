@@ -8,7 +8,7 @@ function fixture(admin=true,canCreate=true){
 }
 test('pack contains valid 128px PNGs; installs once and skips duplicates',async()=>{
  for(const [name,data]of Object.entries(pack)){assert.match(name,/^usms_[a-z0-9_]+$/);const b=Buffer.from(data,'base64');assert.equal(b.subarray(1,4).toString(),'PNG');assert.equal(b.readUInt32BE(16),128);assert.equal(b.readUInt32BE(20),128);}
- const {c,emojis}=fixture();const summary=await install(c);assert.ok(summary.length<3000);assert.equal(emojis.size,5);assert.match(summary,/28 emojis remaining/);for(let n=0;n<6;n++)await install(c);assert.match(await install(c),/Already installed:\*\* 33/);assert.equal(emojis.size,33);
+ const {c,emojis}=fixture();const summary=await install(c);assert.ok(summary.length<3000);assert.equal(emojis.size,5);assert.match(summary,/33 emojis remaining/);for(let n=0;n<7;n++)await install(c);assert.match(await install(c),/Already installed:\*\* 38/);assert.equal(emojis.size,38);
 });
 test('permissions are checked and partial failures can resume',async()=>{
  await assert.rejects(install(fixture(false).c),/Administrator/);await assert.rejects(install(fixture(true,false).c),/Create Expressions/);
@@ -20,4 +20,14 @@ test('concurrent installers are rejected and lock is released',async()=>{
 test('prefix aliases and slash registration are available',()=>{
  const {parsePrefix}=require('../src/messages');for(const text of ['-add emojis','-addemojis','-add-emojis'])assert.ok(parsePrefix(text));
  const c=require('../src/commands/config').commands.find(c=>c.name==='add-emojis').toJSON();assert.equal(c.default_member_permissions,String(D.PermissionFlagsBits.Administrator));
+});
+test('white migration replaces only bot-owned old icons and stops at five uploads',async()=>{
+ const {c,emojis}=fixture();c.guild.members.fetchMe=async()=>({id:'bot',permissions:{has:()=>true}});
+ c.guild.emojis.cache=emojis;
+ let deleted=0;
+ const own={id:'old',name:'usms_infraction',author:{id:'bot'},delete:async()=>{deleted++;emojis.delete('old');}};
+ const other={id:'other',name:'usms_promotion',author:{id:'someone'},delete:async()=>assert.fail('Must preserve another author’s emoji')};
+ emojis.set(own.id,own);emojis.set(other.id,other);
+ await install(c);assert.equal(deleted,1);assert.ok(emojis.has('other'));assert.ok(emojis.find(e=>e.name==='usms_white_opr'));
+ await install(c);assert.equal(deleted,1);
 });

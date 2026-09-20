@@ -10,10 +10,10 @@ test('new server destinations and all supplied roles are exact',()=>{
 });
 test('registration and prefix routing expose only retained systems',()=>{
  const commands=require('../src/commands/config').commands.map(c=>c.toJSON());
- assert.deepEqual(commands.map(c=>c.name),['config','infraction','promotion','suspension','deployment','close','closerequest','ticketpanel','requestrole','add-emojis','cmds']);
- assert.deepEqual(commands[0].options.find(o=>o.name==='panel').options[0].choices.map(c=>c.value),['ticket']);
+ assert.deepEqual(commands.map(c=>c.name),['config','infraction','promotion','suspension','deployment','close','closerequest','ticketpanel','requestrole','add-emojis','say','shift','quota','cmds']);
+ assert.deepEqual(commands[0].options.find(o=>o.name==='panel').options[0].choices.map(c=>c.value),['ticket','shift']);
  const {parsePrefix}=require('../src/messages');
- for(const command of ['say','purge','shift','quota','arrestreport','mostwanted','spamcool','verificationpanel','applicationpanel','force delete'])assert.equal(parsePrefix('-'+command),null);
+ for(const command of ['purge','quota','arrestreport','mostwanted','spamcool','verificationpanel','applicationpanel','force delete'])assert.equal(parsePrefix('-'+command),null);
  for(const command of ['deployment','close','closerequest','ticketpanel'])assert.equal(parsePrefix('-'+command).command,command);
 });
 test('USMS V2 ticket launcher has all five requested categories and descriptions',()=>{

@@ -57,6 +57,15 @@ async function install(context, progress = async () => {}) {
     for (const [name, data] of Object.entries(pack)) {
       if (op.cancelled) break;
       if (names.has(name)) { skipped.push(name); continue; }
+      // Migrate only old pack icons owned by this bot. Versioned names make
+      // continuing after a restart safe without repeatedly replacing white icons.
+      const oldName=name.replace('usms_white_','usms_').replace(/^usms_opr$/,'usms_internal_affairs');
+      const old=existing.find(e=>e.name===oldName&&!e.managed&&e.author?.id===me.id);
+      if(old && added.length<BATCH_SIZE){
+        try{await old.delete('Replace bot-created icon with transparent white USMS icon');used=Math.max(0,used-1);}
+        catch(e){failed.push(cooldown(e)||`Cannot replace ${oldName}: ${e.code||e.name}`);break;}
+      }
+      if(op.cancelled)break;
       // Include current gateway cache changes, plus uploads confirmed during this run.
       used = Math.max(used, guild.emojis.cache ? staticUsed(guild.emojis.cache) : 0);
       if (used >= staticLimit(guild)) { full = true; break; }

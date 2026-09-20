@@ -1,11 +1,11 @@
-"""Generate original, transparent 128px Valenti server icons (Pillow)."""
+"""Generate original, transparent 128px USMS server icons (Pillow)."""
 from PIL import Image, ImageDraw, ImageFont
 import io,base64,json
 from pathlib import Path
 names=['infraction','promotion','ticket','support','deployment','shift','application','approved','denied','warning','strike','suspension','claim','close','logs','welcome']
 pack={}
 for name in names:
- im=Image.new('RGBA',(128,128));d=ImageDraw.Draw(im);red=(0,0,0,0);cream='#ffe5d2'
+ im=Image.new('RGBA',(128,128));d=ImageDraw.Draw(im);red=(0,0,0,0);cream='#ffffff'
  pass # No background tile: symbols are drawn directly on transparency.
  def line(points):d.line(points,fill=cream,width=9,joint='curve')
  if name in ['infraction','warning']:
@@ -44,8 +44,8 @@ symbols={
 }
 badges={
  'owner':'OWN','founder':'FDR','management':'MGT','admin':'ADM','moderator':'MOD',
- 'staff':'STAFF','high_rank':'HR','internal_affairs':'IA','trainee':'TRN','trainer':'TR',
- 'on_duty':'ON','off_duty':'OFF','break':'BRK','quota':'30m','loa':'LOA',
+ 'staff':'STAFF','high_rank':'HR','internal_affairs':'OPR','trainee':'TRN','trainer':'TR',
+ 'on_duty':'ON','off_duty':'OFF','break':'BRK','quota':'2h','loa':'LOA',
  'warning_one':'W1','warning_two':'W2','strike_one':'S1','strike_two':'S2','strike_three':'S3',
  'demotion':'DEM','termination':'TERM','investigation':'INV','blacklist':'BL',
  'appeal':'APL','evidence':'EVD','transcript':'TXT','verified':'VER',
@@ -101,7 +101,7 @@ extra = {
  'checklist':'LIST','requirements':'REQ','instructions':'HOW','process':'FLOW','preparation':'PREP',
  'review_queue':'REV','interview':'CHAT','ride_along':'RIDE','training':'LEARN','experience':'XP',
  'activity':'ACT','availability':'TIME','identity':'ID','username':'USER','roblox':'RBLX',
- 'game':'GAME','server':'SRV','community':'COM','family':'VCF','team':'TEAM',
+ 'game':'GAME','server':'SRV','community':'COM','family':'USMS','team':'TEAM',
  'communication':'COMMS','radio':'RAD','briefing':'BRF','attendance':'ATT','rally':'JOIN',
  'join_game':'PLAY','game_rules':'RULES','conduct':'CARE','respect':'RSP','teamwork':'COOP',
  'check_in':'IN','check_out':'OUT','schedule':'PLAN','deadline':'DUE','timezone':'UTC',
@@ -126,7 +126,7 @@ for n in range(1,11):
 for n,(name,label) in enumerate(extra.items()):
  assert 'valenti_'+name not in pack,name
  im=Image.new('RGBA',(128,128));d=ImageDraw.Draw(im)
- # Light cream linework remains legible on Discord's dark surfaces; no filled tile.
+ # White linework remains legible on Discord's dark surfaces; no filled tile.
  color=cream
  family=n%5
  if family==0:d.rounded_rectangle((12,22,116,106),radius=14,outline=color,width=5)

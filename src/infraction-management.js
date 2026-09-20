@@ -2,7 +2,7 @@ const D=require('discord.js');
 const {collection,locked}=require('./store');
 const {ROLES}=require('./settings');
 const {caseNotice,NOTICE_VERSION}=require('./legacy-layout');
-function caseId(value){const id=String(value).trim().replace(/^INF-/i,'');if(!/^\d{17,20}$/.test(id))throw new Error('Enter the Case ID shown on the infraction, with or without INF-.');return id;}
+function caseId(value){const id=String(value).trim().replace(/^INF-/i,'');if(!/^(?:\d{17,20}|quota-\d{13}-\d{17,20})$/.test(id))throw new Error('Enter the Case ID shown on the infraction, with or without INF-.');return id;}
 const tiers=[...ROLES.warnings,...ROLES.strikes];
 const statusRole=type=>({Termination:ROLES.termination,Blacklisted:ROLES.blacklisted,'Under Investigation':ROLES.investigation}[type]);
 function revokePlan(state,cases,item){

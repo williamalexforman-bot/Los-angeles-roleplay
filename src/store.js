@@ -2,6 +2,8 @@ const { MongoClient } = require('mongodb');
 let db;
 const PREFIX=`guild_${require('./settings').GUILD_ID}_`;
 async function connect() {
+  // MongoClient reconnects its pool; reuse it during transient outages.
+  if(db){await db.command({ping:1});return;}
   let uri = process.env.MONGODB_URI;
   if (!uri && process.env.MONGODB_USERNAME && process.env.MONGODB_PASSWORD && process.env.MONGODB_HOST) {
     uri = `mongodb+srv://${encodeURIComponent(process.env.MONGODB_USERNAME)}:${encodeURIComponent(process.env.MONGODB_PASSWORD)}@${process.env.MONGODB_HOST}/?retryWrites=true&w=majority`;
