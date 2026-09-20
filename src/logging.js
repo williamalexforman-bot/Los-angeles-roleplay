@@ -54,12 +54,13 @@ function registerLogs(client){
  const eligible=g=>g&&(!process.env.GUILD_ID?.trim()||g.id===process.env.GUILD_ID.trim());
  const on=(event,fn)=>client.on(event,(...args)=>{void Promise.resolve().then(()=>fn(...args)).catch(e=>console.error('Event logger failed:',event,e.code||e.name));});
  const valid=m=>eligible(m.guild)&&!m.author?.bot&&!m.webhookId&&!Object.values(CHANNELS).includes(m.channelId);
- const header=m=>`**Member:** ${m.author?`<@${m.author.id}> (${m.author.id})`:'Unknown (message not cached)'}\n**Channel:** <#${m.channelId}>\n**Message ID:** ${m.id}`;
+ const identity=u=>u?`<@${u.id}> • **Username:** ${safe(u.username||'Unavailable',100)} • **ID:** ${u.id}`:'Unavailable';
+ const header=m=>`**Member:** ${m.author?identity(m.author):'Unknown (message not cached)'}\n**Channel:** <#${m.channelId}>\n**Message ID:** ${m.id}`;
  const attachments=m=>m.attachments?.size?'\n**Attachments:**\n'+[...m.attachments.values()].slice(0,5).map(a=>safe(a.url,300)).join('\n'):'';
- on('interactionCreate',async i=>{if(eligible(i.guild)&&i.isChatInputCommand?.())await record('bot',i.guildId,'Command Used',`**Member:** <@${i.user.id}>\n**Command:** /${i.commandName}\n**Channel:** <#${i.channelId}>`,i.id);});
+ on('interactionCreate',async i=>{if(eligible(i.guild)&&i.isChatInputCommand?.())await record('bot',i.guildId,'Command Used',`**Member:** ${identity(i.user)}\n**Command:** /${i.commandName}\n**Channel:** <#${i.channelId}>`,i.id);});
  on('messageCreate',async m=>{
   if(!valid(m))return;
-  const command=require('./messages').parsePrefix(m.content);if(command)await record('bot',m.guild.id,'Command Used',`**Member:** <@${m.author.id}>\n**Command:** -${command.command}\n**Channel:** <#${m.channelId}>`,m.id);
+  const command=require('./messages').parsePrefix(m.content);if(command)await record('bot',m.guild.id,'Command Used',`**Member:** ${identity(m.author)}\n**Command:** -${command.command}\n**Channel:** <#${m.channelId}>`,m.id);
   if(isThreat(m.content))await record('raids',m.guild.id,'Possible Raid Threat',`${header(m)}\n[Review message](${m.url})\n\n${safe(m.content)}\n\nKeyword alert only. Staff must verify; no automatic punishment.`,`threat:${m.id}`);
  });
  on('messageUpdate',async(old,m)=>{
@@ -94,11 +95,41 @@ function registerLogs(client){
   if(old.permissions.bitfield!==r.permissions.bitfield)changes.push(`**Permissions:** ${old.permissions.bitfield} → ${r.permissions.bitfield}`);
   if(changes.length)await record('roles',r.guild.id,'Role Updated',`**Role:** <@&${r.id}> (${r.id})\n${changes.join('\n')}`);
  });
- on('guildBanAdd',b=>eligible(b.guild)?record('moderation',b.guild.id,'Member Banned',`**Member:** <@${b.user.id}> (${b.user.id})\n**Reason:** ${safe(b.reason||'Not supplied with this event')}`):undefined);
- on('guildBanRemove',b=>eligible(b.guild)?record('moderation',b.guild.id,'Member Unbanned',`**Member:** <@${b.user.id}> (${b.user.id})`):undefined);
  on('guildAuditLogEntryCreate',async(entry,guild)=>{
-  if(!eligible(guild)||entry.action!==D.AuditLogEvent.MemberKick)return;
-  await record('moderation',guild.id,'Member Kicked',`**Member:** <@${entry.targetId}> (${entry.targetId})\n**Moderator:** ${entry.executorId?`<@${entry.executorId}>`:'Unavailable'}\n**Reason:** ${safe(entry.reason||'Not provided')}`,`kick:${entry.id}`);
+  if(!eligible(guild))return;
+  await auditRecord(entry,guild);
  });
 }
 module.exports={CHANNELS,record,flushLogs,registerLogs,trackRaid,isThreat};
+
+const AUDIT_ACTIONS={
+ [D.AuditLogEvent.MemberKick]:['moderation','Member Kicked','user'],
+ [D.AuditLogEvent.MemberBanAdd]:['moderation','Member Banned','user'],
+ [D.AuditLogEvent.MemberBanRemove]:['moderation','Member Unbanned','user'],
+ [D.AuditLogEvent.MemberUpdate]:['moderation','Member Updated','user'],
+ [D.AuditLogEvent.MemberRoleUpdate]:['roles','Member Roles Changed — Actor','user'],
+ [D.AuditLogEvent.RoleCreate]:['roles','Role Created — Actor','role'],
+ [D.AuditLogEvent.RoleUpdate]:['roles','Role Updated — Actor','role'],
+ [D.AuditLogEvent.RoleDelete]:['roles','Role Deleted — Actor','role'],
+ [D.AuditLogEvent.ChannelCreate]:['bot','Channel Created','channel'],
+ [D.AuditLogEvent.ChannelUpdate]:['bot','Channel Updated','channel'],
+ [D.AuditLogEvent.ChannelDelete]:['bot','Channel Deleted','channel'],
+ [D.AuditLogEvent.MessageDelete]:['messages','Message Deletion — Audit','user'],
+ [D.AuditLogEvent.MessageBulkDelete]:['messages','Bulk Message Deletion — Audit','channel'],
+};
+async function auditRecord(entry,guild){
+ const spec=AUDIT_ACTIONS[entry.action];if(!spec)return;
+ const [kind,title,targetType]=spec;
+ const resolve=async(user,id)=>user?.username?user:id?await guild.client?.users?.fetch(id).catch(()=>null):null;
+ const actor=await resolve(entry.executor,entry.executorId);
+ const who=(u,id)=>id?`<@${id}> • **Username:** ${safe(u?.username||'Unavailable',100)} • **ID:** ${id}`:'Unavailable (Discord did not provide an actor)';
+ let target;
+ if(targetType==='user')target=who(await resolve(entry.target,entry.targetId),entry.targetId);
+ else target=`${safe(entry.target?.name||targetType,100)} • **ID:** ${entry.targetId||'Unavailable'}`;
+ const changes=(entry.changes||[]).slice(0,10).map(c=>{
+  const value=v=>safe(typeof v==='object'?JSON.stringify(v):v,160);
+  return `**${safe(c.key,60)}:** ${value(c.old)} → ${value(c.new)}`;
+ }).join('\n');
+ await record(kind,guild.id,title,`**Performed by:** ${who(actor,entry.executorId)}\n**Target:** ${target}\n**Reason:** ${safe(entry.reason||'Not provided',500)}\n${changes}\n**Audit entry:** ${entry.id}`,`audit:${entry.id}`);
+}
+module.exports.auditRecord=auditRecord;

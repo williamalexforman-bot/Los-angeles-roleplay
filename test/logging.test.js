@@ -40,3 +40,13 @@ test('raid alerts are threshold based with cooldown and limited keyword matching
  assert.equal(L.trackRaid(state,'guild','9',now),10);assert.equal(L.trackRaid(state,'guild','10',now+1),0);
  assert.equal(L.isThreat('we are going to raid your server'),true);assert.equal(L.isThreat('What is a raid?'),false);
 });
+test('audit bans, kicks and role changes include the exact actor username and deduplicate entry IDs',async()=>{
+ rows=new Map();const guild={id:'guild',client:{users:{fetch:async id=>({id,username:id==='mod'?'moderator_name':'target_name'})}}};
+ for(const [n,action] of [D.AuditLogEvent.MemberBanAdd,D.AuditLogEvent.MemberKick,D.AuditLogEvent.MemberRoleUpdate].entries()){
+  const entry={action,id:'audit-'+n,executorId:'mod',targetId:'target',reason:'Reviewed evidence'};
+  await L.auditRecord(entry,guild);await L.auditRecord(entry,guild);
+ }
+ assert.equal(rows.size,3);for(const row of rows.values()){assert.match(row.body,/moderator/);assert.match(row.body,/<@mod>/);assert.match(row.body,/target/);assert.match(row.body,/Reviewed evidence/);}
+ await L.auditRecord({action:D.AuditLogEvent.MemberBanAdd,id:'unknown',targetId:'target'},guild);
+ assert.match([...rows.values()].at(-1).body,/Discord did not provide an actor/);
+});
