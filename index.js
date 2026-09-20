@@ -52,7 +52,7 @@ else {
     console.log('Discord connected as', client.user.tag);
     // Emoji REST rate limits must not hold up database/jobs/command registration.
     void runTask('Emoji refresh', async () => { const emojis=await client.guilds.cache.get(process.env.GUILD_ID)?.emojis.fetch(); console.log('Server emojis available:',emojis?.size || 0); });
-    void runTask('Role refresh',()=>client.guilds.cache.get(process.env.GUILD_ID)?.roles.fetch());
+    void runTask('Role refresh',async()=>{const guild=client.guilds.cache.get(process.env.GUILD_ID);if(!guild)return;await guild.roles.fetch();const roles=require('./src/discipline-roles').readInfractionRoles(guild);console.log('Infraction roles detected:',JSON.stringify(roles));});
     if(startupStarted)return;
     startupStarted=true;
     let jobsStarted = false;
@@ -72,14 +72,18 @@ else {
 
     void startTask('Command registration',async()=>{
       if(commandsRegistered||!client.isReady())return;
-      const guilds = await require('./src/guild-config').commandGuilds(client);
-      await client.application.commands.set([]);
-      for (const guild of guilds) {
-        await guild.commands.set(commands.map(c => c.toJSON()));
-        if(databaseReady) await require('./src/logging').record('bot',guild.id,'Bot Online','Discord connected and commands registered.',`startup:${process.env.RENDER_GIT_COMMIT || Date.now()}`);
+      try {
+        const guilds = await require('./src/guild-config').commandGuilds(client);
+        const serialized=commands.map(c=>c.toJSON());
+        for (const guild of guilds) {
+          await guild.commands.set(serialized);
+          if(databaseReady) await require('./src/logging').record('bot',guild.id,'Bot Online','Discord connected and commands registered.',`startup:${process.env.RENDER_GIT_COMMIT || Date.now()}`);
+        }
+        console.log('Registered commands: ' + commands.map(c => '/' + c.name).join(', '));
+        commandsRegistered=true;
+      } catch(error) {
+        console.error('Command registration failed:',JSON.stringify({name:error?.name,message:error?.message,code:error?.code,status:error?.status,raw:error?.rawError?.message}));
       }
-      console.log('Registered commands: ' + commands.map(c => '/' + c.name).join(', '));
-      commandsRegistered=true;
     },30000);
 
   }));
