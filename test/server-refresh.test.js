@@ -14,7 +14,7 @@ test('registration remains valid and ticket destinations fit Discord command lim
 });
 test('CPFR ticket launcher offers the three supplied departments',()=>{
  const p=require('../src/panels').panel('ticket'),box=p.components[0].toJSON(),menu=box.components.find(c=>c.type===1).components[0];
- assert.equal(p.flags,D.MessageFlags.IsComponentsV2);assert.deepEqual(menu.options.map(o=>o.label),['General Support','Office of Internal Affairs','Office of the Chief']);
+ assert.equal(p.flags,D.MessageFlags.IsComponentsV2);assert.deepEqual(menu.options.map(o=>o.label),['General Support','Internal Affairs','Office of the Chief']);
  for(const o of menu.options)assert.equal(o.description,TICKET_DESCRIPTIONS[o.value]);
 });
 test('each department routes into its supplied ticket destination',async()=>{

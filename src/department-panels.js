@@ -35,11 +35,11 @@ function information(){return make('information','Central Pierce Fire & Rescue',
 ],[new D.StringSelectMenuBuilder().setCustomId('cpfr:information').setPlaceholder('Explore Central Pierce Fire & Rescue').addOptions({label:'Discord Regulations',value:'regulations',description:'Read the community rules privately.'})]);}
 
 function ticket(){return make('assistance','Support',[
-`The **Central Pierce Fire & Rescue Support Center** is the primary system for submitting requests, reports, concerns, and other department-related matters. Tickets are reviewed and assigned by category and priority so they reach the right personnel.`,
-`### General Support\n> General questions, assistance, technical issues, and department requests.`,
-`### Office of Internal Affairs\n> Complaints, staff conduct concerns, policy violations, investigations, or matters requiring confidential internal review.`,
-`### Office of the Chief\n> Command-level matters, department concerns, appeals, or issues requiring the Office of the Chief.`,
-`### Ticket Information\n> Please select the appropriate category and include accurate details so the correct team can review and resolve your matter efficiently.`
+`<:Arrow:1546628745471721633> The **Central Pierce Fire & Rescue Support Center** is the primary system for submitting requests, reports, concerns, and other department-related matters. Tickets are reviewed and assigned by category and priority so they reach the appropriate personnel.`,
+`### <:Ticket:1546624901031530596> General Support\n> General questions, assistance, technical issues, and department requests.`,
+`### <:IA:1546629494419492994> Internal Affairs\n> Complaints, staff conduct concerns, policy violations, investigations, or matters requiring confidential internal review.`,
+`### <:guidelines:1546628708109131776> Office of the Chief\n> Command-level matters, department concerns, appeals, or issues requiring the Office of the Chief.`,
+`### <:app:1546630044468773025> Ticket Information\n> Please select the appropriate category and include accurate details so the correct team can review and resolve your matter efficiently.`
 ],[new D.StringSelectMenuBuilder().setCustomId('ticket:create').setPlaceholder('Choose a support department').addOptions(
  ...Object.entries(TICKETS).map(([value,label])=>({label,value,description:TICKET_DESCRIPTIONS[value]}))
 )]);}

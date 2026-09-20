@@ -12,7 +12,7 @@ const CHANNELS={
 // No old-server role IDs are permitted to affect the new server.
 const ROLES={warnings:[],strikes:[],retained:null,suspended:null,termination:null,blacklisted:null,investigation:null};
 const TYPES=['Warning','Strike','Suspension','Demotion','Termination','Under Investigation','Blacklisted'];
-const TICKETS={general:'General Support',affairs:'Office of Internal Affairs',high:'Office of the Chief'};
+const TICKETS={general:'General Support',affairs:'Internal Affairs',high:'Office of the Chief'};
 const TICKET_DESCRIPTIONS={general:'General questions, assistance, technical issues, and department requests.',affairs:'Complaints, conduct concerns, policy violations, or confidential internal review.',high:'Command-level matters, department concerns, appeals, or Chief Office support.'};
 const TICKET_ACCESS_ROLE=null;
 module.exports={GUILD_ID,CHANNELS,ROLES,TYPES,TICKETS,TICKET_DESCRIPTIONS,TICKET_ACCESS_ROLE};
