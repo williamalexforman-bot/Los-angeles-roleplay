@@ -7,7 +7,7 @@ function duration(ms) {
  return `${Math.floor(minutes/60)}h ${minutes%60}m`;
 }
 function shiftPanel() {
- return v2('Staff Shifts',[section('on_duty','Start Your Shift','Start when you go on duty and end when you finish. Your timestamps are saved in the database.'),section('quota','Weekly Quota','Members with the quota role need **2 hours** by **Saturday at 9 AM Eastern**. Missing quota automatically issues a Warning.'),section('duration','View Shifts','Use `/shift view member:` to see current duty time and weekly progress. No shift log channel is needed.')],[button('shift:start','Start Shift',D.ButtonStyle.Success),button('shift:end','End Shift',D.ButtonStyle.Danger),button('shift:status','My Shift')]);
+ return v2('Staff Shifts',[section('on_duty','Start Your Shift','Start when you go on duty and end when you finish. Your timestamps are saved in the database.'),section('quota','Weekly Quota','Members with the quota role need **2 hours** by **Saturday at 9 AM Eastern**. Missing quota automatically issues a Warning.'),section('duration','View Shifts','Use `/shift view member:` to see current duty time and weekly progress. No shift log channel is needed.')],[button('shift:start','Start Shift',D.ButtonStyle.Success),button('shift:end','End Shift',D.ButtonStyle.Danger),button('shift:status','My Shift')],false,'shift');
 }
 async function viewShift(i,userId=i.user.id) {
  const {quotaState,currentPeriod,totals,QUOTA_ROLE,MINIMUM}=require('./quota');
