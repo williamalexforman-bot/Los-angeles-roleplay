@@ -53,7 +53,7 @@ function ticketNotice(record) {
   const staff=record.support || TICKET_ACCESS_ROLE;
   const icon=(name,fallback)=>E.icon(name,fallback,record.guildId);
   const text=[
-    `${icon("welcome","👋")} Thanks <@${record.owner}> for contacting support!`,
+    `@everyone\n\n${icon("welcome","👋")} Thanks <@${record.owner}> for contacting support!`,
     `Thank you for creating a ticket with **United States Marshals Service**. ${staff ? `<@&${staff}>` : "Our support team"} will be with you shortly. Please do not ping staff unless your ticket has had no response for more than **12 hours**. If you are reporting a user, include their **User ID**, a **screenshot**, and a **clear reason** below.`,
     `${icon('ticket','🎫')} **Ticket Information**\n${icon('member','•')} **Opener:** <@${record.owner}>\n${icon('reference','•')} **Ticket ID:** \`TICKET-${record._id}\`\n${icon('support','•')} **Department:** ${TICKETS[record.type] || 'Support'}\n${icon('reason','•')} **Reason** ${require('./ticket-format').ticketReason(record.reason)}`
   ];

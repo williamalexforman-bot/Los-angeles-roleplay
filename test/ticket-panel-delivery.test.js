@@ -21,7 +21,7 @@ test('temporary send failures retry using the same nonce',async()=>{
 test('missing permissions do not cause repeated sends',async()=>{
  let attempts=0;await assert.rejects(deliver({send:async()=>{attempts++;throw {code:50013};}},record));assert.equal(attempts,1);
 });
-test('new panels ping opener and support while edits stay silent',async()=>{
- await deliver({send:async p=>{assert.deepEqual(p.allowedMentions,{parse:[],users:['owner'],roles:[]});return {id:'panel'};}},record);
+test('new panels ping everyone, opener and support while edits stay silent',async()=>{
+ await deliver({send:async p=>{assert.deepEqual(p.allowedMentions,{parse:['everyone'],users:['owner'],roles:[]});return {id:'panel'};}},record);
  await deliver({},record,{edit:async p=>{assert.deepEqual(p.allowedMentions,{parse:[]});return {id:'panel'};}});
 });
