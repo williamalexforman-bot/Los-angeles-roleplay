@@ -39,7 +39,19 @@ healthServer.listen(Number(process.env.PORT || 10000),'0.0.0.0',()=>lifecycle('h
 if (!token) { lifecycle('configuration_error',{errorCode:'BOT_TOKEN_MISSING'});process.exit(1); }
 else {
   let presenceTimer,startupStarted=false;
-  const recovery=require('./src/discord-recovery').discordRecovery({token,offlineMs:120000,retryMs:30000,log:lifecycle,fatal:()=>process.exit(1),createClient:()=>{
+  const authenticate=async value=>{
+    lifecycle('discord_auth_check_started');
+    const response=await fetch('https://discord.com/api/v10/users/@me',{headers:{Authorization:`Bot ${value}`},signal:AbortSignal.timeout(15000)});
+    if(!response.ok){
+      const error=Error(response.status===401?'Discord rejected BOT_TOKEN':'Discord authentication check failed');
+      error.name=response.status===401?'DiscordAuthenticationError':'DiscordApiError';
+      error.code=response.status;
+      throw error;
+    }
+    const account=await response.json();
+    lifecycle('discord_auth_check_passed',{botId:account.id,botUsername:account.username});
+  };
+  const recovery=require('./src/discord-recovery').discordRecovery({token,authenticate,offlineMs:120000,retryMs:30000,log:lifecycle,fatal:()=>process.exit(1),createClient:()=>{
   clearInterval(presenceTimer);
   commandsRegistered=false;
   client = new D.Client({ makeCache: D.Options.cacheWithLimits({ ...D.Options.DefaultMakeCacheSettings, MessageManager: 50 }), sweepers: { ...D.Options.DefaultSweeperSettings, messages: { interval: 300, lifetime: 900 } }, rest: { rejectOnRateLimit: data => /\/guilds\/[^/]+\/emojis(?:\/|$)/.test(data.route) }, intents: [D.GatewayIntentBits.Guilds, D.GatewayIntentBits.GuildEmojisAndStickers, D.GatewayIntentBits.GuildMembers, D.GatewayIntentBits.GuildMessages, D.GatewayIntentBits.MessageContent, D.GatewayIntentBits.DirectMessages, D.GatewayIntentBits.GuildModeration], partials:[D.Partials.Channel,D.Partials.Message,D.Partials.GuildMember] });

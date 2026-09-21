@@ -1,7 +1,9 @@
 const { performance } = require('node:perf_hooks');
 
 function botToken(env = process.env) {
-  return env.BOT_TOKEN?.trim() || env.bot_token?.trim() || '';
+  const raw=env.BOT_TOKEN?.trim() || env.bot_token?.trim() || '';
+  const unquoted=/^(["']).*\1$/.test(raw)?raw.slice(1,-1).trim():raw;
+  return unquoted.replace(/^Bot\s+/i,'').trim();
 }
 
 // Allow Discord.js time to resume a session before asking the host to restart.
