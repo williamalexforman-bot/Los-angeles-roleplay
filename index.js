@@ -39,29 +39,10 @@ healthServer.listen(Number(process.env.PORT || 10000),'0.0.0.0',()=>lifecycle('h
 if (!token) { lifecycle('configuration_error',{errorCode:'BOT_TOKEN_MISSING'});process.exit(1); }
 else {
   let presenceTimer,startupStarted=false;
-  const authenticate=async value=>{
-    lifecycle('discord_auth_check_started');
-    let response;
-    try{
-      response=await fetch('https://discord.com/api/v10/users/@me',{headers:{Authorization:`Bot ${value}`},signal:AbortSignal.timeout(15000)});
-    }catch(error){
-      lifecycle('discord_auth_check_skipped',{reason:error?.name||'NetworkError'});
-      return;
-    }
-    if(response.status===401){
-      const error=Error('Discord rejected BOT_TOKEN');
-      error.name='DiscordAuthenticationError';
-      error.code=401;
-      throw error;
-    }
-    if(!response.ok){
-      lifecycle('discord_auth_check_skipped',{status:response.status,reason:response.status===429?'RateLimited':'ApiUnavailable'});
-      return;
-    }
-    const account=await response.json();
-    lifecycle('discord_auth_check_passed',{botId:account.id,botUsername:account.username});
-  };
-  const recovery=require('./src/discord-recovery').discordRecovery({token,authenticate,offlineMs:120000,retryMs:30000,log:lifecycle,fatal:()=>process.exit(1),createClient:()=>{
+  // Discord.js handles REST/gateway rate-limit waits internally. A short custom
+  // timeout creates a reconnect loop on shared Render IPs, so allow the login
+  // attempt to remain alive long enough for Discord's cooldown to clear.
+  const recovery=require('./src/discord-recovery').discordRecovery({token,offlineMs:900000,retryMs:300000,loginMs:600000,log:lifecycle,fatal:()=>process.exit(1),createClient:()=>{
   clearInterval(presenceTimer);
   commandsRegistered=false;
   client = new D.Client({ makeCache: D.Options.cacheWithLimits({ ...D.Options.DefaultMakeCacheSettings, MessageManager: 50 }), sweepers: { ...D.Options.DefaultSweeperSettings, messages: { interval: 300, lifetime: 900 } }, rest: { rejectOnRateLimit: data => /\/guilds\/[^/]+\/emojis(?:\/|$)/.test(data.route) }, intents: [D.GatewayIntentBits.Guilds, D.GatewayIntentBits.GuildEmojisAndStickers, D.GatewayIntentBits.GuildMembers, D.GatewayIntentBits.GuildMessages, D.GatewayIntentBits.MessageContent, D.GatewayIntentBits.DirectMessages, D.GatewayIntentBits.GuildModeration], partials:[D.Partials.Channel,D.Partials.Message,D.Partials.GuildMember] });
