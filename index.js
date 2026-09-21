@@ -41,12 +41,22 @@ else {
   let presenceTimer,startupStarted=false;
   const authenticate=async value=>{
     lifecycle('discord_auth_check_started');
-    const response=await fetch('https://discord.com/api/v10/users/@me',{headers:{Authorization:`Bot ${value}`},signal:AbortSignal.timeout(15000)});
-    if(!response.ok){
-      const error=Error(response.status===401?'Discord rejected BOT_TOKEN':'Discord authentication check failed');
-      error.name=response.status===401?'DiscordAuthenticationError':'DiscordApiError';
-      error.code=response.status;
+    let response;
+    try{
+      response=await fetch('https://discord.com/api/v10/users/@me',{headers:{Authorization:`Bot ${value}`},signal:AbortSignal.timeout(15000)});
+    }catch(error){
+      lifecycle('discord_auth_check_skipped',{reason:error?.name||'NetworkError'});
+      return;
+    }
+    if(response.status===401){
+      const error=Error('Discord rejected BOT_TOKEN');
+      error.name='DiscordAuthenticationError';
+      error.code=401;
       throw error;
+    }
+    if(!response.ok){
+      lifecycle('discord_auth_check_skipped',{status:response.status,reason:response.status===429?'RateLimited':'ApiUnavailable'});
+      return;
     }
     const account=await response.json();
     lifecycle('discord_auth_check_passed',{botId:account.id,botUsername:account.username});
