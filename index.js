@@ -50,7 +50,7 @@ else {
   client.rest.get=async(route,...args)=>{
     try{return await restGet(route,...args);}
     catch(error){
-      const rateLimited=error?.status===429||error?.code===429||error?.name==='RateLimitError';
+      const rateLimited=error?.status===429||error?.code===429||String(error?.name||'').startsWith('RateLimitError');
       if(route==='/gateway/bot'&&rateLimited){
         lifecycle('discord_gateway_info_fallback',{reason:'RateLimited',shards:1});
         return {url:'wss://gateway.discord.gg',shards:1,session_start_limit:{total:1000,remaining:999,reset_after:60000,max_concurrency:1}};
