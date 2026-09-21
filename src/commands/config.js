@@ -50,10 +50,15 @@ const ticketpanel = roleGated(new D.SlashCommandBuilder().setName('ticketpanel')
 const requestrole=new D.SlashCommandBuilder().setName('requestrole').setDescription('Ask HR to approve a trainee role').setDMPermission(false).addUserOption(o=>o.setName('trainee').setDescription('Member receiving the role').setRequired(true)).addRoleOption(o=>o.setName('role').setDescription('Requested role').setRequired(true));
 const addEmojis=admin(new D.SlashCommandBuilder().setName('add-emojis').setDescription('Install a batch of transparent CFD panel emojis'));
 const say=roleGated(new D.SlashCommandBuilder().setName('say').setDescription('Send a message as the bot').addStringOption(o=>o.setName('message').setDescription('Message to send').setRequired(true).setMaxLength(2000)));
+const dm=new D.SlashCommandBuilder().setName('dm').setDescription('Owner: send one user a direct message').setDMPermission(false)
+ .addUserOption(o=>o.setName('user').setDescription('User to message').setRequired(true))
+ .addStringOption(o=>o.setName('message').setDescription('Message to send').setRequired(true).setMaxLength(2000));
+const role=new D.SlashCommandBuilder().setName('role').setDescription('Owner: add or remove a manageable role').setDMPermission(false);
+for(const action of ['add','remove'])role.addSubcommand(s=>s.setName(action).setDescription(`${action} a role from a server member`).addUserOption(o=>o.setName('user').setDescription('Server member').setRequired(true)).addRoleOption(o=>o.setName('role').setDescription('Role to change').setRequired(true)));
 const shift=new D.SlashCommandBuilder().setName('shift').setDescription('Track your shift time').setDMPermission(false);
 for(const action of ['start','end','status'])shift.addSubcommand(s=>s.setName(action).setDescription(`${action} your shift`));
 const cmds = new D.SlashCommandBuilder().setName('cmds').setDescription('List every command and what it does').setDMPermission(false);
 shift.addSubcommand(s=>s.setName('view').setDescription('View a member’s weekly shift time and quota').addUserOption(o=>o.setName('member').setDescription('Member to view')));
 const quota=new D.SlashCommandBuilder().setName('quota').setDescription('Weekly quota controls').setDMPermission(false);
 for(const action of ['status','enable','disable'])quota.addSubcommand(s=>s.setName(action).setDescription(`${action} weekly quota`));
-module.exports = { configCommand, commands: [configCommand, infraction, promotion, suspension, deployment, close, closerequest, ticketpanel, requestrole, addEmojis, say, shift, quota, cmds] };
+module.exports = { configCommand, commands: [configCommand, infraction, promotion, suspension, deployment, close, closerequest, ticketpanel, requestrole, addEmojis, say, dm, role, shift, quota, cmds] };

@@ -3,7 +3,7 @@ const {requireAccess}=require('./access');
 const {v2,section}=require('./panels');
 const {settings,destination}=require('./discipline');
 const DEPLOYMENT_TEXT='An active deployment is underway. Join the game, check in with the deployment lead, and follow the session instructions.';
-function parsePrefix(content){content=content.replace(/^-continue-emojis\s*$/i,'-continueemojis');content=content.replace(/^-add\s+emojis\s*$/i,'-addemojis').replace(/^-continue\s+emojis\s*$/i,'-continueemojis').replace(/^-force\s+stop(?:\s+emojis)?\s*$/i,'-forcestopemojis');const match=/^-(addemojis|add-emojis|continueemojis|forcestopemojis|say|shift|deployment|close|closerequest|ticketpanel)(?:\s+([\s\S]*))?$/i.exec(content);return match?{command:match[1].toLowerCase(),text:(match[2]||'').trim()}:null;}
+function parsePrefix(content){content=content.replace(/^-continue-emojis\s*$/i,'-continueemojis');content=content.replace(/^-add\s+emojis\s*$/i,'-addemojis').replace(/^-continue\s+emojis\s*$/i,'-continueemojis').replace(/^-force\s+stop(?:\s+emojis)?\s*$/i,'-forcestopemojis');const match=/^-(addemojis|add-emojis|continueemojis|forcestopemojis|say|dm|role|shift|deployment|close|closerequest|ticketpanel)(?:\s+([\s\S]*))?$/i.exec(content);return match?{command:match[1].toLowerCase(),text:(match[2]||'').trim()}:null;}
 async function say(context,text){
  await requireAccess(context,'say');
  if(!text.trim()||text.length>2000)throw new Error('Enter a message between 1 and 2,000 characters.');
@@ -28,8 +28,22 @@ async function handleMessage(message){
  const parsed=parsePrefix(message.content);if(!parsed)return;
  const context={guild:message.guild,guildId:message.guild.id,channel:message.channel,channelId:message.channel.id,user:message.author,sourceMessageId:message.id};
  try{
-  if(!['closerequest','say','shift'].includes(parsed.command)&&parsed.text)throw new Error('This command takes no additional text.');
+  if(!['closerequest','say','dm','role','shift'].includes(parsed.command)&&parsed.text)throw new Error('This command takes no additional text.');
   if(parsed.command==='say')await say(context,parsed.text);
+  else if(parsed.command==='dm'){
+    const match=/^(?:<@!?(\d{17,20})>|(\d{17,20}))\s+([\s\S]+)$/.exec(parsed.text),id=match?.[1]||match?.[2];
+    if(!id)throw new Error('Use -dm @user message or -dm USER_ID message.');
+    const user=await message.client.users.fetch(id);
+    await require('./owner-tools').sendDm(context,user,match[3]);
+    await context.channel.send(v2('DM Sent',`Sent a DM to <@${id}>.`,[],true));
+  }
+  else if(parsed.command==='role'){
+    require('./owner-tools').requireOwner(context);
+    const match=/^(add|remove)\s+(?:<@!?(\d{17,20})>|(\d{17,20}))\s+(?:<@&(\d{17,20})>|(\d{17,20}))$/i.exec(parsed.text);
+    if(!match)throw new Error('Use -role add @user @role or -role remove @user @role.');
+    const member=await message.guild.members.fetch(match[2]||match[3]),role=await message.guild.roles.fetch(match[4]||match[5]);
+    await context.channel.send(v2('Role Updated',await require('./owner-tools').changeRole(context,match[1].toLowerCase(),member,role),[],true));
+  }
   else if(parsed.command==='shift'){
     const [action='status',memberText]=parsed.text.toLowerCase().split(/\s+/).filter(Boolean);
     const targetId=memberText?.replace(/[<@!>]/g,'');

@@ -70,6 +70,7 @@ async function handleInteraction(i) {
 
     if (i.isChatInputCommand()) {
 
+      if(['dm','role'].includes(i.commandName))return await require('./owner-tools').slash(i);
       if(i.commandName==='quota')return await require('./quota').quotaCommand(i);
       if(i.commandName==='shift')return await require('./shifts').handleShift(i,i.options.getSubcommand());
       if(i.commandName==='say')return await require('./messages').handleMessageCommand(i);
