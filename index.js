@@ -45,7 +45,19 @@ else {
   const recovery=require('./src/discord-recovery').discordRecovery({token,offlineMs:900000,retryMs:300000,loginMs:600000,log:lifecycle,fatal:()=>process.exit(1),createClient:()=>{
   clearInterval(presenceTimer);
   commandsRegistered=false;
-  client = new D.Client({ makeCache: D.Options.cacheWithLimits({ ...D.Options.DefaultMakeCacheSettings, MessageManager: 50 }), sweepers: { ...D.Options.DefaultSweeperSettings, messages: { interval: 300, lifetime: 900 } }, rest: { rejectOnRateLimit: data => /\/guilds\/[^/]+\/emojis(?:\/|$)/.test(data.route) }, intents: [D.GatewayIntentBits.Guilds, D.GatewayIntentBits.GuildEmojisAndStickers, D.GatewayIntentBits.GuildMembers, D.GatewayIntentBits.GuildMessages, D.GatewayIntentBits.MessageContent, D.GatewayIntentBits.DirectMessages, D.GatewayIntentBits.GuildModeration], partials:[D.Partials.Channel,D.Partials.Message,D.Partials.GuildMember] });
+  client = new D.Client({ shards:[0], shardCount:1, makeCache: D.Options.cacheWithLimits({ ...D.Options.DefaultMakeCacheSettings, MessageManager: 50 }), sweepers: { ...D.Options.DefaultSweeperSettings, messages: { interval: 300, lifetime: 900 } }, rest: { rejectOnRateLimit: data => data.route==='/gateway/bot'||/\/guilds\/[^/]+\/emojis(?:\/|$)/.test(data.route) }, intents: [D.GatewayIntentBits.Guilds, D.GatewayIntentBits.GuildEmojisAndStickers, D.GatewayIntentBits.GuildMembers, D.GatewayIntentBits.GuildMessages, D.GatewayIntentBits.MessageContent, D.GatewayIntentBits.DirectMessages, D.GatewayIntentBits.GuildModeration], partials:[D.Partials.Channel,D.Partials.Message,D.Partials.GuildMember] });
+  const restGet=client.rest.get.bind(client.rest);
+  client.rest.get=async(route,...args)=>{
+    try{return await restGet(route,...args);}
+    catch(error){
+      const rateLimited=error?.status===429||error?.code===429||error?.name==='RateLimitError';
+      if(route==='/gateway/bot'&&rateLimited){
+        lifecycle('discord_gateway_info_fallback',{reason:'RateLimited',shards:1});
+        return {url:'wss://gateway.discord.gg',shards:1,session_start_limit:{total:1000,remaining:999,reset_after:60000,max_concurrency:1}};
+      }
+      throw error;
+    }
+  };
   require('./src/panel-emojis').configure(client);
   require('./src/logging').registerLogs(client);
   presenceTimer=require('./src/presence').registerPresence(client);
