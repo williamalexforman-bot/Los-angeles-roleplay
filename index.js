@@ -45,7 +45,7 @@ else {
   const recovery=require('./src/discord-recovery').discordRecovery({token,offlineMs:900000,retryMs:300000,loginMs:600000,log:lifecycle,fatal:()=>process.exit(1),createClient:()=>{
   clearInterval(presenceTimer);
   commandsRegistered=false;
-  client = new D.Client({ shards:[0], shardCount:1, makeCache: D.Options.cacheWithLimits({ ...D.Options.DefaultMakeCacheSettings, MessageManager: 50 }), sweepers: { ...D.Options.DefaultSweeperSettings, messages: { interval: 300, lifetime: 900 } }, rest: { rejectOnRateLimit: data => data.route==='/gateway/bot'||/\/guilds\/[^/]+\/emojis(?:\/|$)/.test(data.route) }, intents: [D.GatewayIntentBits.Guilds, D.GatewayIntentBits.GuildEmojisAndStickers, D.GatewayIntentBits.GuildMembers, D.GatewayIntentBits.GuildMessages, D.GatewayIntentBits.MessageContent, D.GatewayIntentBits.DirectMessages, D.GatewayIntentBits.GuildModeration], partials:[D.Partials.Channel,D.Partials.Message,D.Partials.GuildMember] });
+  client = new D.Client({ shards:[0], shardCount:1, makeCache: D.Options.cacheWithLimits({ ...D.Options.DefaultMakeCacheSettings, MessageManager: 50 }), sweepers: { ...D.Options.DefaultSweeperSettings, messages: { interval: 300, lifetime: 900 } }, rest: { rejectOnRateLimit: data => data.route==='/gateway/bot'||/\/guilds\/[^/]+\/emojis(?:\/|$)/.test(data.route)||/\/applications\/:id\/guilds\/:id\/commands/.test(data.route) }, intents: [D.GatewayIntentBits.Guilds, D.GatewayIntentBits.GuildEmojisAndStickers, D.GatewayIntentBits.GuildMembers, D.GatewayIntentBits.GuildMessages, D.GatewayIntentBits.MessageContent, D.GatewayIntentBits.DirectMessages, D.GatewayIntentBits.GuildModeration], partials:[D.Partials.Channel,D.Partials.Message,D.Partials.GuildMember] });
   const restGet=client.rest.get.bind(client.rest);
   client.rest.get=async(route,...args)=>{
     try{return await restGet(route,...args);}
@@ -78,9 +78,11 @@ else {
     commandsRegistered=false;
     console.log('Discord connected as', client.user.tag);
     lifecycle('discord_connected',{botId:client.user.id,botTag:client.user.tag,guilds:client.guilds.cache.size});
-    // Emoji REST rate limits must not hold up database/jobs/command registration.
-    void runTask('Emoji refresh', async () => { const emojis=await client.guilds.cache.get(process.env.GUILD_ID)?.emojis.fetch(); console.log('Server emojis available:',emojis?.size || 0); });
-    void runTask('Role refresh',async()=>{const guild=client.guilds.cache.get(process.env.GUILD_ID);if(!guild)return;await guild.roles.fetch();const roles=require('./src/discipline-roles').readInfractionRoles(guild);console.log('Infraction roles detected:',JSON.stringify(roles));});
+    // READY already supplies guild role/emoji caches. Avoid immediate REST reads
+    // so command registration gets the first API request after connecting.
+    const startupGuild=client.guilds.cache.get(process.env.GUILD_ID);
+    console.log('Server emojis cached:',startupGuild?.emojis.cache.size || 0);
+    if(startupGuild)console.log('Infraction roles detected:',JSON.stringify(require('./src/discipline-roles').readInfractionRoles(startupGuild)));
     if(startupStarted)return;
     startupStarted=true;
     let jobsStarted = false;
@@ -102,6 +104,7 @@ else {
       if(commandsRegistered||!client.isReady())return;
       const registeringClient=client;
       try {
+        lifecycle('command_registration_started');
         const guilds = await require('./src/guild-config').commandGuilds(registeringClient);
         const serialized=commands.map(c=>c.toJSON());
         for (const guild of guilds) {
@@ -113,7 +116,7 @@ else {
       } catch(error) {
         console.error('Command registration failed:',JSON.stringify({name:error?.name,message:error?.message,code:error?.code,status:error?.status,raw:error?.rawError?.message}));
       }
-    },30000);
+    },300000);
 
   }));
   client.on('guildMemberAdd', member => member.guild.id === process.env.GUILD_ID && runTask('Welcome message', () => require('./src/welcome').welcome(member)));
