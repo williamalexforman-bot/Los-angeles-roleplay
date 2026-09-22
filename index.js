@@ -22,7 +22,6 @@ process.on('uncaughtExceptionMonitor', (error, origin) => lifecycle('fatal_error
 process.on('uncaughtException', (error, origin) => { lifecycle('fatal_restart', { origin, ...errorDetails(error) }); setTimeout(() => process.exit(1), 250).unref(); });
 process.on('unhandledRejection', reason => lifecycle('unhandled_rejection', errorDetails(reason)));
 process.on('warning', warning => lifecycle('node_warning', errorDetails(warning)));
-process.on('multipleResolves', (type, promise, value) => lifecycle('multiple_resolves', { type, ...errorDetails(value) }));
 setInterval(() => lifecycle('heartbeat'), 30000).unref();
 console.log('Bot starting:', process.env.RENDER_GIT_COMMIT || 'local', 'Node', process.version);
 process.on('SIGTERM', () => { lifecycle('host_sigterm'); process.exit(0); });
@@ -108,7 +107,13 @@ else {
         const guilds = await require('./src/guild-config').commandGuilds(registeringClient);
         const serialized=commands.map(c=>c.toJSON());
         for (const guild of guilds) {
-          await guild.commands.set(serialized);
+          const registered=await guild.commands.set(serialized);
+          const expectedNames=serialized.map(command=>command.name).sort();
+          const registeredNames=[...registered.values()].map(command=>command.name).sort();
+          const missing=expectedNames.filter(name=>!registeredNames.includes(name));
+          const unexpected=registeredNames.filter(name=>!expectedNames.includes(name));
+          if(missing.length||unexpected.length)throw new Error(`Discord command verification failed for guild ${guild.id}; missing: ${missing.join(', ')||'none'}; unexpected: ${unexpected.join(', ')||'none'}`);
+          lifecycle('command_registration_completed',{guildId:guild.id,guildName:guild.name,registeredCount:registered.size,commands:registeredNames});
           if(databaseReady) await require('./src/logging').record('bot',guild.id,'Bot Online','Discord connected and commands registered.',`startup:${process.env.RENDER_GIT_COMMIT || Date.now()}`);
         }
         console.log('Registered commands: ' + commands.map(c => '/' + c.name).join(', '));

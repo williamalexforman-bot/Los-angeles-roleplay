@@ -17,7 +17,9 @@ async function record(kind,guildId,title,body,key=randomUUID()){
 }
 async function flushLogs(client){
  for(const [id,row]of buffer){try{await persist(row);buffer.delete(id);}catch{break;}}
- const pending=await collection('event_logs').find({delivered:false,nextAttempt:{$lte:Date.now()}}).sort({created:1}).limit(25).toArray();
+ // Discord message routes permit only a small burst. Keep each delivery pass
+ // below that burst so startup backlogs cannot starve interaction responses.
+ const pending=await collection('event_logs').find({delivered:false,nextAttempt:{$lte:Date.now()}}).sort({created:1}).limit(4).toArray();
  for(const item of pending){
   try{await locked(`event-log:${item._id}`,async()=>{
    const fresh=await collection('event_logs').findOne({_id:item._id});if(!fresh||fresh.delivered)return;
