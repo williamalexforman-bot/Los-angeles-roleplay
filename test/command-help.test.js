@@ -14,7 +14,7 @@ test('help includes every registered command and subcommand plus prefix commands
   for (const [usage] of PREFIX_COMMANDS) assert.ok(text.includes(usage));
   assert.ok(text.includes('[evidence:value]'));
   for (const payload of payloads) {
-    assert.ok(payload.flags & D.MessageFlags.Ephemeral);
+    assert.equal(payload.flags & D.MessageFlags.Ephemeral, 0);
     assert.deepEqual(payload.allowedMentions, { parse: [] });
     const container = payload.components[0].toJSON();
     const displays = container.components.filter(c => c.type === D.ComponentType.TextDisplay);
@@ -23,7 +23,7 @@ test('help includes every registered command and subcommand plus prefix commands
   }
 });
 
-test('cmds replies with all pages privately without requiring staff access', async () => {
+test('cmds replies with all pages publicly without requiring staff access', async () => {
   const sent = [];
   await handle({ reply: async payload => sent.push(payload), followUp: async payload => sent.push(payload) });
   assert.equal(sent.length, pages().length); assert.ok(sent.length > 0);

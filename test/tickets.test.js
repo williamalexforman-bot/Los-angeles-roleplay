@@ -27,3 +27,12 @@ test('saved support role grants ticket access',async()=>{
   i.guild.members.fetch=async()=>({permissions:{has:()=>false},roles:{cache:{has:()=>false}}});
   await assert.rejects(()=>ticketAccess(i),/Only/);
 });
+test('member-specific deny removes ordinary staff from a ticket',async()=>{
+  const {removeFromTicket}=require('../src/tickets');const edits=[];
+  const i=interaction();i.id='command';i.user.id='staff';i.guildId='guild';i.guild.id='guild';i.guild.ownerId='owner';
+  i.guild.members.fetch=async({user})=>user==='staff'?{id:'staff',permissions:{has:()=>false},roles:{cache:{has:id=>id==='support'}}}:{id:user,permissions:{has:()=>false},roles:{cache:{has:()=>true}}};
+  i.guild.members.fetchMe=async()=>({id:'bot',permissions:{has:flag=>flag===D.PermissionFlagsBits.ManageChannels}});
+  i.channel.permissionOverwrites={edit:async(id,permissions,options)=>edits.push({id,permissions,options})};
+  const result=await removeFromTicket(i,'target');
+  assert.match(result,/can no longer view/);assert.equal(edits.length,1);assert.equal(edits[0].id,'target');assert.equal(edits[0].permissions.ViewChannel,false);
+});

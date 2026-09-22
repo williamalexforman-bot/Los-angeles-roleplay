@@ -1,7 +1,7 @@
 const D = require('discord.js');
 const { v2 } = require('./panels');
 
-const PREFIX_COMMANDS = [['-say <message>','Staff: send a message as the bot and remove the successful command invocation.'],['-dm @user <message>','Owner only: send one user a direct message.'],['-role add/remove @user @role','Owner only: change a role when Discord hierarchy permits it.'],['-shift start / end / status / view @member','Track duty and view weekly quota: 2 hours, Saturday 9 AM Eastern.'],['-add emojis','Install or migrate five transparent white panel emojis (Administrator).'],['-continue emojis','Install the next missing batch.'],['-force stop emojis','Stop current and queued emoji work.'],['-deployment','Post a deployment.'],['-close','Save the transcript and close a ticket.'],['-closerequest <reason>','Ask the opener to close their ticket.'],['-ticketpanel','Post the configured ticket panel.']];
+const PREFIX_COMMANDS = [['-say <message>','Staff: send a message as the bot and remove the successful command invocation.'],['-dm @user <message>','Owner only: send one user a direct message.'],['-role add/remove @user @role','Owner only: change a role when Discord hierarchy permits it.'],['-shift start / end / status / view @member','Track duty and view weekly quota: 2 hours, Saturday 9 AM Eastern.'],['-add emojis','Install or migrate five transparent white panel emojis (Administrator).'],['-continue emojis','Install the next missing batch.'],['-force stop emojis','Stop current and queued emoji work.'],['-deployment','Post a deployment.'],['-lock','Lock the current channel until staff uses -unlock.'],['-unlock','Restore the channel permissions saved by -lock.'],['-removefrom @user','Remove a member from the current ticket.'],['-close','Save the transcript and close a ticket.'],['-closerequest <reason>','Ask the opener to close their ticket.'],['-ticketpanel','Post the configured ticket panel.']];
 
 function slashEntries(commands) {
   const entries = [];
@@ -31,7 +31,7 @@ function pages(commands = require('./commands/config').commands) {
     body += (body ? '\n\n' : '') + line;
   }
   if (body) result.push(body);
-  return result.map((text, index) => v2(`Bot Command Directory (${index + 1}/${result.length})`, text, [], true));
+  return result.map((text, index) => v2(`Bot Command Directory (${index + 1}/${result.length})`, text));
 }
 
 async function handle(i) {

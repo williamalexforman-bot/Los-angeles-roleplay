@@ -47,6 +47,9 @@ const deployment = roleGated(new D.SlashCommandBuilder().setName('deployment').s
 const close = roleGated(new D.SlashCommandBuilder().setName('close').setDescription('Save the transcript and close this ticket'));
 const closerequest = roleGated(new D.SlashCommandBuilder().setName('closerequest').setDescription('Ask the ticket opener to close this ticket').addStringOption(o=>o.setName('reason').setDescription('Why should this ticket close?').setRequired(true).setMaxLength(1000)));
 const ticketpanel = roleGated(new D.SlashCommandBuilder().setName('ticketpanel').setDescription('Post the ticket panel in the configured channel'));
+const lock = roleGated(new D.SlashCommandBuilder().setName('lock').setDescription('Prevent members from speaking in this channel'));
+const unlock = roleGated(new D.SlashCommandBuilder().setName('unlock').setDescription('Restore this channel’s permissions from before it was locked'));
+const removefrom = roleGated(new D.SlashCommandBuilder().setName('removefrom').setDescription('Remove a member from the current ticket').addUserOption(o=>o.setName('user').setDescription('Member to remove from this ticket').setRequired(true)));
 const requestrole=new D.SlashCommandBuilder().setName('requestrole').setDescription('Ask HR to approve a trainee role').setDMPermission(false).addUserOption(o=>o.setName('trainee').setDescription('Member receiving the role').setRequired(true)).addRoleOption(o=>o.setName('role').setDescription('Requested role').setRequired(true));
 const addEmojis=admin(new D.SlashCommandBuilder().setName('add-emojis').setDescription('Install a batch of transparent CFD panel emojis'));
 const say=roleGated(new D.SlashCommandBuilder().setName('say').setDescription('Send a message as the bot').addStringOption(o=>o.setName('message').setDescription('Message to send').setRequired(true).setMaxLength(2000)));
@@ -61,4 +64,4 @@ const cmds = new D.SlashCommandBuilder().setName('cmds').setDescription('List ev
 shift.addSubcommand(s=>s.setName('view').setDescription('View a member’s weekly shift time and quota').addUserOption(o=>o.setName('member').setDescription('Member to view')));
 const quota=new D.SlashCommandBuilder().setName('quota').setDescription('Weekly quota controls').setDMPermission(false);
 for(const action of ['status','enable','disable'])quota.addSubcommand(s=>s.setName(action).setDescription(`${action} weekly quota`));
-module.exports = { configCommand, commands: [configCommand, infraction, promotion, suspension, deployment, close, closerequest, ticketpanel, requestrole, addEmojis, say, dm, role, shift, quota, cmds] };
+module.exports = { configCommand, commands: [configCommand, infraction, promotion, suspension, deployment, close, closerequest, ticketpanel, lock, unlock, removefrom, requestrole, addEmojis, say, dm, role, shift, quota, cmds] };

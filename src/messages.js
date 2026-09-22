@@ -3,7 +3,7 @@ const {requireAccess}=require('./access');
 const {v2,section}=require('./panels');
 const {settings,destination}=require('./discipline');
 const DEPLOYMENT_TEXT='An active deployment is underway. Join the game, check in with the deployment lead, and follow the session instructions.';
-function parsePrefix(content){content=content.replace(/^-continue-emojis\s*$/i,'-continueemojis');content=content.replace(/^-add\s+emojis\s*$/i,'-addemojis').replace(/^-continue\s+emojis\s*$/i,'-continueemojis').replace(/^-force\s+stop(?:\s+emojis)?\s*$/i,'-forcestopemojis');const match=/^-(addemojis|add-emojis|continueemojis|forcestopemojis|say|dm|role|shift|deployment|close|closerequest|ticketpanel)(?:\s+([\s\S]*))?$/i.exec(content);return match?{command:match[1].toLowerCase(),text:(match[2]||'').trim()}:null;}
+function parsePrefix(content){content=content.replace(/^-continue-emojis\s*$/i,'-continueemojis');content=content.replace(/^-add\s+emojis\s*$/i,'-addemojis').replace(/^-continue\s+emojis\s*$/i,'-continueemojis').replace(/^-force\s+stop(?:\s+emojis)?\s*$/i,'-forcestopemojis');const match=/^-(addemojis|add-emojis|continueemojis|forcestopemojis|say|dm|role|shift|deployment|close|closerequest|ticketpanel|lock|unlock|removefrom)(?:\s+([\s\S]*))?$/i.exec(content);return match?{command:match[1].toLowerCase(),text:(match[2]||'').trim()}:null;}
 async function say(context,text){
  await requireAccess(context,'say');
  if(!text.trim()||text.length>2000)throw new Error('Enter a message between 1 and 2,000 characters.');
@@ -28,7 +28,7 @@ async function handleMessage(message){
  const parsed=parsePrefix(message.content);if(!parsed)return;
  const context={guild:message.guild,guildId:message.guild.id,channel:message.channel,channelId:message.channel.id,user:message.author,sourceMessageId:message.id};
  try{
-  if(!['closerequest','say','dm','role','shift'].includes(parsed.command)&&parsed.text)throw new Error('This command takes no additional text.');
+  if(!['closerequest','say','dm','role','shift','removefrom'].includes(parsed.command)&&parsed.text)throw new Error('This command takes no additional text.');
   if(parsed.command==='say')await say(context,parsed.text);
   else if(parsed.command==='dm'){
     const match=/^(?:<@!?(\d{17,20})>|(\d{17,20}))\s+([\s\S]+)$/.exec(parsed.text),id=match?.[1]||match?.[2];

@@ -54,7 +54,7 @@ function ticketNotice(record) {
   const icon=(name,fallback)=>E.icon(name,fallback,record.guildId);
   const text=[
     `@everyone\n\n${icon("welcome","👋")} Thanks <@${record.owner}> for contacting support!`,
-    `Thank you for creating a ticket with **Clearwater Fire Department**. ${staff ? `<@&${staff}>` : "Our support team"} will be with you shortly. Please do not ping staff unless your ticket has had no response for more than **12 hours**. If you are reporting a user, include their **User ID**, a **screenshot**, and a **clear reason** below.`,
+    `Thank you for opening a ticket with **Clearwater Fire & Rescue**. ${staff ? `<@&${staff}>` : "Our support team"} will assist you as soon as possible. Please wait at least **12 hours** before pinging staff about a response. If you are reporting a user, provide their **User ID**, a clear **screenshot**, and a detailed **reason** below so the report can be reviewed efficiently.`,
     `${icon('ticket','🎫')} **Ticket Information**\n${icon('member','•')} **Opener:** <@${record.owner}>\n${icon('reference','•')} **Ticket ID:** \`TICKET-${record._id}\`\n${icon('support','•')} **Department:** ${TICKETS[record.type] || 'Support'}\n${icon('reason','•')} **Reason** ${require('./ticket-format').ticketReason(record.reason)}`
   ];
   if(record.extra)text.push(`${icon('evidence','•')} **Additional Information**\n${clean(record.extra)}`);

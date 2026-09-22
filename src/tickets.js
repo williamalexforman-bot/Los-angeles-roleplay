@@ -68,6 +68,21 @@ async function ticketAccess(i) {
   if (i.user.id !== record.owner && !member.permissions.has(D.PermissionFlagsBits.Administrator) && !(record.support && member.roles.cache.has(record.support))) throw new Error('Only the requester or this department’s support staff can close the ticket.');
   return record;
 }
+async function removeFromTicket(i,userId){
+  const record=await collection('tickets').findOne({_id:i.channelId,status:'open'});
+  if(!record)throw new Error('This command can only be used inside an open ticket.');
+  const actor=await i.guild.members.fetch({user:i.user.id,force:true});
+  if(!actor.permissions.has(D.PermissionFlagsBits.Administrator)&&!(record.support&&actor.roles.cache.has(record.support)))throw new Error('Only ticket support staff or an administrator can remove someone from a ticket.');
+  const target=await i.guild.members.fetch({user:userId,force:true});
+  if(target.permissions.has(D.PermissionFlagsBits.Administrator)||target.id===i.guild.ownerId)throw new Error('Discord does not allow channel overwrites to hide a channel from the server owner or an Administrator.');
+  const me=await i.guild.members.fetchMe();
+  if(target.id===me.id)throw new Error('The bot cannot remove itself from the ticket.');
+  if(!me.permissions.has(D.PermissionFlagsBits.ManageChannels))throw new Error('The bot needs Manage Channels to remove someone from a ticket.');
+  await i.channel.permissionOverwrites.edit(target.id,{ViewChannel:false,SendMessages:false,ReadMessageHistory:false},{type:D.OverwriteType.Member,reason:`Removed from ticket by ${i.user.id}`});
+  await collection('tickets').updateOne({_id:record._id},{$addToSet:{removedUsers:target.id}});
+  await require('./logging').record('tickets',i.guildId||i.guild.id,'Member Removed From Ticket',`**Ticket:** <#${i.channelId}>\n**Removed member:** <@${target.id}>\n**Removed by:** <@${i.user.id}>`,`${i.id||i.sourceMessageId}:remove:${target.id}`).catch(()=>{});
+  return `<@${target.id}> can no longer view or use this ticket.`;
+}
 function transcriptLine(m) {
   const parts = [`[${new Date(m.createdTimestamp).toISOString()}] ${m.author?.tag || 'Unknown'} (${m.author?.id || '?'})`, m.content || ''];
   for (const a of m.attachments.values()) parts.push(`Attachment: ${a.url}`);
@@ -113,7 +128,7 @@ async function closeTicket(i) {
     await require('./logging').record('tickets',i.guildId,'Ticket Closed',`**Ticket ID:** ${i.channelId}\n**Closed by:** <@${i.user.id}>`,`close:${i.channelId}`).catch(()=>{});
   });
 }
-module.exports = { recoverTicketPanels, ensureOpeningPanel, syncTicketAccess, ticketAction, openTicket, ticketAccess, closeTicket, transcriptLine };
+module.exports = { recoverTicketPanels, ensureOpeningPanel, syncTicketAccess, ticketAction, openTicket, ticketAccess, removeFromTicket, closeTicket, transcriptLine };
 
 async function ticketAction(i, action) {
   return locked(`ticket-close:${i.channelId}`, async () => {
