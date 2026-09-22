@@ -50,7 +50,8 @@ async function config(i) {
     else channel=i.channel;
   }
   if(!channel)throw new Error('Choose a channel for this panel using the channel option, or configure its destination first.');
-  await require('./config-delivery').sendPanel(channel, i.guild, type==='shift'?require('./shifts').shiftPanel():type==='ticket'?panel(type):require('./department-panels').get(type));
+  if(type==='information')await i.guild.members.fetch();
+  await require('./config-delivery').sendPanel(channel, i.guild, type==='shift'?require('./shifts').shiftPanel():type==='ticket'?panel(type):require('./department-panels').get(type,i.guild));
   return i.editReply(v2('Panel Successfully Posted', `The selected panel is now available in <#${channel.id}>.`, [], true));
 }
 async function handleInteraction(i) {
@@ -116,7 +117,9 @@ async function handleInteraction(i) {
       return await i.showModal(modal);
     }
     if (i.isStringSelectMenu() && i.customId === 'cpfr:information') {
-      if(i.values[0]==='regulations')return await i.reply({content:require('./department-panels').regulations,flags:D.MessageFlags.Ephemeral,allowedMentions:{parse:[]}});
+      if(i.values[0]==='regulations'){
+        const payload=require('./department-panels').get('regulations',i.guild);payload.flags|=D.MessageFlags.Ephemeral;return await i.reply(payload);
+      }
     }
     if (i.isModalSubmit() && i.customId.startsWith('ticket-reason:')) {
       await i.deferReply({ flags: D.MessageFlags.Ephemeral });

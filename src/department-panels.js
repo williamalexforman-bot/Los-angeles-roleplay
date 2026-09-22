@@ -4,7 +4,7 @@ const {decorate}=require('./branding');
 const {TICKETS,TICKET_DESCRIPTIONS}=require('./settings');
 
 function display(content){return new D.TextDisplayBuilder().setContent(content);}
-function make(type,title,sections,controls=[]){
+function make(type,title,sections,controls=[],mentionedUsers=[]){
  const box=new D.ContainerBuilder().setAccentColor(0xB21F24).addTextDisplayComponents(display(`## ${title}`));
  for(const [index,text] of sections.entries()){
   if(index)box.addSeparatorComponents(new D.SeparatorBuilder());
@@ -12,7 +12,7 @@ function make(type,title,sections,controls=[]){
  }
  for(const control of controls)box.addActionRowComponents(row(control));
  decorate(box,`cpfr:${type}`);
- return {components:[box],flags:D.MessageFlags.IsComponentsV2,allowedMentions:{parse:[]}};
+ return {components:[box],flags:D.MessageFlags.IsComponentsV2,allowedMentions:{parse:[],users:mentionedUsers}};
 }
 
 const regulations=`## Discord Regulations
@@ -29,17 +29,26 @@ const regulations=`## Discord Regulations
 \`-\` **10. Discord Terms of Service**\n> Failure to follow Discord's Terms of Service results in an immediate ban.\n
 \`-\` **11. Roblox Terms of Service**\n> Failure to follow Roblox's Terms of Service or Terms of Use results in an immediate ban.`;
 
-function information(){return make('information','Clearwater Fire Department',[
+function leadership(guild,callsign,name){
+ const pattern=new RegExp(`(?:^|\\W)${callsign}(?:\\W|$)`,'i');
+ const member=guild?.members?.cache?.find?.(candidate=>pattern.test([candidate.displayName,candidate.user?.username,candidate.user?.globalName].filter(Boolean).join(' ')));
+ return {text:member?`<@${member.id}> • ${name}`:`@${callsign} | ${name}`,id:member?.id};
+}
+function information(guild){
+ const leaders=[['Fire Chief','FR101','M. Smith'],['Deputy Fire Chief','FR102','C. Thundercock'],['Assistant Fire Chief','FR103','D. Love'],['Assistant Fire Chief','FR104','J.kripe']].map(([rank,callsign,name])=>({rank,...leadership(guild,callsign,name)}));
+ return make('information','Clearwater Fire Department',[
 `Welcome to the **Clearwater Fire Department**. CFD protects the community through fire suppression, emergency medical care, and additional response services. Use the menu below to explore the department and find important server information. Apply today to begin your firefighting experience.`,
-`### Department Leadership\n\n**Fire Chief:** @FR101 | M. Smith\n**Deputy Fire Chief:** @FR102 | C. Thundercock\n**Assistant Fire Chief:** @FR103 | D. Love\n**Assistant Fire Chief:** @FR104 | J.kripe\n\n> Use the menu below to view additional department information.`
-],[new D.StringSelectMenuBuilder().setCustomId('cpfr:information').setPlaceholder('Explore Clearwater Fire Department').addOptions({label:'Discord Regulations',value:'regulations',description:'Read the community rules privately.'})]);}
+`### Department Leadership\n\n${leaders.map(person=>`**${person.rank}:** ${person.text}`).join('\n')}\n\n> Use the menu below to view additional department information.`
+],[new D.StringSelectMenuBuilder().setCustomId('cpfr:information').setPlaceholder('Explore Clearwater Fire Department').addOptions({label:'Discord Regulations',value:'regulations',description:'Read the community rules privately.'})],leaders.map(person=>person.id).filter(Boolean));
+}
 
-function ticket(){return make('assistance','Support',[
-`<:Arrow:1546628745471721633> The **Clearwater Fire Department Support Center** handles requests, reports, concerns, and other department matters. Each ticket is sorted by category and priority so it reaches the appropriate personnel.`,
-`### <:Ticket:1546624901031530596> General Support\n> Questions, general assistance, technical problems, and department requests.`,
-`### <:IA:1546629494419492994> Internal Affairs\n> Complaints, conduct concerns, policy violations, investigations, and matters requiring a confidential review.`,
-`### <:guidelines:1546628708109131776> Office of the Chief\n> Command-level requests, department concerns, appeals, and matters requiring the Office of the Chief.`,
-`### <:app:1546630044468773025> Ticket Information\n> Select the category that best fits your request and provide clear, accurate details so the correct team can assist you efficiently.`
+function ticket(){return make('assistance','Clearwater Assistance Center',[
+`<:Arrow:1546628745471721633> Welcome to the **Clearwater Fire Department Assistance Center**. This is the official place to request help, report a concern, contact department leadership, or receive support with a department-related matter. Every ticket is privately organized and sent to the team best equipped to assist you.`,
+`### <:Ticket:1546624901031530596> General Assistance\n> Choose this category for questions, technical problems, server assistance, department information, or any request that does not belong in another category.`,
+`### <:IA:1546629494419492994> Internal Affairs\n> Use this category to report misconduct, policy violations, staff behavior, or another sensitive concern that requires a fair and confidential review. Include the people involved, a clear explanation, and any available evidence.`,
+`### <:guidelines:1546628708109131776> Office of the Chief\n> Select this option for command-level matters, formal appeals, major department concerns, or an issue that specifically requires review by the Office of the Chief.`,
+`### <:app:1546630044468773025> Before Opening a Ticket\n> Select the most accurate category, explain the full situation, and attach useful evidence when available. Please open only one ticket for each matter and remain patient while the appropriate team reviews your request.`,
+`### What Happens Next\n> After submission, your ticket will be created in the correct department category. An authorized staff member will review the information, claim the ticket when ready, and guide you through the next steps. Keep all ticket information honest, relevant, and respectful.`
 ],[new D.StringSelectMenuBuilder().setCustomId('ticket:create').setPlaceholder('Choose a support department').addOptions(
  ...Object.entries(TICKETS).map(([value,label])=>({label,value,description:TICKET_DESCRIPTIONS[value]}))
 )]);}
@@ -69,6 +78,7 @@ function oia(){return make('oia','Office of Internal Affairs',[
 `### OIA | Notices\nUse this section as the bulletin board for weekly OIA updates.\n\n- All infractions must be approved by a Supervisory Investigator+.\n- Any infraction may be given for an offence; the investigator handling the case determines what is appropriate.\n\n[OIA Notice Document](https://docs.google.com/document/d/1_K1qQ-CTBG5bH830Aesa2ANttK0zX2CBws-H-nuOYck/edit?usp=sharing)`
 ]);}
 
-const panels={information,ticket,employee,cadet,oia};
-function get(type){if(!panels[type])throw new Error('Unknown panel.');return panels[type]();}
-module.exports={get,regulations};
+function regulationsPanel(){return make('regulations','Discord Regulations',[regulations.replace(/^## Discord Regulations\n\n/,'')]);}
+const panels={information,ticket,employee,cadet,oia,regulations:regulationsPanel};
+function get(type,guild){if(!panels[type])throw new Error('Unknown panel.');return panels[type](guild);}
+module.exports={get,regulations,leadership};

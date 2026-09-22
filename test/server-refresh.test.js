@@ -17,6 +17,22 @@ test('CPFR ticket launcher offers the three supplied departments',()=>{
  assert.equal(p.flags,D.MessageFlags.IsComponentsV2);assert.deepEqual(menu.options.map(o=>o.label),['General Support','Internal Affairs','Office of the Chief']);
  for(const o of menu.options)assert.equal(o.description,TICKET_DESCRIPTIONS[o.value]);
 });
+test('new department panels use banners and resolve leadership into user mentions',()=>{
+ const members=new D.Collection([
+  ['101',{id:'1500000000000000101',displayName:'FR101 | M. Smith',user:{username:'chief'}}],
+  ['102',{id:'1500000000000000102',displayName:'FR102 | C. Thundercock',user:{username:'deputy'}}],
+  ['103',{id:'1500000000000000103',displayName:'FR103 | D. Love',user:{username:'assistant-one'}}],
+  ['104',{id:'1500000000000000104',displayName:'FR104 | J.kripe',user:{username:'assistant-two'}}],
+ ]);
+ const panels=require('../src/department-panels');
+ const info=panels.get('information',{members:{cache:members}}),serialized=JSON.stringify(info.components.map(component=>component.toJSON()));
+ for(const member of members.values())assert.match(serialized,new RegExp(`<@${member.id}>`));
+ assert.deepEqual(info.allowedMentions.users,[...members.values()].map(member=>member.id));
+ const regulations=JSON.stringify(panels.get('regulations').components.map(component=>component.toJSON()));
+ assert.match(regulations,/regulations\.png/);
+ const assistance=JSON.stringify(panels.get('ticket').components.map(component=>component.toJSON()));
+ assert.match(assistance,/What Happens Next/);
+});
 test('each department routes into its supplied ticket destination',async()=>{
  const {ticketCategory}=require('../src/tickets');const ids={general:CHANNELS.tickets_general,affairs:CHANNELS.tickets_affairs,high:CHANNELS.tickets_high};
  for(const [type,id]of Object.entries(ids)){const category={id,type:D.ChannelType.GuildCategory};const guild={channels:{fetch:async actual=>{assert.equal(actual,id);return category;}}};assert.equal(await ticketCategory(guild,CHANNELS,type),category);}
