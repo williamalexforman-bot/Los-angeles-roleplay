@@ -29,18 +29,11 @@ const regulations=`## Discord Regulations
 \`-\` **10. Discord Terms of Service**\n> Failure to follow Discord's Terms of Service results in an immediate ban.\n
 \`-\` **11. Roblox Terms of Service**\n> Failure to follow Roblox's Terms of Service or Terms of Use results in an immediate ban.`;
 
-function leadership(guild,callsign,name){
- const pattern=new RegExp(`(?:^|\\W)${callsign}(?:\\W|$)`,'i');
- const member=guild?.members?.cache?.find?.(candidate=>pattern.test([candidate.displayName,candidate.user?.username,candidate.user?.globalName].filter(Boolean).join(' ')));
- return {text:member?`<@${member.id}> • ${name}`:`@${callsign} | ${name}`,id:member?.id};
-}
-function information(guild){
- const leaders=[['Fire Chief','FR101','M. Smith'],['Deputy Fire Chief','FR102','C. Thundercock'],['Assistant Fire Chief','FR103','D. Love'],['Assistant Fire Chief','FR104','J.kripe']].map(([rank,callsign,name])=>({rank,...leadership(guild,callsign,name)}));
- return make('information','Clearwater Fire Department',[
-`Welcome to the **Clearwater Fire Department**. CFD protects the community through fire suppression, emergency medical care, and additional response services. Use the menu below to explore the department and find important server information. Apply today to begin your firefighting experience.`,
-`### Department Leadership\n\n${leaders.map(person=>`**${person.rank}:** ${person.text}`).join('\n')}\n\n> Use the menu below to view additional department information.`
-],[new D.StringSelectMenuBuilder().setCustomId('cpfr:information').setPlaceholder('Explore Clearwater Fire Department').addOptions({label:'Discord Regulations',value:'regulations',description:'Read the community rules privately.'})],leaders.map(person=>person.id).filter(Boolean));
-}
+const LEADERSHIP_IDS=['1230985068600627204','1407444669448720657','915692015906349166','1059341247598301204','1535992668574973952','1394848939920068749','957438290162757662'];
+function information(){return make('information','Clearwater Fire & Rescue',[
+`Welcome to **<:CFR_Logo:1550916380772143224> Clearwater Fire & Rescue.** CWFR proudly serves the community by responding to fires, providing emergency medical aid, and handling additional rescue operations. Use the dropdown menu below to learn more about CWFR and navigate the server. Apply today for an immersive firefighting experience.`,
+`## <:Levels:1546625053121192037> **Department Leadership**\n<:Fire_Chief:1531767510322385027> **Fire Chief:** <@1230985068600627204>\n<:DeputyFireChief:1531767598532792440> **Deputy Fire Chief:** <@1407444669448720657>\n<:AssistantFireChiefDistrictChie:1531767636843823135> **Assistant Fire Chief:** <@915692015906349166>\n<:AssistantFireChiefDistrictChie:1531767636843823135> **Assistant Fire Chief:** <@1059341247598301204>\n<:AssistantFireChiefDistrictChie:1531767636843823135> **District Chief Commander of Station 1:** <@1535992668574973952>\n<:AssistantFireChiefDistrictChie:1531767636843823135> **District Chief Commander of Station 2:** <@1394848939920068749>\n<:AssistantFireChiefDistrictChie:1531767636843823135> **District Chief Commander of Station 3:** <@957438290162757662>`
+],[new D.StringSelectMenuBuilder().setCustomId('cpfr:information').setPlaceholder('Explore Clearwater Fire & Rescue').addOptions({label:'Discord Regulations',value:'regulations',description:'Read the community rules privately.'})],LEADERSHIP_IDS);}
 
 function ticket(){return make('assistance','Clearwater Assistance Center',[
 `<:Arrow:1546628745471721633> Welcome to the **Clearwater Fire Department Assistance Center**. This is the official place to request help, report a concern, contact department leadership, or receive support with a department-related matter. Every ticket is privately organized and sent to the team best equipped to assist you.`,
@@ -81,4 +74,4 @@ function oia(){return make('oia','Office of Internal Affairs',[
 function regulationsPanel(){return make('regulations','Discord Regulations',[regulations.replace(/^## Discord Regulations\n\n/,'')]);}
 const panels={information,ticket,employee,cadet,oia,regulations:regulationsPanel};
 function get(type,guild){if(!panels[type])throw new Error('Unknown panel.');return panels[type](guild);}
-module.exports={get,regulations,leadership};
+module.exports={get,regulations,LEADERSHIP_IDS};

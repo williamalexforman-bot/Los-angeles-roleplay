@@ -50,7 +50,6 @@ async function config(i) {
     else channel=i.channel;
   }
   if(!channel)throw new Error('Choose a channel for this panel using the channel option, or configure its destination first.');
-  if(type==='information')await i.guild.members.fetch();
   await require('./config-delivery').sendPanel(channel, i.guild, type==='shift'?require('./shifts').shiftPanel():type==='ticket'?panel(type):require('./department-panels').get(type,i.guild));
   return i.editReply(v2('Panel Successfully Posted', `The selected panel is now available in <#${channel.id}>.`, [], true));
 }
