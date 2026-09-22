@@ -31,7 +31,7 @@ function pages(commands = require('./commands/config').commands) {
     body += (body ? '\n\n' : '') + line;
   }
   if (body) result.push(body);
-  return result.map((text, index) => v2(`Command List (${index + 1}/${result.length})`, text, [], true));
+  return result.map((text, index) => v2(`Bot Command Directory (${index + 1}/${result.length})`, text, [], true));
 }
 
 async function handle(i) {

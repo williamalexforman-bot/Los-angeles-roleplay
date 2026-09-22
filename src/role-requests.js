@@ -23,7 +23,7 @@ function panel(record){
  const pending=record.status==='pending';
  const labels={pending:'Awaiting HR review',approving:'Approved — role assignment pending',approved:'Approved — role assigned',denied:'Denied'};
  const body=`**Trainee:** <@${record.trainee}>\n**Requested role:** <@&${record.roleId}>\n**Requested by:** <@${record.requester}>\n**HR:** <@&${record.hrRole}>\n**Status:** ${labels[record.status]}\n${record.decidedBy?`**Reviewed by:** <@${record.decidedBy}>\n`:''}**Submitted:** <t:${Math.floor(record.created/1000)}:F>\n-# Request ID: ${record._id}`;
- return v2('Role Request',body,[button(`role-request:approve:${record._id}`,'Approve',D.ButtonStyle.Success).setDisabled(!pending),button(`role-request:deny:${record._id}`,'Deny',D.ButtonStyle.Danger).setDisabled(!pending)]);
+ return v2('Trainee Role Request',body,[button(`role-request:approve:${record._id}`,'Approve Request',D.ButtonStyle.Success).setDisabled(!pending),button(`role-request:deny:${record._id}`,'Deny Request',D.ButtonStyle.Danger).setDisabled(!pending)]);
 }
 async function deliver(guild,record){
  const channel=await guild.channels.fetch(record.channelId);
@@ -53,7 +53,7 @@ async function submit(i){
   try{const message=await deliver(i.guild,record);return `HR has been notified. [View request](${message.url})`;}
   catch(e){console.error('Role request post pending:',i.id,e.code||e.name);return 'Your request is saved. Posting it to HR is pending and will retry automatically.';}
  });
- await i.editReply(v2('Role Request',result,[],true));
+ await i.editReply(v2('Role Request Submitted',result,[],true));
 }
 async function finish(guild,record){
  if(record.status==='approving')await locked(`member:${record.guildId}:${record.trainee}`,async()=>{
@@ -87,7 +87,7 @@ async function handle(i){
   try{await finish(i.guild,record);}catch(e){console.error('Role request completion pending:',id,e.code||e.name);await deliver(i.guild,record).catch(()=>{});return 'Decision saved. The role or panel update is pending and will retry automatically.';}
   return action==='approve'?'Approved. The role has been assigned.':'Denied. No role was assigned.';
  });
- await i.editReply(v2('Role Request',result,[],true));
+ await i.editReply(v2('Role Request Decision',result,[],true));
 }
 async function recover(client){
  const rows=await collection('role_requests').find({$or:[{noticePending:true},{status:'approving'}]}).toArray();

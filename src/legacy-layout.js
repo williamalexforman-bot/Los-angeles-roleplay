@@ -63,7 +63,7 @@ function ticketNotice(record) {
   const controls=[
     button('ticket:claim',record.claimedBy?'Claimed':'Claim',D.ButtonStyle.Success).setEmoji(E.component('claim',{name:'🙋'},record.guildId)).setDisabled(Boolean(record.claimedBy)),
     button('ticket:close','Close',D.ButtonStyle.Danger).setEmoji(E.component('close',{name:'🔒'},record.guildId)),button('ticket:escalate',record.escalatedBy?'Escalated':'Escalate',D.ButtonStyle.Secondary).setEmoji(E.component('escalated',{name:'⬆️'},record.guildId)).setDisabled(Boolean(record.escalationNotified))];
-  const payload=v2('Support Ticket',text, [], false, 'assistance');
+  const payload=v2('Department Support Ticket',text, [], false, 'assistance');
   const footer=payload.components[0].components.pop();
   payload.components[0].addSeparatorComponents(new D.SeparatorBuilder()).addActionRowComponents(new D.ActionRowBuilder().addComponents(...controls));
   payload.components[0].components.push(footer);

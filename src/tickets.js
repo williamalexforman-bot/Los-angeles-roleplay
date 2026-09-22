@@ -101,7 +101,7 @@ async function closeTicket(i) {
     if (part) parts.push(part);
     for (let n = 0; n < parts.length; n++) {
       const name = `ticket-${i.channelId}-${n+1}.txt`;
-      const payload = v2('Ticket Transcript', `**Ticket:** ${i.channelId}\n**Department:** ${TICKETS[record.type]}\n**Requester:** <@${record.owner}>\n**Part:** ${n + 1}/${parts.length}`);
+      const payload = v2('Saved Ticket Transcript', `**Ticket ID:** ${i.channelId}\n**Department:** ${TICKETS[record.type]}\n**Opened by:** <@${record.owner}>\n**Transcript part:** ${n + 1}/${parts.length}`);
       payload.components[0].addFileComponents(new D.FileBuilder().setURL(`attachment://${name}`));
       await log.send({ ...payload, files: [new D.AttachmentBuilder(Buffer.from(parts[n]), { name })] });
     }

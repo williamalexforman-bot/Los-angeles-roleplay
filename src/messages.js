@@ -18,10 +18,10 @@ async function deployment(context){
  if(config.role_deployment_ping&&!role)throw new Error('The deployment ping role is missing. Configure it again.');
  const me=await context.guild.members.fetchMe();
  if(role&&!role.mentionable&&!channel.permissionsFor(me)?.has(D.PermissionFlagsBits.MentionEveryone))throw new Error('Make the deployment role mentionable or grant the bot Mention Everyone in this channel.');
- return require('./config-delivery').sendPanel(channel,context.guild,{...v2('Active Deployment',[
+ return require('./config-delivery').sendPanel(channel,context.guild,{...v2('Deployment Now Active',[
  `${role?`<@&${role.id}>\n\n`:''}${DEPLOYMENT_TEXT}`,
- section('briefing','Briefing','Review the current assignment and coordinate with your supervisor.'),
- section('conduct','Professional Conduct','Follow server rules and maintain professional roleplay.')],[],false,'deployment'),allowedMentions:{parse:[],roles:role?[role.id]:[]}});
+ section('briefing','Deployment Briefing','Review the current assignment and coordinate with the supervising officer.'),
+ section('conduct','Conduct Reminder','Follow all server rules and maintain professional, realistic roleplay throughout the deployment.')],[],false,'deployment'),allowedMentions:{parse:[],roles:role?[role.id]:[]}});
 }
 async function handleMessage(message){
  if(!message.guild||message.author.bot||message.webhookId)return;
@@ -35,14 +35,14 @@ async function handleMessage(message){
     if(!id)throw new Error('Use -dm @user message or -dm USER_ID message.');
     const user=await message.client.users.fetch(id);
     await require('./owner-tools').sendDm(context,user,match[3]);
-    await context.channel.send(v2('DM Sent',`Sent a DM to <@${id}>.`,[],true));
+    await context.channel.send(v2('Direct Message Sent',`Your message was delivered to <@${id}>.`,[],true));
   }
   else if(parsed.command==='role'){
     require('./owner-tools').requireOwner(context);
     const match=/^(add|remove)\s+(?:<@!?(\d{17,20})>|(\d{17,20}))\s+(?:<@&(\d{17,20})>|(\d{17,20}))$/i.exec(parsed.text);
     if(!match)throw new Error('Use -role add @user @role or -role remove @user @role.');
     const member=await message.guild.members.fetch(match[2]||match[3]),role=await message.guild.roles.fetch(match[4]||match[5]);
-    await context.channel.send(v2('Role Updated',await require('./owner-tools').changeRole(context,match[1].toLowerCase(),member,role),[],true));
+    await context.channel.send(v2('Member Role Updated',await require('./owner-tools').changeRole(context,match[1].toLowerCase(),member,role),[],true));
   }
   else if(parsed.command==='shift'){
     const [action='status',memberText]=parsed.text.toLowerCase().split(/\s+/).filter(Boolean);
@@ -50,15 +50,15 @@ async function handleMessage(message){
     if((targetId&&action!=='view')||parsed.text.split(/\s+/).length>2||(targetId&&!/^\d{17,20}$/.test(targetId)))throw new Error('Use -shift view @member.');
     if(!['start','end','status','view'].includes(action))throw new Error('Use -shift start, -shift end, -shift status or -shift view @member.');
     const shifts=require('./shifts');const result=await shifts.changeShift(context,action,targetId);
-    await context.channel.send(v2('Staff Shift',result));
+    await context.channel.send(v2('Shift Status',result));
   }
   else if(['addemojis','add-emojis'].includes(parsed.command))await require('./emoji-install').prefix(context);
   else if(parsed.command==='continueemojis')await require('./emoji-install').continuePrefix(context);
-  else if(parsed.command==='forcestopemojis')await context.channel.send(v2('Emoji Jobs Stopped',await require('./emoji-install').forceStop(context)));
+  else if(parsed.command==='forcestopemojis')await context.channel.send(v2('Emoji Process Stopped',await require('./emoji-install').forceStop(context)));
   else if(parsed.command==='deployment')await deployment(context);
   else {const result=await require('./utilities').execute(context,parsed.command,parsed.text);if(result==='closed')return;}
-  await message.delete().catch(async e=>{if(e.code!==10008){console.error('Prefix cleanup failed:',e.code||e.name);await context.channel.send(v2('Command Completed','The command succeeded, but I need Manage Messages here to delete your command message.')).catch(()=>{});}});
- }catch(e){await message.reply({...v2('Command Not Completed',require('./config-delivery').describeError(e)),allowedMentions:{parse:[],repliedUser:false}}).catch(()=>{});}
+  await message.delete().catch(async e=>{if(e.code!==10008){console.error('Prefix cleanup failed:',e.code||e.name);await context.channel.send(v2('Command Successful','The command was completed, but I need Manage Messages permission here to remove your command message.')).catch(()=>{});}});
+ }catch(e){await message.reply({...v2('Unable to Complete Command',require('./config-delivery').describeError(e)),allowedMentions:{parse:[],repliedUser:false}}).catch(()=>{});}
 }
-async function handleMessageCommand(i){await i.deferReply({flags:D.MessageFlags.Ephemeral});const sent=i.commandName==='say'?await say(i,i.options.getString('message',true)):await deployment(i);await i.editReply(v2('Message Sent',`[View message](${sent.url})`,[],true));}
+async function handleMessageCommand(i){await i.deferReply({flags:D.MessageFlags.Ephemeral});const sent=i.commandName==='say'?await say(i,i.options.getString('message',true)):await deployment(i);await i.editReply(v2('Message Delivered',`[Open the posted message](${sent.url})`,[],true));}
 module.exports={say,parsePrefix,deployment,handleMessage,handleMessageCommand,DEPLOYMENT_TEXT};

@@ -19,27 +19,27 @@ async function config(i) {
   const sub = i.options.getSubcommand();
   if (sub === 'view') {
     const s = await settings(i.guildId);
-    return i.editReply(v2('Channel Configuration', Object.keys(CHANNELS).map(k => `**${k}:** ${s[k] ? `<#${s[k]}>` : 'Not configured'}`).join('\n'), [], true));
+    return i.editReply(v2('Configured Destinations', Object.keys(CHANNELS).map(k => `**${k}:** ${s[k] ? `<#${s[k]}>` : 'Not configured'}`).join('\n'), [], true));
   }
   if (sub === 'channel') {
     const key = i.options.getString('destination', true), channel = i.options.getChannel('channel', true);
     if (!Object.hasOwn(CHANNELS,key)) throw new Error('Choose a valid destination.');
     if (key === 'tickets' || key.startsWith('tickets_') ? ![D.ChannelType.GuildCategory,D.ChannelType.GuildText].includes(channel.type) : ![D.ChannelType.GuildText,D.ChannelType.GuildAnnouncement].includes(channel.type)) throw new Error('Ticket destinations require a category or text channel; other destinations require a text channel.');
     await collection('config').updateOne({ _id: i.guildId }, { $set: { [key]: channel.id } }, { upsert: true });
-    return i.editReply(v2('Configuration Saved', `**${key}:** <#${channel.id}>`, [], true));
+    return i.editReply(v2('Destination Updated', `**${key}** now points to <#${channel.id}>.`, [], true));
   }
   if(sub==='staff-role') {
     const purpose=i.options.getString('purpose',true), role=i.options.getRole('role',true);
     if(role.id===i.guildId || role.managed)throw new Error('Choose an ordinary staff role.');
     await collection('config').updateOne({_id:i.guildId},{$set:{['role_'+purpose]:role.id}},{upsert:true});
-    return i.editReply(v2('Access Saved',`${purpose}: <@&${role.id}>`,[],true));
+    return i.editReply(v2('Staff Access Updated',`**${purpose}:** <@&${role.id}>`,[],true));
   }
 
   if (sub === 'ticket-access') {
     const type = i.options.getString('department', true), role = i.options.getRole('role', true);
     if (role.id === i.guildId || role.managed) throw new Error('Choose a staff role, not @everyone or a managed role.');
     await collection('config').updateOne({ _id: i.guildId }, { $set: { [`support_${type}`]: role.id } }, { upsert: true });
-    return i.editReply(v2('Ticket Access Saved', `New ${TICKETS[type]} tickets will allow <@&${role.id}>. Existing tickets retain their access.`, [], true));
+    return i.editReply(v2('Ticket Access Updated', `New ${TICKETS[type]} tickets will be visible to <@&${role.id}>. Existing tickets will keep their current access.`, [], true));
   }
   const type = i.options.getString('panel',true);
   if (!['ticket','shift','information','employee','cadet','oia'].includes(type)) throw new Error('Choose a supported panel.');
@@ -51,7 +51,7 @@ async function config(i) {
   }
   if(!channel)throw new Error('Choose a channel for this panel using the channel option, or configure its destination first.');
   await require('./config-delivery').sendPanel(channel, i.guild, type==='shift'?require('./shifts').shiftPanel():type==='ticket'?panel(type):require('./department-panels').get(type));
-  return i.editReply(v2('Panel Posted', `Posted in <#${channel.id}>.`, [], true));
+  return i.editReply(v2('Panel Successfully Posted', `The selected panel is now available in <#${channel.id}>.`, [], true));
 }
 async function handleInteraction(i) {
   try {
@@ -123,12 +123,12 @@ async function handleInteraction(i) {
       const type = i.customId.split(':')[1], reason = i.fields.getTextInputValue('reason').trim();
       if (!reason) throw new Error('A reason is required.');
       const extra = (type === 'affairs' ? `User Reported: ${i.fields.getTextInputValue('reported')}\nProof: ${i.fields.getTextInputValue('evidence')}\n` : '') + `Additional Details: ${i.fields.getTextInputValue('details') || 'None'}`;
-      return await i.editReply(v2('Ticket Created', await openTicket(i, type, reason, extra), [], true));
+      return await i.editReply(v2('Support Ticket Opened', await openTicket(i, type, reason, extra), [], true));
     }
     if (i.isButton() && i.customId === 'ticket:close') {
       await i.deferReply({ flags: D.MessageFlags.Ephemeral });
       await ticketAccess(i);
-      return await i.editReply(v2('Close Ticket?', 'The transcript will be saved before the channel is deleted.', [button('ticket:confirm-close','Save Transcript & Close', D.ButtonStyle.Danger)], true));
+      return await i.editReply(v2('Confirm Ticket Closure', 'A transcript will be saved before this ticket channel is removed.', [button('ticket:confirm-close','Save Transcript & Close', D.ButtonStyle.Danger)], true));
     }
     if (i.isButton() && i.customId === 'ticket:confirm-close') {
       await i.deferUpdate();
@@ -136,7 +136,7 @@ async function handleInteraction(i) {
     }
     if (i.isButton() && ['ticket:claim','ticket:escalate'].includes(i.customId)) {
       await i.deferReply({flags:D.MessageFlags.Ephemeral});
-      return await i.editReply(v2('Ticket Updated',await ticketAction(i,i.customId.split(':')[1]),[],true));
+      return await i.editReply(v2('Ticket Status Updated',await ticketAction(i,i.customId.split(':')[1]),[],true));
     }
     if (i.isButton() && i.customId.startsWith('staff:')) return await i.reply(v2('Use the Slash Command','Use `/infraction issue` or `/promotion issue`; launcher panels are no longer used.',[],true));
     if (i.isButton() && i.customId.startsWith('appeal:')) {
@@ -158,7 +158,7 @@ async function handleInteraction(i) {
     if (i.isAutocomplete?.()) { await i.respond([]).catch(()=>{}); return; }
     console.error('Interaction failed:', i.commandName || i.customId, i.commandName==='config' ? i.options.getSubcommand() : '', i.id, e.code || e.name, 'status:', e.status, 'invalid fields:', require('./config-delivery').errorFields(e));
     const message = require('./config-delivery').describeError(e) + `\n\nReference: ${i.id}`;
-    const payload = v2('Action Not Completed',message,[],true);
+    const payload = v2('Unable to Complete Action',message,[],true);
     if (i.deferred || i.replied) await i.editReply(payload).catch(() => {});
     else await i.reply(payload).catch(() => {});
   }

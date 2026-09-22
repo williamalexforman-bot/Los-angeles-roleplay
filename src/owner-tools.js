@@ -33,8 +33,8 @@ async function changeRole(context,action,member,role){
 }
 async function slash(i){
  await i.deferReply({flags:D.MessageFlags.Ephemeral});
- if(i.commandName==='dm')return i.editReply(v2('DM Sent',await sendDm(i,i.options.getUser('user',true),i.options.getString('message',true)),[],true));
+ if(i.commandName==='dm')return i.editReply(v2('Direct Message Sent',await sendDm(i,i.options.getUser('user',true),i.options.getString('message',true)),[],true));
  const member=await i.guild.members.fetch(i.options.getUser('user',true).id);
- return i.editReply(v2('Role Updated',await changeRole(i,i.options.getSubcommand(),member,i.options.getRole('role',true)),[],true));
+ return i.editReply(v2('Member Role Updated',await changeRole(i,i.options.getSubcommand(),member,i.options.getRole('role',true)),[],true));
 }
 module.exports={OWNER_ID,requireOwner,sendDm,changeRole,slash};

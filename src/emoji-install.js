@@ -94,17 +94,17 @@ async function install(context, progress = async () => {}) {
 }
 async function slash(i) {
   await i.deferReply({ flags: D.MessageFlags.Ephemeral });
-  const result = await install(i, text => i.editReply(v2('Installing Emojis', text, [], true)));
-  await i.editReply(v2('Server Emoji Pack', result, [], true));
+  const result = await install(i, text => i.editReply(v2('Emoji Installation in Progress', text, [], true)));
+  await i.editReply(v2('Server Emoji Pack Updated', result, [], true));
 }
 async function prefix(context) {
   let status;
   const result = await install(context, async text => {
-    if (status) await status.edit(v2('Installing Emojis', text));
-    else status = await context.channel.send(v2('Installing Emojis', text));
+    if (status) await status.edit(v2('Emoji Installation in Progress', text));
+    else status = await context.channel.send(v2('Emoji Installation in Progress', text));
   });
-  if (status) await status.edit(v2('Server Emoji Pack', result));
-  else await context.channel.send(v2('Server Emoji Pack', result));
+  if (status) await status.edit(v2('Server Emoji Pack Updated', result));
+  else await context.channel.send(v2('Server Emoji Pack Updated', result));
 }
 async function remove(context, progress = async () => {}, force = false) {
   const { guild, user } = context;
@@ -140,17 +140,17 @@ async function remove(context, progress = async () => {}, force = false) {
 async function removePrefix(context, force = false) {
   let status;
   const result = await remove(context, async text => {
-    if (status) await status.edit(v2('Removing Emojis', text));
-    else status = await context.channel.send(v2('Removing Emojis', text));
+    if (status) await status.edit(v2('Emoji Removal in Progress', text));
+    else status = await context.channel.send(v2('Emoji Removal in Progress', text));
   }, force);
-  await status.edit(v2('Emoji Removal', result));
+  await status.edit(v2('Emoji Removal Completed', result));
 }
 async function continuePrefix(context) {
   const member = await context.guild.members.fetch({ user: context.user.id, force: true });
   if (!member.permissions.has(D.PermissionFlagsBits.Administrator)) throw new Error('Administrator permission is required to continue emoji installation.');
   const job = jobs.get(context.guild.id);
   if (job) {
-    await context.channel.send(v2('Emoji Installation Still Running', progressText(job) + '\nNo second upload has been started. This queue will continue when Discord permits it.'));
+    await context.channel.send(v2('Emoji Installation Still Running', progressText(job) + '\nA second upload was not started. The existing queue will continue as soon as Discord permits it.'));
     return;
   }
   // Fetching current server emojis inside install also resumes safely after a restart.

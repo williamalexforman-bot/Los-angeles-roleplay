@@ -18,7 +18,7 @@ async function escalate(i,record){
  const update={type:'high',support:role.id,escalatedBy:record.escalatedBy || i.user.id,panelPending:true};
  await collection('tickets').updateOne({_id:record._id},{$set:update});
  Object.assign(record,update);
- await i.channel.send({...v2('Ticket Escalated',`<@&${role.id}> • Please review this ticket.\n\n**Opener:** <@${record.owner}>\n**Escalated by:** <@${record.escalatedBy}>`),nonce:`escalate:${record._id}`,enforceNonce:true,allowedMentions:{parse:[],roles:[role.id]}});
+ await i.channel.send({...v2('Ticket Escalated for Review',`<@&${role.id}> • This ticket requires your attention.\n\n**Ticket opener:** <@${record.owner}>\n**Escalated by:** <@${record.escalatedBy}>`),nonce:`escalate:${record._id}`,enforceNonce:true,allowedMentions:{parse:[],roles:[role.id]}});
  record.escalationNotified=true;
  await collection('tickets').updateOne({_id:record._id},{$set:{escalationNotified:true}});
  try {

@@ -7,7 +7,7 @@ function duration(ms) {
  return `${Math.floor(minutes/60)}h ${minutes%60}m`;
 }
 function shiftPanel() {
- return v2('Staff Shifts',[section('on_duty','Start Your Shift','Start when you go on duty and end when you finish. Your timestamps are saved in the database.'),section('quota','Weekly Quota','Members with the quota role need **2 hours** by **Saturday at 9 AM Eastern**. Missing quota automatically issues a Warning.'),section('duration','View Shifts','Use `/shift view member:` to see current duty time and weekly progress. No shift log channel is needed.')],[button('shift:start','Start Shift',D.ButtonStyle.Success),button('shift:end','End Shift',D.ButtonStyle.Danger),button('shift:status','My Shift')],false,'shift');
+ return v2('Shift Management',[section('on_duty','Begin Your Shift','Start the timer when you report for duty and end it when you finish. Every timestamp is saved automatically.'),section('quota','Weekly Requirement','Members assigned the quota role must complete **2 hours** by **Saturday at 9 AM Eastern**. Missing the requirement automatically issues a Warning.'),section('duration','Review Shift Time','Use `/shift view member:` to review current duty time and weekly progress. A separate shift-log channel is not required.')],[button('shift:start','Start Shift',D.ButtonStyle.Success),button('shift:end','End Shift',D.ButtonStyle.Danger),button('shift:status','View My Shift')],false,'shift');
 }
 async function viewShift(i,userId=i.user.id) {
  const {quotaState,currentPeriod,totals,QUOTA_ROLE,MINIMUM}=require('./quota');
@@ -40,6 +40,6 @@ async function changeShift(i,action,targetId) {
 async function handleShift(i,action){
  await i.deferReply({flags:D.MessageFlags.Ephemeral});
  const target=action==='view'?i.options.getUser('member')?.id:undefined;
- await i.editReply(v2('Staff Shift',await changeShift(i,action,target),[],true));
+ await i.editReply(v2('Shift Status',await changeShift(i,action,target),[],true));
 }
 module.exports={shiftPanel,changeShift,viewShift,handleShift,duration};

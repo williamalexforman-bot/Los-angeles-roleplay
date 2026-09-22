@@ -53,18 +53,18 @@ async function quotaCommand(i) {
  let state=await quotaState(i.guildId);
  if(action==='disable') {
    await collection('quota').updateOne({_id:i.guildId},{$set:{enabled:false,changedBy:i.user.id,changedAt:Date.now()}});
-   return i.editReply(v2('Quota Disabled','New weekly warnings and reports are paused. Already saved cases still finish recovery. Shift tracking still works. Re-enabling starts a fresh quota period.',[],true));
+   return i.editReply(v2('Weekly Quota Paused','New weekly reports and automatic warnings are paused. Previously saved cases will still finish recovery, and shift tracking remains active. Re-enabling quota begins a new period.',[],true));
  }
  if(action==='enable'||action==='timezone') {
    let zone=state.zone;
    if(action==='timezone'){zone=i.options.getString('zone',true);try{parts(Date.now(),zone);}catch{throw new Error('Enter an IANA timezone, such as America/New_York.');}}
-   if(action==='enable'&&state.enabled)return i.editReply(v2('Quota Enabled','Quota is already enabled; the current period was preserved.',[],true));
+   if(action==='enable'&&state.enabled)return i.editReply(v2('Weekly Quota Active','Quota is already enabled, so the current reporting period has been preserved.',[],true));
    const now=Date.now();await collection('quota').updateOne({_id:i.guildId},{$set:{enabled:action==='enable'?true:state.enabled,zone,start:now,next:nextSaturday(now,zone),changedBy:i.user.id}});
-   return i.editReply(v2('Quota Updated',`Timezone: **${zone}**. New period starts now. Next deadline: <t:${Math.floor(nextSaturday(now,zone)/1000)}:F>.`,[],true));
+   return i.editReply(v2('Quota Settings Updated',`**Timezone:** ${zone}\nA new reporting period begins now. The next deadline is <t:${Math.floor(nextSaturday(now,zone)/1000)}:F>.`,[],true));
  }
  const shifts=await collection('shifts').find({guildId:i.guildId,userId:i.user.id,}).toArray();
  const ms=totals(shifts,currentPeriod(state,Date.now()).start,Date.now()).get(i.user.id)||0;
- return i.editReply(v2('Weekly Shift Quota',`**Weekly time:** ${progress(ms)}\n**Quota:** ${state.enabled?'Enabled':'Disabled'}\n**Deadline:** <t:${Math.floor(currentPeriod(state,Date.now()).next/1000)}:F>\n**Timezone:** ${state.zone}\nActive shifts count toward the current period. Only the configured quota role receives automatic warnings.`,[],true));
+ return i.editReply(v2('Weekly Shift Progress',`**Time completed:** ${progress(ms)}\n**Quota system:** ${state.enabled?'Enabled':'Disabled'}\n**Deadline:** <t:${Math.floor(currentPeriod(state,Date.now()).next/1000)}:F>\n**Timezone:** ${state.zone}\nActive shifts count toward this reporting period. Automatic warnings apply only to members with the configured quota role.`,[],true));
  });
 }
 async function processGuild(guild) {
