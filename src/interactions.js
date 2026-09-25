@@ -57,7 +57,11 @@ async function config(i) {
 }
 async function handleInteraction(i) {
   try {
-    if(i.guildId !== require('./settings').GUILD_ID) return;
+    if(i.isChatInputCommand?.()) console.log('Command received:', `/${i.commandName}`, 'guild:', i.guildId, 'user:', i.user?.id);
+    if(i.guildId !== require('./settings').GUILD_ID) {
+      if(i.isRepliable?.()) await i.reply({content:'This bot is not configured for this server.',flags:D.MessageFlags.Ephemeral}).catch(()=>{});
+      return;
+    }
 
 
     if (!i.inGuild()) return;
@@ -95,7 +99,9 @@ async function handleInteraction(i) {
 
 
       if (i.commandName === 'config') return require('./config-dashboard').open(i);
-      if (!['infraction','promotion'].includes(i.commandName)) return;
+      if (!['infraction','promotion'].includes(i.commandName)) {
+        return await i.reply({content:`The old /${i.commandName} command is no longer available. Run /cmds to see the commands supported by this version.`,flags:D.MessageFlags.Ephemeral,allowedMentions:{parse:[]}});
+      }
       await i.deferReply({ flags: D.MessageFlags.Ephemeral });
       await require('./access').requireAccess(i,i.commandName);
       if(i.commandName==='infraction'&&['edit','revoke'].includes(i.options.getSubcommand())){
@@ -173,8 +179,15 @@ async function handleInteraction(i) {
     console.error('Interaction failed:', i.commandName || i.customId, i.commandName==='config'&&i.options.getSubcommand?.(false) ? i.options.getSubcommand(false) : '', i.id, e.code || e.name, 'status:', e.status, 'invalid fields:', require('./config-delivery').errorFields(e));
     const message = require('./config-delivery').describeError(e) + `\n\nReference: ${i.id}`;
     const payload = v2('Unable to Complete Action',message,[],true);
-    if (i.deferred || i.replied) await i.editReply(payload).catch(() => {});
-    else await i.reply(payload).catch(() => {});
+    try {
+      if (i.deferred || i.replied) await i.editReply(payload);
+      else await i.reply(payload);
+    } catch(replyError) {
+      console.error('Styled interaction response failed:',i.commandName||i.customId,i.id,replyError.code||replyError.name);
+      const fallback={content:`Unable to complete /${i.commandName||'command'}: ${require('./config-delivery').describeError(e)}\nReference: ${i.id}`,flags:D.MessageFlags.Ephemeral,allowedMentions:{parse:[]}};
+      if(i.deferred||i.replied)await i.editReply(fallback).catch(()=>{});
+      else await i.reply(fallback).catch(()=>{});
+    }
   }
 }
 module.exports = { handleInteraction, textInput, config };
