@@ -107,16 +107,20 @@ else {
         const guilds = await require('./src/guild-config').commandGuilds(registeringClient);
         const serialized=commands.map(c=>c.toJSON());
         for (const guild of guilds) {
+          // Login's /gateway/bot request can be rate-limited on shared hosting.
+          // Use an isolated REST manager so command sync is not trapped behind
+          // the gateway manager's global rate-limit queue.
+          const rest=new D.REST({version:'10',timeout:30000,retries:2}).setToken(token);
           const registered=await Promise.race([
-            guild.commands.set(serialized),
+            rest.put(D.Routes.applicationGuildCommands(client.user.id,guild.id),{body:serialized}),
             new Promise((_,reject)=>setTimeout(()=>reject(Object.assign(new Error('Discord command registration timed out after 60 seconds; it will retry automatically.'),{code:'COMMAND_SYNC_TIMEOUT'})),60000))
           ]);
           const expectedNames=serialized.map(command=>command.name).sort();
-          const registeredNames=[...registered.values()].map(command=>command.name).sort();
+          const registeredNames=registered.map(command=>command.name).sort();
           const missing=expectedNames.filter(name=>!registeredNames.includes(name));
           const unexpected=registeredNames.filter(name=>!expectedNames.includes(name));
           if(missing.length||unexpected.length)throw new Error(`Discord command verification failed for guild ${guild.id}; missing: ${missing.join(', ')||'none'}; unexpected: ${unexpected.join(', ')||'none'}`);
-          lifecycle('command_registration_completed',{guildId:guild.id,guildName:guild.name,registeredCount:registered.size,commands:registeredNames});
+          lifecycle('command_registration_completed',{guildId:guild.id,guildName:guild.name,registeredCount:registered.length,commands:registeredNames});
           if(databaseReady) await require('./src/logging').record('bot',guild.id,'Bot Online','Discord connected and commands registered.',`startup:${process.env.RENDER_GIT_COMMIT || Date.now()}`);
         }
         console.log('Registered commands: ' + commands.map(c => '/' + c.name).join(', '));
