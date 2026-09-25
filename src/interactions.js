@@ -71,6 +71,7 @@ async function handleInteraction(i) {
     if(i.isButton()&&/^(fastpass|application):(approve|deny):/.test(i.customId)){const [kind,action,id]=i.customId.split(':');return require('./workflows').decision(i,kind,action,id);}
     if(i.isRoleSelectMenu?.()&&/^(fastpass|application):role:/.test(i.customId)){const [kind,,id]=i.customId.split(':');return require('./workflows').grant(i,kind,id);}
     if(i.isButton()&&i.customId.startsWith('activity:')){const [,action,id]=i.customId.split(':');return require('./workflows').activityButton(i,action,id);}
+    if((i.isButton?.()||i.isStringSelectMenu?.()||i.isChannelSelectMenu?.()||i.isRoleSelectMenu?.())&&i.customId?.startsWith('config:'))return require('./config-dashboard').handle(i);
     if(i.isButton()&&i.customId.startsWith('role-request:'))return await require('./role-requests').handle(i);
     if(i.isButton() && ['close-request:accept','close-request:decline'].includes(i.customId))return await require('./utilities').respond(i);
 
@@ -92,7 +93,7 @@ async function handleInteraction(i) {
       if(i.commandName === 'suspension') { await i.deferReply({flags:D.MessageFlags.Ephemeral}); return await i.editReply(v2('Suspension',await endSuspension(i,i.options.getUser('member',true).id),[],true)); }
 
 
-      if (i.commandName === 'config') return await config(i);
+      if (i.commandName === 'config') return require('./config-dashboard').open(i);
       if (!['infraction','promotion'].includes(i.commandName)) return;
       await i.deferReply({ flags: D.MessageFlags.Ephemeral });
       await require('./access').requireAccess(i,i.commandName);
@@ -168,7 +169,7 @@ async function handleInteraction(i) {
     }
   } catch(e) {
     if (i.isAutocomplete?.()) { await i.respond([]).catch(()=>{}); return; }
-    console.error('Interaction failed:', i.commandName || i.customId, i.commandName==='config' ? i.options.getSubcommand() : '', i.id, e.code || e.name, 'status:', e.status, 'invalid fields:', require('./config-delivery').errorFields(e));
+    console.error('Interaction failed:', i.commandName || i.customId, i.commandName==='config'&&i.options.getSubcommand?.(false) ? i.options.getSubcommand(false) : '', i.id, e.code || e.name, 'status:', e.status, 'invalid fields:', require('./config-delivery').errorFields(e));
     const message = require('./config-delivery').describeError(e) + `\n\nReference: ${i.id}`;
     const payload = v2('Unable to Complete Action',message,[],true);
     if (i.deferred || i.replied) await i.editReply(payload).catch(() => {});

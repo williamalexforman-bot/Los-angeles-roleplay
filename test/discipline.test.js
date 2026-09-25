@@ -101,8 +101,8 @@ test('case layouts preserve saved fields while banners are disabled',()=>{
     const text=JSON.stringify(payload.components[0].toJSON());assert.ok(!text.includes('attachment://'));assert.equal(payload.flags,D.MessageFlags.IsComponentsV2);
   }
   const cmds=require('../src/commands/config').commands.map(c=>c.toJSON());
-  const panels=cmds.find(c=>c.name==='config').options.find(o=>o.name==='panel').options[0].choices.map(c=>c.value);
-  assert.deepEqual(panels,['ticket','shift','information','employee','cadet','oia','application','supervisor']);
+  assert.deepEqual(cmds.find(c=>c.name==='config').options,[]);
+  assert.deepEqual(require('../src/config-dashboard').PANELS,['ticket','shift','information','employee','cadet','oia','application','supervisor']);
 });
 
 test('blank suspension expiry creates an indefinite suspension',async()=>{

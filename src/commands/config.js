@@ -2,18 +2,7 @@ const D = require('discord.js');
 const { CHANNELS, TYPES, TICKETS } = require('../settings');
 const roleGated = cmd => cmd.setDefaultMemberPermissions(null).setDMPermission(false);
 const admin = cmd => cmd.setDefaultMemberPermissions(D.PermissionFlagsBits.Administrator).setDMPermission(false);
-const configCommand = admin(new D.SlashCommandBuilder().setName('config').setDescription('Set channels, ticket access and post panels'))
-.addSubcommand(s => s.setName('view').setDescription('View configured destinations'))
-.addSubcommand(s => s.setName('channel').setDescription('Change a destination')
-  .addStringOption(o => o.setName('destination').setDescription('Destination').setRequired(true).setAutocomplete(true))
-  .addChannelOption(o => o.setName('channel').setDescription('Channel or ticket category').setRequired(true).addChannelTypes(D.ChannelType.GuildCategory, D.ChannelType.GuildText, D.ChannelType.GuildAnnouncement)))
-.addSubcommand(s => s.setName('panel').setDescription('Post a V2 panel')
-  .addStringOption(o => o.setName('panel').setDescription('Panel').setRequired(true).addChoices(...['ticket','shift','information','employee','cadet','oia','application','supervisor'].map(value => ({ name: value, value }))))
-  .addChannelOption(o => o.setName('channel').setDescription('Optional panel channel override').addChannelTypes(D.ChannelType.GuildText, D.ChannelType.GuildAnnouncement)))
-.addSubcommand(s => s.setName('ticket-access').setDescription('Set the support role for one department')
-  .addStringOption(o => o.setName('department').setDescription('Department').setRequired(true).addChoices(...Object.entries(TICKETS).map(([value,name]) => ({name,value}))))
-  .addRoleOption(o => o.setName('role').setDescription('Role allowed to read this department’s tickets').setRequired(true)));
-configCommand.addSubcommand(s=>s.setName('staff-role').setDescription('Configure bot access and automatic roles').addStringOption(o=>o.setName('purpose').setDescription('Role purpose').setRequired(true).addChoices(...['staff','management','infraction','promotion','deployment_ping','hr','say','high_command','on_duty','on_break'].map(value=>({name:value,value})))).addRoleOption(o=>o.setName('role').setDescription('Server role').setRequired(true)));
+const configCommand = roleGated(new D.SlashCommandBuilder().setName('config').setDescription('Open the private interactive bot configuration dashboard'));
 const infraction = roleGated(new D.SlashCommandBuilder().setName('infraction').setDescription('Manage staff infraction cases'))
 .addSubcommand(s => s.setName('issue').setDescription('Issue a staff infraction')
 .addUserOption(o => o.setName('member').setDescription('Member').setRequired(true))

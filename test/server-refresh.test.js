@@ -9,7 +9,8 @@ test('new server destinations and roles are isolated from the previous server',(
 test('registration remains valid and ticket destinations fit Discord command limits',()=>{
  const commands=require('../src/commands/config').commands.map(c=>c.toJSON());
  assert.ok(commands.some(c=>c.name==='ticketpanel'));const config=commands.find(c=>c.name==='config');
- assert.equal(config.options.find(o=>o.name==='channel').options.find(o=>o.name==='destination').autocomplete,true);
+ assert.deepEqual(config.options,[]);
+ assert.equal(require('../src/config-dashboard').ACCESS_ID,'1262469782897295461');
  for(const name of ['lock','unlock','removefrom'])assert.ok(commands.some(command=>command.name===name));
  const {parsePrefix}=require('../src/messages');for(const command of ['deployment','close','closerequest','ticketpanel','lock','unlock','removefrom'])assert.equal(parsePrefix('-'+command).command,command);
 });
