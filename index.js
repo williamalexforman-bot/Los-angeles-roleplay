@@ -136,9 +136,16 @@ else {
           // Discord preserved the guild's existing commands, so a command-sync
           // cooldown must not make an otherwise healthy bot fail readiness.
           // Mark this process complete and use the commands already on Discord;
-          // a future deployment can publish changes after Discord lifts its limit.
+          // automatically publish changes after Discord lifts its limit.
           commandsRegistered=true;
-          lifecycle('command_registration_using_existing',{registered:true,reason:'Discord command update cooldown'});
+          const retryAt=new Date(commandSyncBlockedUntil).toISOString();
+          const retryDelay=Math.max(1000,commandSyncBlockedUntil-Date.now()+1000);
+          setTimeout(()=>{
+            commandSyncBlockedUntil=0;
+            commandsRegistered=false;
+            lifecycle('command_registration_cooldown_finished',{retrying:true});
+          },retryDelay).unref();
+          lifecycle('command_registration_using_existing',{registered:true,reason:'Discord command update cooldown',fullSyncScheduled:true,retryAt});
           return;
         }
         console.error('Command registration failed:',JSON.stringify({name:error?.name,message:error?.message,code:error?.code,status:error?.status,raw:error?.rawError?.message}));
