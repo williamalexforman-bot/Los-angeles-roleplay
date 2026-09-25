@@ -102,7 +102,7 @@ test('case layouts preserve saved fields while banners are disabled',()=>{
   }
   const cmds=require('../src/commands/config').commands.map(c=>c.toJSON());
   const panels=cmds.find(c=>c.name==='config').options.find(o=>o.name==='panel').options[0].choices.map(c=>c.value);
-  assert.deepEqual(panels,['ticket','shift','information','employee','cadet','oia']);
+  assert.deepEqual(panels,['ticket','shift','information','employee','cadet','oia','application','supervisor']);
 });
 
 test('blank suspension expiry creates an indefinite suspension',async()=>{

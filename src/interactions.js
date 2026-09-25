@@ -42,15 +42,17 @@ async function config(i) {
     return i.editReply(v2('Ticket Access Updated', `New ${TICKETS[type]} tickets will be visible to <@&${role.id}>. Existing tickets will keep their current access.`, [], true));
   }
   const type = i.options.getString('panel',true);
-  if (!['ticket','shift','information','employee','cadet','oia'].includes(type)) throw new Error('Choose a supported panel.');
+  if (!['ticket','shift','information','employee','cadet','oia','application','supervisor'].includes(type)) throw new Error('Choose a supported panel.');
   let channel = i.options.getChannel('channel');
   if (!channel) {
-    const defaults={ticket:'ticketPanel',information:'information',employee:'employeeInfo',cadet:'cadetInfo',oia:'oiaInfo'};
+    const defaults={ticket:'ticketPanel',information:'information',employee:'employeeInfo',cadet:'cadetInfo',oia:'oiaInfo',application:'applicationPanel',supervisor:'supervisorInfo'};
     if(defaults[type]) channel=await destination(i.guild,defaults[type]);
     else channel=i.channel;
   }
   if(!channel)throw new Error('Choose a channel for this panel using the channel option, or configure its destination first.');
-  await require('./config-delivery').sendPanel(channel, i.guild, type==='shift'?require('./shifts').shiftPanel():type==='ticket'?panel(type):require('./department-panels').get(type,i.guild));
+  const workflows=require('./workflows');
+  const payload=type==='shift'?require('./shifts').shiftPanel():type==='ticket'?panel(type):type==='application'?workflows.requestPanel('application'):type==='supervisor'?workflows.supervisorPanel():require('./department-panels').get(type,i.guild);
+  await require('./config-delivery').sendPanel(channel, i.guild, payload);
   return i.editReply(v2('Panel Successfully Posted', `The selected panel is now available in <#${channel.id}>.`, [], true));
 }
 async function handleInteraction(i) {
@@ -65,6 +67,10 @@ async function handleInteraction(i) {
       return await i.respond(Object.keys(CHANNELS).filter(key=>key.toLowerCase().includes(query)).slice(0,25).map(value=>({name:value,value})));
     }
     if(i.isButton()&&i.customId.startsWith('shift:'))return await require('./shifts').handleShift(i,i.customId.split(':')[1]);
+    if(i.isButton()&&/^(fastpass|application):open$/.test(i.customId))return require('./workflows').openForm(i,i.customId.split(':')[0]);
+    if(i.isButton()&&/^(fastpass|application):(approve|deny):/.test(i.customId)){const [kind,action,id]=i.customId.split(':');return require('./workflows').decision(i,kind,action,id);}
+    if(i.isRoleSelectMenu?.()&&/^(fastpass|application):role:/.test(i.customId)){const [kind,,id]=i.customId.split(':');return require('./workflows').grant(i,kind,id);}
+    if(i.isButton()&&i.customId.startsWith('activity:')){const [,action,id]=i.customId.split(':');return require('./workflows').activityButton(i,action,id);}
     if(i.isButton()&&i.customId.startsWith('role-request:'))return await require('./role-requests').handle(i);
     if(i.isButton() && ['close-request:accept','close-request:decline'].includes(i.customId))return await require('./utilities').respond(i);
 
@@ -72,7 +78,10 @@ async function handleInteraction(i) {
 
       if(['dm','role'].includes(i.commandName))return await require('./owner-tools').slash(i);
       if(i.commandName==='quota')return await require('./quota').quotaCommand(i);
-      if(i.commandName==='shift')return await require('./shifts').handleShift(i,i.options.getSubcommand());
+      if(i.commandName==='shift')return await require('./shifts').showControls(i);
+      if(i.commandName==='fastpass'){await require('./tickets').ticketAccess(i);return i.reply(require('./workflows').requestPanel('fastpass'));}
+      if(i.commandName==='application')return require('./workflows').openForm(i,'application');
+      if(i.commandName==='activity-check')return require('./workflows').startActivity(i);
       if(i.commandName==='say')return await require('./messages').handleMessageCommand(i);
       if(i.commandName==='requestrole')return await require('./role-requests').submit(i);
       if(i.commandName==='add-emojis')return await require('./emoji-install').slash(i);
@@ -127,6 +136,7 @@ async function handleInteraction(i) {
       const extra = (type === 'affairs' ? `User Reported: ${i.fields.getTextInputValue('reported')}\nProof: ${i.fields.getTextInputValue('evidence')}\n` : '') + `Additional Details: ${i.fields.getTextInputValue('details') || 'None'}`;
       return await i.editReply(v2('Support Ticket Opened', await openTicket(i, type, reason, extra), [], true));
     }
+    if(i.isModalSubmit()&&/^(fastpass|application):submit$/.test(i.customId))return require('./workflows').submit(i,i.customId.split(':')[0]);
     if (i.isButton() && i.customId === 'ticket:close') {
       await i.deferReply({ flags: D.MessageFlags.Ephemeral });
       await ticketAccess(i);

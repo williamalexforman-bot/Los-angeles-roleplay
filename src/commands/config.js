@@ -8,12 +8,12 @@ const configCommand = admin(new D.SlashCommandBuilder().setName('config').setDes
   .addStringOption(o => o.setName('destination').setDescription('Destination').setRequired(true).setAutocomplete(true))
   .addChannelOption(o => o.setName('channel').setDescription('Channel or ticket category').setRequired(true).addChannelTypes(D.ChannelType.GuildCategory, D.ChannelType.GuildText, D.ChannelType.GuildAnnouncement)))
 .addSubcommand(s => s.setName('panel').setDescription('Post a V2 panel')
-  .addStringOption(o => o.setName('panel').setDescription('Panel').setRequired(true).addChoices(...['ticket','shift','information','employee','cadet','oia'].map(value => ({ name: value, value }))))
+  .addStringOption(o => o.setName('panel').setDescription('Panel').setRequired(true).addChoices(...['ticket','shift','information','employee','cadet','oia','application','supervisor'].map(value => ({ name: value, value }))))
   .addChannelOption(o => o.setName('channel').setDescription('Optional panel channel override').addChannelTypes(D.ChannelType.GuildText, D.ChannelType.GuildAnnouncement)))
 .addSubcommand(s => s.setName('ticket-access').setDescription('Set the support role for one department')
   .addStringOption(o => o.setName('department').setDescription('Department').setRequired(true).addChoices(...Object.entries(TICKETS).map(([value,name]) => ({name,value}))))
   .addRoleOption(o => o.setName('role').setDescription('Role allowed to read this department’s tickets').setRequired(true)));
-configCommand.addSubcommand(s=>s.setName('staff-role').setDescription('Configure staff access or deployment mentions').addStringOption(o=>o.setName('purpose').setDescription('Role purpose').setRequired(true).addChoices(...['management','infraction','promotion','deployment_ping','hr','say'].map(value=>({name:value,value})))).addRoleOption(o=>o.setName('role').setDescription('Server role').setRequired(true)));
+configCommand.addSubcommand(s=>s.setName('staff-role').setDescription('Configure bot access and automatic roles').addStringOption(o=>o.setName('purpose').setDescription('Role purpose').setRequired(true).addChoices(...['staff','management','infraction','promotion','deployment_ping','hr','say','high_command','on_duty','on_break'].map(value=>({name:value,value})))).addRoleOption(o=>o.setName('role').setDescription('Server role').setRequired(true)));
 const infraction = roleGated(new D.SlashCommandBuilder().setName('infraction').setDescription('Manage staff infraction cases'))
 .addSubcommand(s => s.setName('issue').setDescription('Issue a staff infraction')
 .addUserOption(o => o.setName('member').setDescription('Member').setRequired(true))
@@ -58,10 +58,11 @@ const dm=new D.SlashCommandBuilder().setName('dm').setDescription('Owner: send o
  .addStringOption(o=>o.setName('message').setDescription('Message to send').setRequired(true).setMaxLength(2000));
 const role=new D.SlashCommandBuilder().setName('role').setDescription('Owner: add or remove a manageable role').setDMPermission(false);
 for(const action of ['add','remove'])role.addSubcommand(s=>s.setName(action).setDescription(`${action} a role from a server member`).addUserOption(o=>o.setName('user').setDescription('Server member').setRequired(true)).addRoleOption(o=>o.setName('role').setDescription('Role to change').setRequired(true)));
-const shift=new D.SlashCommandBuilder().setName('shift').setDescription('Track your shift time').setDMPermission(false);
-for(const action of ['start','end','status'])shift.addSubcommand(s=>s.setName(action).setDescription(`${action} your shift`));
+const shift=new D.SlashCommandBuilder().setName('shift').setDescription('Open your private shift controls').setDMPermission(false);
 const cmds = new D.SlashCommandBuilder().setName('cmds').setDescription('List every command and what it does').setDMPermission(false);
-shift.addSubcommand(s=>s.setName('view').setDescription('View a member’s weekly shift time and quota').addUserOption(o=>o.setName('member').setDescription('Member to view')));
+const fastpass=roleGated(new D.SlashCommandBuilder().setName('fastpass').setDescription('Send a Fast Pass request form in this ticket'));
+const activityCheck=roleGated(new D.SlashCommandBuilder().setName('activity-check').setDescription('Start an activity check in announcements'));
+const application=new D.SlashCommandBuilder().setName('application').setDescription('Open the Clearwater Fire & Rescue application').setDMPermission(false);
 const quota=new D.SlashCommandBuilder().setName('quota').setDescription('Weekly quota controls').setDMPermission(false);
 for(const action of ['status','enable','disable'])quota.addSubcommand(s=>s.setName(action).setDescription(`${action} weekly quota`));
-module.exports = { configCommand, commands: [configCommand, infraction, promotion, suspension, deployment, close, closerequest, ticketpanel, lock, unlock, removefrom, requestrole, addEmojis, say, dm, role, shift, quota, cmds] };
+module.exports = { configCommand, commands: [configCommand, infraction, promotion, suspension, deployment, close, closerequest, ticketpanel, lock, unlock, removefrom, requestrole, addEmojis, say, dm, role, shift, quota, cmds, fastpass, activityCheck, application] };

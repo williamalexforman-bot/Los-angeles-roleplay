@@ -56,7 +56,7 @@ async function logCase(guild, item) {
   }
   if (item.kind === 'infraction' && !item.threadId && message.startThread) {
     try {
-      const thread = message.thread || await message.startThread({name:`INF-${item._id} | ${item.username || item.userId} | ${item.type}`.slice(0,100), autoArchiveDuration:1440});
+      const thread = message.thread || await message.startThread({name:`${require('./short-id').short(item._id,'INF-')} | ${item.username || item.userId} | ${item.type}`.slice(0,100), autoArchiveDuration:1440});
       await collection('cases').updateOne({_id:item._id},{$set:{threadId:thread.id}});
     } catch { console.error('Infraction posted; case thread unavailable:',item._id); }
   }

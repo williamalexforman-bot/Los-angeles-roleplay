@@ -107,7 +107,10 @@ else {
         const guilds = await require('./src/guild-config').commandGuilds(registeringClient);
         const serialized=commands.map(c=>c.toJSON());
         for (const guild of guilds) {
-          const registered=await guild.commands.set(serialized);
+          const registered=await Promise.race([
+            guild.commands.set(serialized),
+            new Promise((_,reject)=>setTimeout(()=>reject(Object.assign(new Error('Discord command registration timed out after 60 seconds; it will retry automatically.'),{code:'COMMAND_SYNC_TIMEOUT'})),60000))
+          ]);
           const expectedNames=serialized.map(command=>command.name).sort();
           const registeredNames=[...registered.values()].map(command=>command.name).sort();
           const missing=expectedNames.filter(name=>!registeredNames.includes(name));
@@ -121,7 +124,7 @@ else {
       } catch(error) {
         console.error('Command registration failed:',JSON.stringify({name:error?.name,message:error?.message,code:error?.code,status:error?.status,raw:error?.rawError?.message}));
       }
-    },300000);
+    },120000);
 
   }));
   client.on('guildMemberAdd', member => member.guild.id === process.env.GUILD_ID && runTask('Welcome message', () => require('./src/welcome').welcome(member)));

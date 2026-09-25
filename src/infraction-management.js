@@ -2,7 +2,7 @@ const D=require('discord.js');
 const {collection,locked}=require('./store');
 const {ROLES}=require('./settings');
 const {caseNotice,NOTICE_VERSION}=require('./legacy-layout');
-function caseId(value){const id=String(value).trim().replace(/^INF-/i,'');if(!/^(?:\d{17,20}|quota-\d{13}-\d{17,20})$/.test(id))throw new Error('Enter the Case ID shown on the infraction, with or without INF-.');return id;}
+function caseId(value){const id=String(value).trim().replace(/^INF-/i,'');if(!/^(?:[A-Za-z0-9-]{6}|\d{17,20}|quota-\d{13}-\d{17,20})$/.test(id))throw new Error('Enter the six-character Case ID shown on the infraction, with or without INF-.');return id;}
 const statusRole=type=>({Termination:ROLES.termination,Blacklisted:ROLES.blacklisted,'Under Investigation':ROLES.investigation}[type]);
 function revokePlan(state,cases,item){
  const tiers=[...ROLES.warnings,...ROLES.strikes].filter(Boolean);
@@ -50,8 +50,11 @@ async function apply(guild,change){
 async function change(i,action,id,updates,reason){
  await require('./access').requireAccess(i,'infraction');
  id=caseId(id);reason=String(reason||'').trim();if(!reason||reason.length>500)throw new Error('Enter a change reason between 1 and 500 characters.');
- const query={_id:id,guildId:i.guildId,kind:'infraction'};
- const initial=await collection('cases').findOne(query);if(!initial)throw new Error('No infraction with that Case ID exists in this server.');
+ let initial;
+ if(id.length===6){const matches=await collection('cases').find({guildId:i.guildId,kind:'infraction',_id:{$regex:`${id}$`,$options:'i'}}).limit(2).toArray();if(matches.length>1)throw new Error('That short Case ID is not unique. Ask an administrator to use the full ID.');initial=matches[0];}
+ else initial=await collection('cases').findOne({_id:id,guildId:i.guildId,kind:'infraction'});
+ if(!initial)throw new Error('No infraction with that Case ID exists in this server.');
+ id=initial._id;const query={_id:id,guildId:i.guildId,kind:'infraction'};
  return locked(`member:${i.guildId}:${initial.userId}`,async()=>{
   const duplicate=await collection('case_changes').findOne({_id:i.id});if(duplicate)return 'This change is already saved; pending work retries automatically.';
   if(await pending(i.guildId,initial.userId))throw new Error('A previous role change is still pending. Wait for recovery before changing this record.');

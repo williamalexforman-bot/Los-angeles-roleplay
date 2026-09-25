@@ -2,7 +2,7 @@ const D=require('discord.js');
 const MANAGER=null, STAFF_ACTION_ROLE=null, INFRACTION_ROLES=[], PROMOTION_ROLES=[];
 function allowed(member,kind,config={}) {
  if((member.id && member.id===member.guild?.ownerId) || member.permissions?.has(D.PermissionFlagsBits.Administrator))return true;
- return [config.role_management,config['role_'+kind]].filter(Boolean).some(id=>member.roles?.cache?.has(id));
+ return [config.role_staff,config.role_management,config['role_'+kind]].filter(Boolean).some(id=>member.roles?.cache?.has(id));
 }
 async function requireAccess(i,kind) {
  const member=await i.guild.members.fetch({user:i.user.id,force:true});

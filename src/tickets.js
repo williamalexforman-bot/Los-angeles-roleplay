@@ -57,6 +57,7 @@ async function openTicket(i, type, reason, extra = '') {
       await collection('tickets').updateOne({_id:channel.id},{$set:{panelPending:true,panelErrorCode:String(error.code||error.name)}}).catch(()=>{});
       return `Your ticket was created: <#${channel.id}>. Its opening panel could not be posted yet; the bot will retry automatically.`;
     }
+    if(/fast\s*pass/i.test(`${reason} ${extra}`))await channel.send(require('./workflows').requestPanel('fastpass')).catch(e=>console.error('Fast Pass form delivery pending:',channel.id,e.code||e.name));
     await require('./logging').record('tickets',i.guildId,'Ticket Opened',`**Ticket:** <#${channel.id}>\n**Opener:** <@${i.user.id}>\n**Department:** ${TICKETS[type]}`,`open:${channel.id}`).catch(()=>{});
     return `Your ${TICKETS[type]} ticket is ready: <#${channel.id}>.`;
   });

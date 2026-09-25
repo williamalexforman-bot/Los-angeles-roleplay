@@ -40,7 +40,7 @@ function caseNotice(item, url) {
     text(`**Review details**\nRecorded by <@${item.actorId}>\n${item.revoked?'This infraction is revoked and no longer counts.':item.appealable?'You may request a review using the appeal button below.':'This action is not open for appeal.'}`);
   }
   divider();
-  text(`-# Case ID: ${item._id} • <t:${Math.floor(item.created/1000)}:F>`);
+  text(`-# Case ID: ${require('./short-id').short(item._id,'INF-')} • <t:${Math.floor(item.created/1000)}:F>`);
   if(item.kind==='infraction'&&item.next)text(`-# Counts when issued — Warnings: ${item.next.warnings || 0}/3 • Strikes: ${item.next.strikes || 0} • Total infractions: ${item.next.total || 0}`);
   if(item.kind==='promotion') {
     if(item.approvedBy)text(`-# Approved by <@${item.approvedBy}>${item.effectiveDate?` • Effective: ${clean(item.effectiveDate)}`:''}`);
@@ -55,7 +55,7 @@ function ticketNotice(record) {
   const text=[
     `@everyone\n\n${icon("welcome","👋")} Thanks <@${record.owner}> for contacting support!`,
     `Thank you for opening a ticket with **Clearwater Fire & Rescue**. ${staff ? `<@&${staff}>` : "Our support team"} will assist you as soon as possible. Please wait at least **12 hours** before pinging staff about a response. If you are reporting a user, provide their **User ID**, a clear **screenshot**, and a detailed **reason** below so the report can be reviewed efficiently.`,
-    `${icon('ticket','🎫')} **Ticket Information**\n${icon('member','•')} **Opener:** <@${record.owner}>\n${icon('reference','•')} **Ticket ID:** \`TICKET-${record._id}\`\n${icon('support','•')} **Department:** ${TICKETS[record.type] || 'Support'}\n${icon('reason','•')} **Reason** ${require('./ticket-format').ticketReason(record.reason)}`
+    `${icon('ticket','🎫')} **Ticket Information**\n${icon('member','•')} **Opener:** <@${record.owner}>\n${icon('reference','•')} **Ticket ID:** \`${require('./short-id').short(record._id,'TICKET-')}\`\n${icon('support','•')} **Department:** ${TICKETS[record.type] || 'Support'}\n${icon('reason','•')} **Reason** ${require('./ticket-format').ticketReason(record.reason)}`
   ];
   if(record.extra)text.push(`${icon('evidence','•')} **Additional Information**\n${clean(record.extra)}`);
   if(record.claimedBy)text.push(`${icon('claim','•')} **Claimed by:** <@${record.claimedBy}>`);

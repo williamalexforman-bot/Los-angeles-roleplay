@@ -1,6 +1,6 @@
 const D=require('discord.js');
 const CPFR='https://raw.githubusercontent.com/williamalexforman-bot/Los-angeles-roleplay/main/assets/banners/cpfr';
-const BANNER_VERSION='2026-09-22-3';
+const BANNER_VERSION='2026-09-25-1';
 function gallery(name){return new D.MediaGalleryBuilder().addItems(new D.MediaGalleryItemBuilder().setURL(`${CPFR}/${name}.png?v=${BANNER_VERSION}`));}
 function decorate(box,header){
  const name=header?.startsWith('cpfr:')?header.slice(5):header;

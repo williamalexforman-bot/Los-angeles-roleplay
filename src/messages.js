@@ -25,6 +25,7 @@ async function deployment(context){
 }
 async function handleMessage(message){
  if(!message.guild||message.author.bot||message.webhookId)return;
+ if(await require('./workflows').tripwire(message))return;
  const parsed=parsePrefix(message.content);if(!parsed)return;
  const context={guild:message.guild,guildId:message.guild.id,channel:message.channel,channelId:message.channel.id,user:message.author,sourceMessageId:message.id};
  try{
@@ -48,7 +49,7 @@ async function handleMessage(message){
     const [action='status',memberText]=parsed.text.toLowerCase().split(/\s+/).filter(Boolean);
     const targetId=memberText?.replace(/[<@!>]/g,'');
     if((targetId&&action!=='view')||parsed.text.split(/\s+/).length>2||(targetId&&!/^\d{17,20}$/.test(targetId)))throw new Error('Use -shift view @member.');
-    if(!['start','end','status','view'].includes(action))throw new Error('Use -shift start, -shift end, -shift status or -shift view @member.');
+    if(!['start','break','end','status','view'].includes(action))throw new Error('Use -shift start, -shift break, -shift end, -shift status or -shift view @member.');
     const shifts=require('./shifts');const result=await shifts.changeShift(context,action,targetId);
     await context.channel.send(v2('Shift Status',result));
   }
