@@ -10,7 +10,7 @@ const { syncTicketAccess } = require('./src/tickets');
 const { runTask, startTask, errorDetails } = require('./src/runtime');
 const { botToken } = require('./src/connection-health');
 const token = botToken();
-let client, databaseReady = false, commandsRegistered = false;
+let client, databaseReady = false, commandsRegistered = false, commandSyncBlockedUntil = 0;
 const { writeSync } = require('node:fs');
 function lifecycle(event, details = {}) {
   const memory = process.memoryUsage();
@@ -101,6 +101,7 @@ else {
 
     void startTask('Command registration',async()=>{
       if(commandsRegistered||!client.isReady())return;
+      if(Date.now()<commandSyncBlockedUntil)return;
       const registeringClient=client;
       try {
         lifecycle('command_registration_started');
@@ -122,6 +123,10 @@ else {
         console.log('Registered commands: ' + commands.map(c => '/' + c.name).join(', '));
         if(client===registeringClient)commandsRegistered=true;
       } catch(error) {
+        if(error?.status===429&&Number(error.retryAfter)>0){
+          commandSyncBlockedUntil=Date.now()+Math.ceil(Number(error.retryAfter)*1000);
+          lifecycle('command_registration_rate_limited',{retryAfterSeconds:Math.ceil(Number(error.retryAfter)),retryAt:new Date(commandSyncBlockedUntil).toISOString()});
+        }
         console.error('Command registration failed:',JSON.stringify({name:error?.name,message:error?.message,code:error?.code,status:error?.status,raw:error?.rawError?.message}));
       }
     },120000);
