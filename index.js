@@ -47,6 +47,14 @@ else {
   client = new D.Client({ shards:[0], shardCount:1, makeCache: D.Options.cacheWithLimits({ ...D.Options.DefaultMakeCacheSettings, MessageManager: 50 }), sweepers: { ...D.Options.DefaultSweeperSettings, messages: { interval: 300, lifetime: 900 } }, rest: { rejectOnRateLimit: data => data.route==='/gateway/bot'||/\/guilds\/[^/]+\/emojis(?:\/|$)/.test(data.route) }, intents: [D.GatewayIntentBits.Guilds, D.GatewayIntentBits.GuildEmojisAndStickers, D.GatewayIntentBits.GuildMembers, D.GatewayIntentBits.GuildMessages, D.GatewayIntentBits.MessageContent, D.GatewayIntentBits.DirectMessages, D.GatewayIntentBits.GuildModeration], partials:[D.Partials.Channel,D.Partials.Message,D.Partials.GuildMember] });
   const restGet=client.rest.get.bind(client.rest);
   client.rest.get=async(route,...args)=>{
+    // This bot is intentionally single-sharded. Calling /gateway/bot on every
+    // Render boot can receive a very long global 429, which poisons discord.js's
+    // shared REST queue and prevents interaction replies from being delivered.
+    // Skip that unnecessary request so slash-command acknowledgements stay live.
+    if(route==='/gateway/bot'){
+      lifecycle('discord_gateway_info_fallback',{reason:'ConfiguredSingleShard',shards:1});
+      return {url:'wss://gateway.discord.gg',shards:1,session_start_limit:{total:1000,remaining:999,reset_after:60000,max_concurrency:1}};
+    }
     try{return await restGet(route,...args);}
     catch(error){
       const rateLimited=error?.status===429||error?.code===429||String(error?.name||'').startsWith('RateLimitError');
