@@ -107,12 +107,8 @@ else {
         const guilds = await require('./src/guild-config').commandGuilds(registeringClient);
         const serialized=commands.map(c=>c.toJSON());
         for (const guild of guilds) {
-          // Login's /gateway/bot request can be rate-limited on shared hosting.
-          // Use an isolated REST manager so command sync is not trapped behind
-          // the gateway manager's global rate-limit queue.
-          const rest=new D.REST({version:'10',timeout:30000,retries:2}).setToken(token);
           const registered=await Promise.race([
-            rest.put(D.Routes.applicationGuildCommands(client.user.id,guild.id),{body:serialized}),
+            require('./src/command-sync').sync(token,client.user.id,guild.id,serialized),
             new Promise((_,reject)=>setTimeout(()=>reject(Object.assign(new Error('Discord command registration timed out after 60 seconds; it will retry automatically.'),{code:'COMMAND_SYNC_TIMEOUT'})),60000))
           ]);
           const expectedNames=serialized.map(command=>command.name).sort();

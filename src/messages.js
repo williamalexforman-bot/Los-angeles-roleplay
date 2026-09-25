@@ -25,6 +25,7 @@ async function deployment(context){
 }
 async function handleMessage(message){
  if(!message.guild||message.author.bot||message.webhookId)return;
+ if(await require('./config-dashboard').handleUpload(message))return;
  if(await require('./workflows').tripwire(message))return;
  const parsed=parsePrefix(message.content);if(!parsed)return;
  const context={guild:message.guild,guildId:message.guild.id,channel:message.channel,channelId:message.channel.id,user:message.author,sourceMessageId:message.id};

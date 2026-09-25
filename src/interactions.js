@@ -71,6 +71,7 @@ async function handleInteraction(i) {
     if(i.isButton()&&/^(fastpass|application):(approve|deny):/.test(i.customId)){const [kind,action,id]=i.customId.split(':');return require('./workflows').decision(i,kind,action,id);}
     if(i.isRoleSelectMenu?.()&&/^(fastpass|application):role:/.test(i.customId)){const [kind,,id]=i.customId.split(':');return require('./workflows').grant(i,kind,id);}
     if(i.isButton()&&i.customId.startsWith('activity:')){const [,action,id]=i.customId.split(':');return require('./workflows').activityButton(i,action,id);}
+    if(i.isModalSubmit?.()&&i.customId.startsWith('config:'))return require('./config-dashboard').handle(i);
     if((i.isButton?.()||i.isStringSelectMenu?.()||i.isChannelSelectMenu?.()||i.isRoleSelectMenu?.())&&i.customId?.startsWith('config:'))return require('./config-dashboard').handle(i);
     if(i.isButton()&&i.customId.startsWith('role-request:'))return await require('./role-requests').handle(i);
     if(i.isButton() && ['close-request:accept','close-request:decline'].includes(i.customId))return await require('./utilities').respond(i);
