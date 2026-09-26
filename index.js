@@ -10,7 +10,9 @@ const { syncTicketAccess } = require('./src/tickets');
 const { runTask, startTask, errorDetails } = require('./src/runtime');
 const { botToken } = require('./src/connection-health');
 const token = botToken();
-let client, databaseReady = false, commandsRegistered = false, commandSyncBlockedUntil = 0;
+// Bootstrap the retry time returned in the latest Render log. MongoDB stores
+// subsequent deadlines so a Render restart cannot discard Discord's cooldown.
+let client, databaseReady = false, commandsRegistered = false, commandSyncBlockedUntil = Date.parse('2026-09-27T09:10:00.042Z');
 const { writeSync } = require('node:fs');
 function lifecycle(event, details = {}) {
   const memory = process.memoryUsage();
@@ -94,7 +96,12 @@ else {
     startupStarted=true;
     let jobsStarted = false;
     void startTask('Database connection', async () => {
-      try { await store.connect(); databaseReady = true; }
+      try {
+        await store.connect();
+        const savedSyncState=await store.collection('runtime_state').findOne({_id:'command-registration'});
+        commandSyncBlockedUntil=Math.max(commandSyncBlockedUntil,Number(savedSyncState?.blockedUntil)||0);
+        databaseReady = true;
+      }
       catch(e){databaseReady=false;throw e;}
       if (jobsStarted) return;
       jobsStarted = true;
@@ -110,13 +117,18 @@ else {
     void startTask('Command registration',async()=>{
       // The long cooldown timer is only a wake-up hint. Also check the deadline
       // on every task tick so a delayed timer or host pause cannot strand sync.
+      if(!databaseReady)return;
       if(commandSyncBlockedUntil&&Date.now()>=commandSyncBlockedUntil){
         commandSyncBlockedUntil=0;
         commandsRegistered=false;
+        await store.collection('runtime_state').updateOne({_id:'command-registration'},{$unset:{blockedUntil:'',retryAt:''},$set:{updatedAt:Date.now()}},{upsert:true});
         lifecycle('command_registration_cooldown_finished',{retrying:true});
       }
+      if(commandSyncBlockedUntil>Date.now()){
+        commandsRegistered=true;
+        return;
+      }
       if(commandsRegistered||!client.isReady())return;
-      if(Date.now()<commandSyncBlockedUntil)return;
       const registeringClient=client;
       try {
         lifecycle('command_registration_started');
@@ -136,6 +148,7 @@ else {
           if(databaseReady) await require('./src/logging').record('bot',guild.id,'Bot Online','Discord connected and commands registered.',`startup:${process.env.RENDER_GIT_COMMIT || Date.now()}`);
         }
         console.log('Registered commands: ' + commands.map(c => '/' + c.name).join(', '));
+        await store.collection('runtime_state').updateOne({_id:'command-registration'},{$unset:{blockedUntil:'',retryAt:''},$set:{lastSuccessAt:Date.now()}},{upsert:true});
         if(client===registeringClient)commandsRegistered=true;
       } catch(error) {
         if(error?.status===429&&Number(error.retryAfter)>0){
@@ -146,12 +159,7 @@ else {
           // automatically publish changes after Discord lifts its limit.
           commandsRegistered=true;
           const retryAt=new Date(commandSyncBlockedUntil).toISOString();
-          const retryDelay=Math.max(1000,commandSyncBlockedUntil-Date.now()+1000);
-          setTimeout(()=>{
-            // The regular task tick also checks the deadline in case the host
-            // paused timers while the service was being restarted or suspended.
-            lifecycle('command_registration_retry_wake',{retryAt});
-          },retryDelay).unref();
+          await store.collection('runtime_state').updateOne({_id:'command-registration'},{$set:{blockedUntil:commandSyncBlockedUntil,retryAt,updatedAt:Date.now()}},{upsert:true});
           lifecycle('command_registration_using_existing',{registered:true,reason:'Discord command update cooldown',fullSyncScheduled:true,retryAt});
           return;
         }
