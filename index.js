@@ -108,6 +108,13 @@ else {
     }, 30000);
 
     void startTask('Command registration',async()=>{
+      // The long cooldown timer is only a wake-up hint. Also check the deadline
+      // on every task tick so a delayed timer or host pause cannot strand sync.
+      if(commandSyncBlockedUntil&&Date.now()>=commandSyncBlockedUntil){
+        commandSyncBlockedUntil=0;
+        commandsRegistered=false;
+        lifecycle('command_registration_cooldown_finished',{retrying:true});
+      }
       if(commandsRegistered||!client.isReady())return;
       if(Date.now()<commandSyncBlockedUntil)return;
       const registeringClient=client;
@@ -141,9 +148,9 @@ else {
           const retryAt=new Date(commandSyncBlockedUntil).toISOString();
           const retryDelay=Math.max(1000,commandSyncBlockedUntil-Date.now()+1000);
           setTimeout(()=>{
-            commandSyncBlockedUntil=0;
-            commandsRegistered=false;
-            lifecycle('command_registration_cooldown_finished',{retrying:true});
+            // The regular task tick also checks the deadline in case the host
+            // paused timers while the service was being restarted or suspended.
+            lifecycle('command_registration_retry_wake',{retryAt});
           },retryDelay).unref();
           lifecycle('command_registration_using_existing',{registered:true,reason:'Discord command update cooldown',fullSyncScheduled:true,retryAt});
           return;
