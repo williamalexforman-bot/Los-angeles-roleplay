@@ -6,7 +6,7 @@ const { audit } = require('./services/audit');
 
 const CONFIG_KEYS = {
   showcase_channel: 'Showcase channel', showcase_review_channel: 'Showcase review channel', request_channel: 'Design request channel',
-  ticket_panel_channel: 'Ticket panel channel', ticket_category: 'Ticket category', transcript_channel: 'Transcript channel',
+  ticket_panel_channel: 'Ticket panel channel', transcript_channel: 'Transcript channel',
   log_channel: 'General log channel', moderation_log_channel: 'Moderation log channel', staff_role: 'Staff role',
   admin_role: 'Administrator role', designer_role: 'Designer role', support_role: 'Ticket support role'
 };

@@ -2,7 +2,16 @@ const { PermissionFlagsBits } = require('discord.js');
 const { settings } = require('../database');
 
 async function freshMember(interaction) {
-  return interaction.guild.members.fetch({ user: interaction.user.id, force: true });
+  if (interaction.member?.roles?.cache && interaction.member?.permissions) return interaction.member;
+  let timer;
+  try {
+    return await Promise.race([
+      interaction.guild.members.fetch(interaction.user.id),
+      new Promise((_, reject) => { timer=setTimeout(() => reject(new Error('Member permission check timed out. Please try again.')), 2000);timer.unref(); })
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function hasConfiguredRole(interaction, keys) {
