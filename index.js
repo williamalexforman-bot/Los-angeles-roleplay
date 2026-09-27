@@ -6,7 +6,7 @@ const {openDatabase}=require('./src/database');
 const {start}=require('./src/bot');
 
 const appConfig=config();
-const client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildMembers,GatewayIntentBits.GuildMessages,GatewayIntentBits.MessageContent,GatewayIntentBits.GuildModeration],partials:[Partials.Channel,Partials.Message,Partials.GuildMember]});
+const client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildMembers,GatewayIntentBits.GuildMessages,GatewayIntentBits.MessageContent,GatewayIntentBits.GuildModeration],partials:[Partials.Channel,Partials.Message,Partials.GuildMember],rest:{timeout:15000}});
 client.appConfig=appConfig;
 client.db=openDatabase(appConfig.sqlitePath);
 client.readyState={discord:false,database:true,commands:false};
