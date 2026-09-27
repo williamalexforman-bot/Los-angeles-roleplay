@@ -25,12 +25,13 @@ function configPage(interaction, page = 0) {
   page = Math.max(0, Math.min(pages.length - 1, Number(page) || 0));
   const [name, entries] = pages[page];
   const description = entries.map(([key, label]) => `**${label}:** ${cfg[key] ? (key.endsWith('_role') ? `<@&${cfg[key]}>` : key.endsWith('_channel') || key === 'ticket_category' ? `<#${cfg[key]}>` : cfg[key]) : 'Not configured'}`).join('\n');
+  const saved = cfg.config_saved_at ? `<t:${Math.floor(Number(cfg.config_saved_at)/1000)}:R>` : '**Not saved yet**';
   const components = [];
   if (page === 0) components.push(row(new D.StringSelectMenuBuilder().setCustomId('config:choose-channel').setPlaceholder('Choose a channel setting').addOptions(entries.map(([value,label]) => ({ label, value })))));
   if (page === 1) components.push(row(new D.StringSelectMenuBuilder().setCustomId('config:choose-role').setPlaceholder('Choose a role setting').addOptions(entries.map(([value,label]) => ({ label, value })))));
   if (page === 2) components.push(row(new D.StringSelectMenuBuilder().setCustomId('config:toggle').setPlaceholder('Toggle a feature').addOptions(entries.map(([value,label]) => ({ label, value })))));
-  components.push(row(button(`config:page:${page-1}`,'Previous',D.ButtonStyle.Secondary).setDisabled(page === 0),button(`config:page:${page+1}`,'Next',D.ButtonStyle.Secondary).setDisabled(page === pages.length - 1)));
-  return { embeds:[embed(`Configuration • ${name}`, `${description}\n\nPage ${page+1}/${pages.length}`)], components, flags:D.MessageFlags.Ephemeral, allowedMentions:{parse:[]} };
+  components.push(row(button(`config:page:${page-1}`,'Previous',D.ButtonStyle.Secondary).setDisabled(page === 0),button(`config:page:${page+1}`,'Next',D.ButtonStyle.Secondary).setDisabled(page === pages.length - 1),button('config:save','Save Changes',D.ButtonStyle.Success)));
+  return { embeds:[embed(`Configuration • ${name}`, `${description}\n\n**Last Saved:** ${saved}\nPage ${page+1}/${pages.length}`)], components, flags:D.MessageFlags.Ephemeral, allowedMentions:{parse:[]} };
 }
 
 async function handleConfig(i) {
@@ -38,6 +39,7 @@ async function handleConfig(i) {
   if (i.isChatInputCommand()) { await i.deferReply({ flags:D.MessageFlags.Ephemeral }); return i.editReply(configPage(i)); }
   const [,,value] = i.customId.split(':');
   if (i.customId.startsWith('config:page:')) { await i.deferUpdate(); return i.editReply(configPage(i,value)); }
+  if (i.customId === 'config:save') { const savedAt=Date.now();setSetting(i.client.db,i.guildId,'config_saved_at',String(savedAt));await i.deferUpdate();await audit(i.client,i.guild,'configuration',i.user.id,null,'Saved complete configuration',null,String(savedAt));const payload=configPage(i);payload.embeds[0].setFooter({text:'All configuration changes were saved successfully.'});return i.editReply(payload); }
   if (i.customId === 'config:choose-channel') return i.update({ embeds:[embed('Select Channel',`Choose the channel for **${CONFIG_KEYS[i.values[0]]}**.`)], components:[row(new D.ChannelSelectMenuBuilder().setCustomId(`config:set-channel:${i.values[0]}`).setPlaceholder('Select a channel').addChannelTypes(D.ChannelType.GuildText,D.ChannelType.GuildAnnouncement,D.ChannelType.GuildCategory))] });
   if (i.customId.startsWith('config:set-channel:')) { const key=i.customId.split(':')[2]; setSetting(i.client.db,i.guildId,key,i.values[0]); await i.deferUpdate(); await audit(i.client,i.guild,'configuration',i.user.id,null,`Set ${key}`,i.values[0]); return i.editReply(configPage(i)); }
   if (i.customId === 'config:choose-role') return i.update({ embeds:[embed('Select Role',`Choose the role for **${CONFIG_KEYS[i.values[0]]}**.`)], components:[row(new D.RoleSelectMenuBuilder().setCustomId(`config:set-role:${i.values[0]}`).setPlaceholder('Select a role'))] });
