@@ -1,8 +1,8 @@
 node_modules/
 .env
-.env.*
-!.env.example
-.DS_Store
-dist/
-logs/
+data/*.sqlite
+data/*.sqlite-shm
+data/*.sqlite-wal
 npm-debug.log*
+.DS_Store
+coverage/

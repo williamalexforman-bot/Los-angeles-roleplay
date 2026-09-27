@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: graphic-design-discord-bot
+    runtime: node
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /livez
+    envVars:
+      - key: NODE_VERSION
+        value: 22.22.0
+      - key: BOT_TOKEN
+        sync: false
+      - key: CLIENT_ID
+        sync: false
+      - key: GUILD_ID
+        sync: false
+      - key: BOT_OWNER_ID
+        sync: false
+      - key: SERVER_NAME
+        value: Your Graphic Design Server
+      - key: SQLITE_PATH
+        value: /var/data/bot.sqlite
+    disk:
+      name: bot-data
+      mountPath: /var/data
+      sizeGB: 1

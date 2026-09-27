@@ -1,193 +1,76 @@
 const D = require('discord.js');
-const { collection } = require('./store');
-const { CHANNELS, TYPES, TICKETS } = require('./settings');
-const { v2, panel, row, button } = require('./panels');
-const { settings, destination, advance, issue, endSuspension } = require('./discipline');
-const { openTicket, closeTicket, ticketAccess, ticketAction } = require('./tickets');
-async function admin(i) {
-  const m = await i.guild.members.fetch({ user: i.user.id, force: true });
-  if (!m.permissions.has(D.PermissionFlagsBits.Administrator)) throw new Error('Administrator permission is required.');
+const { settings, setSetting, lockInteraction } = require('./database');
+const { embed, privateReply, clean, shortId, COLORS } = require('./utilities/ui');
+const { requireStaff, requireOwner, requireBotPermission } = require('./utilities/access');
+const { audit } = require('./services/audit');
+
+const CONFIG_KEYS = {
+  showcase_channel: 'Showcase channel', showcase_review_channel: 'Showcase review channel', request_channel: 'Design request channel',
+  ticket_panel_channel: 'Ticket panel channel', ticket_category: 'Ticket category', transcript_channel: 'Transcript channel',
+  log_channel: 'General log channel', moderation_log_channel: 'Moderation log channel', staff_role: 'Staff role',
+  admin_role: 'Administrator role', designer_role: 'Designer role', support_role: 'Ticket support role'
+};
+
+const row = (...components) => new D.ActionRowBuilder().addComponents(...components);
+const button = (id, label, style = D.ButtonStyle.Primary) => new D.ButtonBuilder().setCustomId(id).setLabel(label).setStyle(style);
+const input = (id, label, style = D.TextInputStyle.Short, required = true) => new D.TextInputBuilder().setCustomId(id).setLabel(label).setStyle(style).setRequired(required).setMaxLength(style === D.TextInputStyle.Paragraph ? 1000 : 200);
+
+function configPage(interaction, page = 0) {
+  const cfg = settings(interaction.client.db, interaction.guildId);
+  const pages = [
+    ['Channels', Object.entries(CONFIG_KEYS).filter(([k]) => k.endsWith('_channel') || k === 'ticket_category')],
+    ['Roles', Object.entries(CONFIG_KEYS).filter(([k]) => k.endsWith('_role'))],
+    ['Features', [['showcase_approval','Showcase approval'],['commissions_enabled','Commission wording'],['feedback_enabled','Written feedback']]],
+  ];
+  page = Math.max(0, Math.min(pages.length - 1, Number(page) || 0));
+  const [name, entries] = pages[page];
+  const description = entries.map(([key, label]) => `**${label}:** ${cfg[key] ? (key.endsWith('_role') ? `<@&${cfg[key]}>` : key.endsWith('_channel') || key === 'ticket_category' ? `<#${cfg[key]}>` : cfg[key]) : 'Not configured'}`).join('\n');
+  const components = [];
+  if (page === 0) components.push(row(new D.StringSelectMenuBuilder().setCustomId('config:choose-channel').setPlaceholder('Choose a channel setting').addOptions(entries.map(([value,label]) => ({ label, value })))));
+  if (page === 1) components.push(row(new D.StringSelectMenuBuilder().setCustomId('config:choose-role').setPlaceholder('Choose a role setting').addOptions(entries.map(([value,label]) => ({ label, value })))));
+  if (page === 2) components.push(row(new D.StringSelectMenuBuilder().setCustomId('config:toggle').setPlaceholder('Toggle a feature').addOptions(entries.map(([value,label]) => ({ label, value })))));
+  components.push(row(button(`config:page:${page-1}`,'Previous',D.ButtonStyle.Secondary).setDisabled(page === 0),button(`config:page:${page+1}`,'Next',D.ButtonStyle.Secondary).setDisabled(page === pages.length - 1)));
+  return { embeds:[embed(`Configuration • ${name}`, `${description}\n\nPage ${page+1}/${pages.length}`)], components, flags:D.MessageFlags.Ephemeral, allowedMentions:{parse:[]} };
 }
-function textInput(id, label, required = true, placeholder) {
-  const t = new D.TextInputBuilder().setCustomId(id).setLabel(label).setRequired(required).setStyle(id === 'reason' ? D.TextInputStyle.Paragraph : D.TextInputStyle.Short).setMaxLength(id === 'reason' ? 1200 : 200);
-  if (placeholder) t.setPlaceholder(placeholder);
-  return row(t);
+
+async function handleConfig(i) {
+  await requireOwner(i);
+  if (i.isChatInputCommand()) { await i.deferReply({ flags:D.MessageFlags.Ephemeral }); return i.editReply(configPage(i)); }
+  const [,,value] = i.customId.split(':');
+  if (i.customId.startsWith('config:page:')) { await i.deferUpdate(); return i.editReply(configPage(i,value)); }
+  if (i.customId === 'config:choose-channel') return i.update({ embeds:[embed('Select Channel',`Choose the channel for **${CONFIG_KEYS[i.values[0]]}**.`)], components:[row(new D.ChannelSelectMenuBuilder().setCustomId(`config:set-channel:${i.values[0]}`).setPlaceholder('Select a channel').addChannelTypes(D.ChannelType.GuildText,D.ChannelType.GuildAnnouncement,D.ChannelType.GuildCategory))] });
+  if (i.customId.startsWith('config:set-channel:')) { const key=i.customId.split(':')[2]; setSetting(i.client.db,i.guildId,key,i.values[0]); await i.deferUpdate(); await audit(i.client,i.guild,'configuration',i.user.id,null,`Set ${key}`,i.values[0]); return i.editReply(configPage(i)); }
+  if (i.customId === 'config:choose-role') return i.update({ embeds:[embed('Select Role',`Choose the role for **${CONFIG_KEYS[i.values[0]]}**.`)], components:[row(new D.RoleSelectMenuBuilder().setCustomId(`config:set-role:${i.values[0]}`).setPlaceholder('Select a role'))] });
+  if (i.customId.startsWith('config:set-role:')) { const key=i.customId.split(':')[2], role=await i.guild.roles.fetch(i.values[0]); if(!role||role.id===i.guildId||role.managed)throw new Error('Choose an ordinary server role.'); setSetting(i.client.db,i.guildId,key,role.id); await i.deferUpdate(); await audit(i.client,i.guild,'configuration',i.user.id,role.id,`Set ${key}`); return i.editReply(configPage(i,1)); }
+  if (i.customId === 'config:toggle') { const key=i.values[0], cfg=settings(i.client.db,i.guildId), next=cfg[key]==='true'?'false':'true'; setSetting(i.client.db,i.guildId,key,next); await i.deferUpdate(); return i.editReply(configPage(i,2)); }
 }
-async function config(i) {
-  await i.deferReply({ flags: D.MessageFlags.Ephemeral });
-  await admin(i);
-  const sub = i.options.getSubcommand();
-  if (sub === 'view') {
-    const s = await settings(i.guildId);
-    return i.editReply(v2('Configured Destinations', Object.keys(CHANNELS).map(k => `**${k}:** ${s[k] ? `<#${s[k]}>` : 'Not configured'}`).join('\n'), [], true));
-  }
-  if (sub === 'channel') {
-    const key = i.options.getString('destination', true), channel = i.options.getChannel('channel', true);
-    if (!Object.hasOwn(CHANNELS,key)) throw new Error('Choose a valid destination.');
-    if (key === 'tickets' || key.startsWith('tickets_') ? ![D.ChannelType.GuildCategory,D.ChannelType.GuildText].includes(channel.type) : ![D.ChannelType.GuildText,D.ChannelType.GuildAnnouncement].includes(channel.type)) throw new Error('Ticket destinations require a category or text channel; other destinations require a text channel.');
-    await collection('config').updateOne({ _id: i.guildId }, { $set: { [key]: channel.id } }, { upsert: true });
-    return i.editReply(v2('Destination Updated', `**${key}** now points to <#${channel.id}>.`, [], true));
-  }
-  if(sub==='staff-role') {
-    const purpose=i.options.getString('purpose',true), role=i.options.getRole('role',true);
-    if(role.id===i.guildId || role.managed)throw new Error('Choose an ordinary staff role.');
-    await collection('config').updateOne({_id:i.guildId},{$set:{['role_'+purpose]:role.id}},{upsert:true});
-    return i.editReply(v2('Staff Access Updated',`**${purpose}:** <@&${role.id}>`,[],true));
-  }
 
-  if (sub === 'ticket-access') {
-    const type = i.options.getString('department', true), role = i.options.getRole('role', true);
-    if (role.id === i.guildId || role.managed) throw new Error('Choose a staff role, not @everyone or a managed role.');
-    await collection('config').updateOne({ _id: i.guildId }, { $set: { [`support_${type}`]: role.id } }, { upsert: true });
-    return i.editReply(v2('Ticket Access Updated', `New ${TICKETS[type]} tickets will be visible to <@&${role.id}>. Existing tickets will keep their current access.`, [], true));
-  }
-  const type = i.options.getString('panel',true);
-  if (!['ticket','shift','information','employee','cadet','oia','application','supervisor'].includes(type)) throw new Error('Choose a supported panel.');
-  let channel = i.options.getChannel('channel');
-  if (!channel) {
-    const defaults={ticket:'ticketPanel',information:'information',employee:'employeeInfo',cadet:'cadetInfo',oia:'oiaInfo',application:'applicationPanel',supervisor:'supervisorInfo'};
-    if(defaults[type]) channel=await destination(i.guild,defaults[type]);
-    else channel=i.channel;
-  }
-  if(!channel)throw new Error('Choose a channel for this panel using the channel option, or configure its destination first.');
-  const workflows=require('./workflows');
-  const payload=type==='shift'?require('./shifts').shiftPanel():type==='ticket'?panel(type):type==='application'?workflows.requestPanel('application'):type==='supervisor'?workflows.supervisorPanel():require('./department-panels').get(type,i.guild);
-  await require('./config-delivery').sendPanel(channel, i.guild, payload);
-  return i.editReply(v2('Panel Successfully Posted', `The selected panel is now available in <#${channel.id}>.`, [], true));
+function showcaseEmbed(item) {
+  return embed(`${item.featured ? '⭐ ' : ''}${item.title}`,`${item.description}\n\n**Category:** ${item.category}\n**Designer:** <@${item.user_id}>\n**Submission ID:** \`${item.id}\`\n**Status:** ${item.status}`).setImage(item.image_url);
 }
-async function handleInteraction(i) {
-  try {
-    if(i.isChatInputCommand?.()) console.log('Command received:', `/${i.commandName}`, 'guild:', i.guildId, 'user:', i.user?.id);
-    if(i.guildId !== require('./settings').GUILD_ID) {
-      if(i.isRepliable?.()) await i.reply({content:'This bot is not configured for this server.',flags:D.MessageFlags.Ephemeral}).catch(()=>{});
-      return;
-    }
 
-
-    if (!i.inGuild()) return;
-    if (i.isAutocomplete?.()) {
-      if (i.commandName !== 'config' || i.options.getSubcommand() !== 'channel') return;
-      const query=String(i.options.getFocused()).toLowerCase();
-      return await i.respond(Object.keys(CHANNELS).filter(key=>key.toLowerCase().includes(query)).slice(0,25).map(value=>({name:value,value})));
-    }
-    if(i.isButton()&&i.customId.startsWith('shift:'))return await require('./shifts').handleShift(i,i.customId.split(':')[1]);
-    if(i.isButton()&&/^(fastpass|application):open$/.test(i.customId))return require('./workflows').openForm(i,i.customId.split(':')[0]);
-    if(i.isButton()&&/^(fastpass|application):(approve|deny):/.test(i.customId)){const [kind,action,id]=i.customId.split(':');return require('./workflows').decision(i,kind,action,id);}
-    if(i.isRoleSelectMenu?.()&&/^(fastpass|application):role:/.test(i.customId)){const [kind,,id]=i.customId.split(':');return require('./workflows').grant(i,kind,id);}
-    if(i.isButton()&&i.customId.startsWith('activity:')){const [,action,id]=i.customId.split(':');return require('./workflows').activityButton(i,action,id);}
-    if(i.isModalSubmit?.()&&i.customId.startsWith('config:'))return require('./config-dashboard').handle(i);
-    if((i.isButton?.()||i.isStringSelectMenu?.()||i.isChannelSelectMenu?.()||i.isRoleSelectMenu?.())&&i.customId?.startsWith('config:'))return require('./config-dashboard').handle(i);
-    if(i.isButton()&&i.customId.startsWith('role-request:'))return await require('./role-requests').handle(i);
-    if(i.isButton() && ['close-request:accept','close-request:decline'].includes(i.customId))return await require('./utilities').respond(i);
-
-    if (i.isChatInputCommand()) {
-
-      if(['dm','role'].includes(i.commandName))return await require('./owner-tools').slash(i);
-      if(i.commandName==='quota')return await require('./quota').quotaCommand(i);
-      if(i.commandName==='shift')return await require('./shifts').showControls(i);
-      if(i.commandName==='fastpass'){await require('./tickets').ticketAccess(i);return i.reply(require('./workflows').requestPanel('fastpass'));}
-      if(i.commandName==='application')return require('./workflows').openForm(i,'application');
-      if(i.commandName==='activity-check')return require('./workflows').startActivity(i);
-      if(i.commandName==='say')return await require('./messages').handleMessageCommand(i);
-      if(i.commandName==='requestrole')return await require('./role-requests').submit(i);
-      if(i.commandName==='add-emojis')return await require('./emoji-install').slash(i);
-      if(i.commandName === 'cmds') return await require('./command-help').handle(i);
-
-      if(require('./utilities').COMMANDS.includes(i.commandName))return await require('./utilities').slash(i);
-      if(i.commandName==='deployment') return await require('./messages').handleMessageCommand(i);
-      if(i.commandName === 'suspension') { await i.deferReply({flags:D.MessageFlags.Ephemeral}); return await i.editReply(v2('Suspension',await endSuspension(i,i.options.getUser('member',true).id),[],true)); }
-
-
-      if (i.commandName === 'config') return require('./config-dashboard').open(i);
-      if (!['infraction','promotion'].includes(i.commandName)) {
-        return await i.reply({content:`The old /${i.commandName} command is no longer available. Run /cmds to see the commands supported by this version.`,flags:D.MessageFlags.Ephemeral,allowedMentions:{parse:[]}});
-      }
-      await i.deferReply({ flags: D.MessageFlags.Ephemeral });
-      await require('./access').requireAccess(i,i.commandName);
-      if(i.commandName==='infraction'&&['edit','revoke'].includes(i.options.getSubcommand())){
-        const action=i.options.getSubcommand(),updates={};
-        if(action==='edit'){
-          for(const field of ['reason','notes','evidence']){const value=i.options.getString(field);if(value!==null)updates[field]=value;}
-          const appealable=i.options.getBoolean('appealable');if(appealable!==null)updates.appealable=appealable;
-        }
-        const result=await require('./infraction-management').change(i,action,i.options.getString('case-id',true),updates,i.options.getString(action==='edit'?'change-reason':'reason',true));
-        return i.editReply(v2('Infraction Updated',result,[],true));
-      }
-      const data = { kind: i.commandName, userId: i.options.getUser('member',true).id };
-      if(data.kind === 'infraction') {
-        data.type=i.options.getString('action',true); data.notes=i.options.getString('notes',true);
-        data.appealable=i.options.getBoolean('appealable',true); data.evidence=i.options.getString('evidence') || '';
-        data.notifyMember=i.options.getBoolean('notify-member') ?? true;
-      } else {
-        data.previous=i.options.getRole('old-rank',true).id;data.next=i.options.getRole('new-role',true).id;
-        data.approvedBy=i.options.getUser('approved-by',true).id;data.effectiveDate=i.options.getString('effective-date',true);
-      }
-      const result=await issue(i,data,i.options.getString('reason',true), data.kind === 'infraction' ? i.options.getString('suspension-end') || '' : '');
-      return await i.editReply(v2('Action Recorded',result,[],true));
-    }
-    if (i.isStringSelectMenu() && i.customId === 'ticket:create') {
-      const type = i.values[0]; if (!TICKETS[type]) throw new Error('Repost the ticket panel using /config panel.');
-      const modal = new D.ModalBuilder().setCustomId(`ticket-reason:${type}`).setTitle(`${TICKETS[type]} Ticket`).addComponents(textInput('reason','Why do you want to open a ticket?'));
-      modal.addComponents(textInput('details','Additional details',false));
-      if (type === 'affairs') modal.addComponents(textInput('reported','Who are you reporting?'),textInput('evidence','Evidence or explanation'));
-      return await i.showModal(modal);
-    }
-    if (i.isStringSelectMenu() && i.customId === 'cpfr:information') {
-      if(i.values[0]==='regulations'){
-        const payload=require('./department-panels').get('regulations',i.guild);payload.flags|=D.MessageFlags.Ephemeral;return await i.reply(payload);
-      }
-    }
-    if (i.isModalSubmit() && i.customId.startsWith('ticket-reason:')) {
-      await i.deferReply({ flags: D.MessageFlags.Ephemeral });
-      const type = i.customId.split(':')[1], reason = i.fields.getTextInputValue('reason').trim();
-      if (!reason) throw new Error('A reason is required.');
-      const extra = (type === 'affairs' ? `User Reported: ${i.fields.getTextInputValue('reported')}\nProof: ${i.fields.getTextInputValue('evidence')}\n` : '') + `Additional Details: ${i.fields.getTextInputValue('details') || 'None'}`;
-      return await i.editReply(v2('Support Ticket Opened', await openTicket(i, type, reason, extra), [], true));
-    }
-    if(i.isModalSubmit()&&/^(fastpass|application):submit$/.test(i.customId))return require('./workflows').submit(i,i.customId.split(':')[0]);
-    if (i.isButton() && i.customId === 'ticket:close') {
-      await i.deferReply({ flags: D.MessageFlags.Ephemeral });
-      await ticketAccess(i);
-      return await i.editReply(v2('Confirm Ticket Closure', 'A transcript will be saved before this ticket channel is removed.', [button('ticket:confirm-close','Save Transcript & Close', D.ButtonStyle.Danger)], true));
-    }
-    if (i.isButton() && i.customId === 'ticket:confirm-close') {
-      await i.deferUpdate();
-      await closeTicket(i); return;
-    }
-    if (i.isButton() && ['ticket:claim','ticket:escalate'].includes(i.customId)) {
-      await i.deferReply({flags:D.MessageFlags.Ephemeral});
-      return await i.editReply(v2('Ticket Status Updated',await ticketAction(i,i.customId.split(':')[1]),[],true));
-    }
-    if (i.isButton() && i.customId.startsWith('staff:')) return await i.reply(v2('Use the Slash Command','Use `/infraction issue` or `/promotion issue`; launcher panels are no longer used.',[],true));
-    if (i.isButton() && i.customId.startsWith('appeal:')) {
-      const record=await collection('cases').findOne({_id:i.customId.split(':')[1],guildId:i.guildId});
-      if(!record || record.revoked || !record.appealable || record.userId!==i.user.id) throw new Error('Only the recipient of an appealable infraction may submit an appeal.');
-      return await i.showModal(new D.ModalBuilder().setCustomId(`appeal-submit:${record._id}`).setTitle('Appeal Infraction').addComponents(textInput('reason','Why should this infraction be appealed?')));
-    }
-    if(i.isModalSubmit() && i.customId.startsWith('appeal-submit:')) {
-      await i.deferReply({flags:D.MessageFlags.Ephemeral});
-      const record=await collection('cases').findOne({_id:i.customId.split(':')[1],guildId:i.guildId});
-      if(!record || record.revoked || !record.appealable || record.userId!==i.user.id) throw new Error('This appeal is not available to you.');
-      const reason=i.fields.getTextInputValue('reason').trim();if(!reason)throw new Error('An appeal reason is required.');
-      const review=await destination(i.guild,'appeals');
-      const result=await openTicket(i,'affairs',reason,`Infraction: INF-${record._id}`);
-      await review.send({...v2('Infraction Appeal',`**Member:** <@${i.user.id}>\n**Case:** INF-${record._id}\n**Reason:** ${D.escapeMarkdown(reason)}\n\n${result}`),nonce:i.id,enforceNonce:true});
-      return await i.editReply(v2('Infraction Appeal',result,[],true));
-    }
-  } catch(e) {
-    if (i.isAutocomplete?.()) { await i.respond([]).catch(()=>{}); return; }
-    console.error('Interaction failed:', i.commandName || i.customId, i.commandName==='config'&&i.options.getSubcommand?.(false) ? i.options.getSubcommand(false) : '', i.id, e.code || e.name, 'status:', e.status, 'invalid fields:', require('./config-delivery').errorFields(e));
-    const message = require('./config-delivery').describeError(e) + `\n\nReference: ${i.id}`;
-    const payload = v2('Unable to Complete Action',message,[],true);
-    try {
-      if (i.deferred || i.replied) await i.editReply(payload);
-      else await i.reply(payload);
-    } catch(replyError) {
-      console.error('Styled interaction response failed:',i.commandName||i.customId,i.id,replyError.code||replyError.name);
-      const fallback={content:`Unable to complete /${i.commandName||'command'}: ${require('./config-delivery').describeError(e)}\nReference: ${i.id}`,flags:D.MessageFlags.Ephemeral,allowedMentions:{parse:[]}};
-      if(i.deferred||i.replied)await i.editReply(fallback).catch(()=>{});
-      else await i.reply(fallback).catch(()=>{});
-    }
+async function handleShowcase(i) {
+  const db=i.client.db, sub=i.options.getSubcommand(), now=Date.now();
+  if(sub==='submit'){
+    const image=i.options.getAttachment('image',true);if(!image.contentType?.startsWith('image/'))throw new Error('Upload a PNG, JPEG, WEBP, or GIF image.');if(image.size>8*1024*1024)throw new Error('The image must be 8 MB or smaller.');
+    const id=shortId('DSN'),cfg=settings(db,i.guildId),status=cfg.showcase_approval==='false'?'approved':'pending';
+    db.prepare('INSERT INTO showcases(id,guild_id,user_id,title,description,category,image_url,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)').run(id,i.guildId,i.user.id,clean(i.options.getString('title'),100),clean(i.options.getString('description'),1000),i.options.getString('category'),image.url,status,now,now);
+    const destinationId=status==='approved'?cfg.showcase_channel:cfg.showcase_review_channel;
+    if(!destinationId)throw new Error(`Configure the ${status==='approved'?'showcase':'showcase review'} channel with /config first.`);
+    const channel=await i.guild.channels.fetch(destinationId);if(!channel?.isTextBased())throw new Error('The configured showcase channel is unavailable.');
+    const item=db.prepare('SELECT * FROM showcases WHERE id=?').get(id),controls=status==='pending'?[row(button(`showcase:approve:${id}`,'Approve',D.ButtonStyle.Success),button(`showcase:deny:${id}`,'Deny',D.ButtonStyle.Danger))]:[row(button(`showcase:feedback:${id}`,'Give Feedback'))];
+    const message=await channel.send({embeds:[showcaseEmbed(item)],components:controls,allowedMentions:{parse:[]}});db.prepare('UPDATE showcases SET channel_id=?,message_id=? WHERE id=?').run(channel.id,message.id,id);await audit(i.client,i.guild,'showcase',i.user.id,null,'Submitted design',null,id);return i.reply(privateReply('Design Submitted',`Your submission ID is \`${id}\`. Status: **${status}**.`,COLORS.success));
   }
+  if(sub==='mine'){const rows=db.prepare('SELECT * FROM showcases WHERE guild_id=? AND user_id=? ORDER BY created_at DESC LIMIT 10').all(i.guildId,i.user.id);return i.reply(privateReply('Your Submissions',rows.length?rows.map(x=>`\`${x.id}\` • **${x.title}** • ${x.status}`).join('\n'):'You have no submissions.'));}
+  const id=i.options.getString('id',true).toUpperCase(),item=db.prepare('SELECT * FROM showcases WHERE id=? AND guild_id=?').get(id,i.guildId);if(!item)throw new Error('That showcase submission was not found.');
+  if(sub==='view')return i.reply({embeds:[showcaseEmbed(item)],allowedMentions:{parse:[]}});
+  await requireStaff(i);if(sub==='feature')db.prepare('UPDATE showcases SET featured=1,updated_at=? WHERE id=?').run(now,id);if(sub==='remove')db.prepare("UPDATE showcases SET status='removed',updated_at=? WHERE id=?").run(now,id);if(sub==='restore')db.prepare("UPDATE showcases SET status='approved',updated_at=? WHERE id=?").run(now,id);await audit(i.client,i.guild,'showcase',i.user.id,item.user_id,sub,i.options.getString('reason'),id);return i.reply(privateReply('Showcase Updated',`Submission \`${id}\` was updated.`,COLORS.success));
 }
-module.exports = { handleInteraction, textInput, config };
+
+async function handlePortfolio(i){const db=i.client.db,sub=i.options.getSubcommand(),now=Date.now();if(sub==='create'){db.prepare(`INSERT INTO portfolios(guild_id,user_id,title,bio,specialties,software,links,availability,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'available',?,?) ON CONFLICT(guild_id,user_id) DO UPDATE SET title=excluded.title,bio=excluded.bio,specialties=excluded.specialties,software=excluded.software,links=excluded.links,updated_at=excluded.updated_at`).run(i.guildId,i.user.id,clean(i.options.getString('title'),100),clean(i.options.getString('bio'),1000),clean(i.options.getString('specialties'),500),clean(i.options.getString('software'),500),clean(i.options.getString('links')||'None',1000),now,now);return i.reply(privateReply('Portfolio Saved','Your portfolio is ready.',COLORS.success));}if(sub==='visibility'){db.prepare('UPDATE portfolios SET visible=?,updated_at=? WHERE guild_id=? AND user_id=?').run(i.options.getBoolean('visible')?1:0,now,i.guildId,i.user.id);return i.reply(privateReply('Portfolio Updated','Visibility was updated.',COLORS.success));}const user=i.options.getUser('member')||i.user,p=db.prepare('SELECT * FROM portfolios WHERE guild_id=? AND user_id=?').get(i.guildId,user.id);if(!p||(!p.visible&&user.id!==i.user.id))throw new Error('That member does not have a public portfolio.');return i.reply({embeds:[embed(p.title,`${p.bio}\n\n**Designer:** <@${user.id}>\n**Specialties:** ${p.specialties}\n**Software:** ${p.software}\n**Availability:** ${p.availability}\n**Links:** ${p.links}`)],allowedMentions:{parse:[]}});}
+
+async function handleRequest(i){const sub=i.options.getSubcommand(),db=i.client.db;if(sub==='create')return i.showModal(new D.ModalBuilder().setCustomId('request:create').setTitle('Create Design Request').addComponents(row(input('type','Type of design')),row(input('description','Describe what you need',D.TextInputStyle.Paragraph)),row(input('colors','Preferred colors',D.TextInputStyle.Short,false)),row(input('size','Size or platform',D.TextInputStyle.Short,false)),row(input('deadline','Deadline',D.TextInputStyle.Short,false))));if(sub==='mine'){const rows=db.prepare('SELECT * FROM design_requests WHERE guild_id=? AND user_id=? ORDER BY created_at DESC LIMIT 10').all(i.guildId,i.user.id);return i.reply(privateReply('Your Design Requests',rows.length?rows.map(x=>`\`${x.id}\` • ${x.type} • ${x.status}`).join('\n'):'You have no requests.'));}const id=i.options.getString('id',true).toUpperCase(),request=db.prepare('SELECT * FROM design_requests WHERE id=? AND guild_id=?').get(id,i.guildId);if(!request)throw new Error('That request was not found.');if(sub==='view')return i.reply({embeds:[embed(`Design Request ${id}`,`**Requester:** <@${request.user_id}>\n**Type:** ${request.type}\n**Description:** ${request.description}\n**Colors:** ${request.colors||'Not supplied'}\n**Size/Platform:** ${request.size_platform||'Not supplied'}\n**Deadline:** ${request.deadline||'Not supplied'}\n**Status:** ${request.status}\n**Designer:** ${request.claimed_by?`<@${request.claimed_by}>`:'Unclaimed'}`)],allowedMentions:{parse:[]}});await requireStaff(i,['designer_role','staff_role','admin_role']);let status=sub==='claim'?'claimed':sub==='close'?'closed':sub==='reopen'?'under-review':i.options.getString('status');const previous=request.status,claimed=sub==='claim'?i.user.id:request.claimed_by;db.prepare('UPDATE design_requests SET status=?,claimed_by=?,updated_at=? WHERE id=?').run(status,claimed,Date.now(),id);db.prepare('INSERT INTO request_history(request_id,actor_id,previous_status,new_status,reason,created_at) VALUES(?,?,?,?,?,?)').run(id,i.user.id,previous,status,i.options.getString('reason')||null,Date.now());await audit(i.client,i.guild,'request',i.user.id,request.user_id,`Status: ${status}`,i.options.getString('reason'),id);return i.reply(privateReply('Request Updated',`Request \`${id}\` is now **${status}**.`,COLORS.success));}
+
+async function handleRequestModal(i){const db=i.client.db,cfg=settings(db,i.guildId),channelId=cfg.request_channel;if(!channelId)throw new Error('The design request channel has not been configured.');const id=shortId('REQ'),now=Date.now(),values={type:clean(i.fields.getTextInputValue('type'),200),description:clean(i.fields.getTextInputValue('description'),1000),colors:clean(i.fields.getTextInputValue('colors'),200),size:clean(i.fields.getTextInputValue('size'),200),deadline:clean(i.fields.getTextInputValue('deadline'),200)};db.prepare('INSERT INTO design_requests(id,guild_id,user_id,type,description,colors,size_platform,deadline,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,? ,\'submitted\',?,?)').run(id,i.guildId,i.user.id,values.type,values.description,values.colors,values.size,values.deadline,now,now);const channel=await i.guild.channels.fetch(channelId);const message=await channel.send({embeds:[embed(`Design Request ${id}`,`**Requester:** <@${i.user.id}>\n**Type:** ${values.type}\n**Description:** ${values.description}\n**Colors:** ${values.colors||'Not supplied'}\n**Size/Platform:** ${values.size||'Not supplied'}\n**Deadline:** ${values.deadline||'Not supplied'}\n**Status:** submitted`)],components:[row(button(`request:claim:${id}`,'Claim',D.ButtonStyle.Success),button(`request:close:${id}`,'Close',D.ButtonStyle.Danger))],allowedMentions:{parse:[]}});db.prepare('UPDATE design_requests SET channel_id=?,message_id=? WHERE id=?').run(channel.id,message.id,id);return i.reply(privateReply('Request Submitted',`Your request ID is \`${id}\`.`,COLORS.success));}
+
+module.exports={handleConfig,handleShowcase,handlePortfolio,handleRequest,handleRequestModal,configPage,row,button,input};

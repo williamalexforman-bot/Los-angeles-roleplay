@@ -1,20 +1,18 @@
 {
-  "name": "pcso-bot",
+  "name": "graphic-design-discord-bot",
   "version": "1.0.0",
   "private": true,
-  "description": "Pierce County Sheriff Office panels, tickets and staff records",
+  "description": "Configurable Discord bot for graphic design communities",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "check": "node --check index.js",
+    "register": "node src/register-commands.js",
+    "check": "node --check index.js && node --check src/bot.js",
     "test": "node --test test/*.test.js"
   },
-  "engines": {
-    "node": ">=22 <23"
-  },
+  "engines": { "node": ">=22 <23" },
   "dependencies": {
-    "discord.js": "14.22.1",
-    "dotenv": "16.6.1",
-    "mongodb": "^6.21.0"
+    "discord.js": "^14.22.1",
+    "dotenv": "^16.6.1"
   }
 }
