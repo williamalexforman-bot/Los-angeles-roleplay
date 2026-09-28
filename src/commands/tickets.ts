@@ -188,7 +188,7 @@ function ticketPanelV2(config: PanelConfig, customBannerUrl?: string | null): Co
     return new ContainerBuilder()
         .setAccentColor(BRAND.color)
         .addMediaGalleryComponents(new MediaGalleryBuilder().addItems(
-            new MediaGalleryItemBuilder().setURL(customBannerUrl || bannerUrl('support')),
+            new MediaGalleryItemBuilder().setURL(customBannerUrl || bannerUrl('assistance')),
         ))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent([
             `# ${emojis.title || '🎫'} ${config.title}`,
@@ -225,7 +225,7 @@ export async function refreshExistingTicketPanels(client: Client): Promise<numbe
             components: [ticketPanelV2(config, customBannerUrl)],
             flags: MessageFlags.IsComponentsV2,
             attachments: [],
-            files: [createLogoAttachment(), ...bannerFiles('support')],
+            files: [createLogoAttachment(), ...bannerFiles('assistance')],
         });
         updated += 1;
     }
@@ -428,7 +428,7 @@ export function buildOpeningPanel(
     return new ContainerBuilder()
         .setAccentColor(BRAND.color)
         .addMediaGalleryComponents(new MediaGalleryBuilder().addItems(
-            new MediaGalleryItemBuilder().setURL(customBannerUrl || bannerUrl('support')),
+            new MediaGalleryItemBuilder().setURL(customBannerUrl || bannerUrl('assistance')),
         ))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent([
             `# ${TICKET_OPENED_EMOJI} ${applyTemplate(configured.title, values)}`,
@@ -493,7 +493,7 @@ export async function postTicketPanel(interaction: ChatInputCommandInteraction):
     const customBannerUrl = await getPanelBannerUrl(guild, config);
     await panelChannel.send({
         components: [ticketPanelV2(config, customBannerUrl)],
-        files: [createLogoAttachment(), ...bannerFiles('support')],
+        files: [createLogoAttachment(), ...bannerFiles('assistance')],
         flags: MessageFlags.IsComponentsV2,
     });
     await interaction.deleteReply().catch(() => undefined);
@@ -508,7 +508,7 @@ export async function postTicketPanelFromMessage(message: Message): Promise<void
     const destination = target?.isSendable() ? target : message.channel;
     await destination.send({
         components: [ticketPanelV2(config, customBannerUrl)],
-        files: [createLogoAttachment(), ...bannerFiles('support')],
+        files: [createLogoAttachment(), ...bannerFiles('assistance')],
         flags: MessageFlags.IsComponentsV2,
         allowedMentions: { parse: [] },
     });
@@ -680,7 +680,7 @@ export async function createTicketFromModal(interaction: ModalSubmitInteraction,
         const openingPanel = buildOpeningPanel(active, interaction.user.displayAvatarURL({ size: 256 }), ticketConfig, ticketBannerUrl);
         const openingMessage = await channel.send({
             components: [openingPanel],
-            files: [createLogoAttachment(), ...bannerFiles('support')],
+            files: [createLogoAttachment(), ...bannerFiles('assistance')],
             flags: MessageFlags.IsComponentsV2,
             allowedMentions: { users: [interaction.user.id], roles: supportRole ? [supportRole.id] : [] },
         });
@@ -1264,7 +1264,7 @@ export const ticketCommands = {
 };
 
 export const ticketCommandDefinitions = [
-    { data: new SlashCommandBuilder().setName('ticket-panel').setDescription('Post the CSRP Help & Support ticket panel'), execute: executeTicketSlashCommand },
+    { data: new SlashCommandBuilder().setName('ticket-panel').setDescription('Post the CSRP Assistance ticket panel'), execute: executeTicketSlashCommand },
     { data: new SlashCommandBuilder().setName('ticket').setDescription('Ticket utilities').addSubcommand(command => command.setName('refresh-user').setDescription('Refresh the ticket creator’s Bloxlink and Roblox information')), execute: executeTicketSlashCommand },
     { data: new SlashCommandBuilder().setName('ticket-message').setDescription('Legacy alias: post the ticket panel'), execute: executeTicketSlashCommand },
     { data: new SlashCommandBuilder().setName('ticket-add').setDescription('Add a user to this ticket').addUserOption(option => option.setName('user').setDescription('User to add').setRequired(true)), execute: executeTicketSlashCommand },
