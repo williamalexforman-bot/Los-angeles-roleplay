@@ -196,7 +196,22 @@ async function refreshSavedSessionPanels(guild: Guild): Promise<number> {
         currentSessionDisplay(guild),
     ]);
     const customBannerUrl = await getPanelBannerUrl(guild, configured);
-    const retained = (await Promise.all(guildConfig.session.panelMessages.map(async reference => {
+    const references = new Map(guildConfig.session.panelMessages.map(reference => [reference.messageId, reference]));
+    const configuredSessionChannelId = guildConfig.channels.sessions;
+    if (configuredSessionChannelId) {
+        const configuredChannel = await guild.channels.fetch(configuredSessionChannelId).catch(() => null);
+        if (configuredChannel?.isTextBased() && 'messages' in configuredChannel) {
+            const recentMessages = await configuredChannel.messages.fetch({ limit: 100 }).catch(() => null);
+            for (const message of recentMessages?.values() || []) {
+                if (message.author.id !== guild.client.user?.id) continue;
+                const isSessionPanel = message.components.some(component =>
+                    JSON.stringify(component.toJSON()).includes('session:status'));
+                if (isSessionPanel) references.set(message.id, { channelId: message.channelId, messageId: message.id });
+            }
+        }
+    }
+    const candidates = [...references.values()].slice(-10);
+    const retained = (await Promise.all(candidates.map(async reference => {
         const channel = await guild.channels.fetch(reference.channelId).catch(() => null);
         if (!channel?.isTextBased() || !('messages' in channel)) return null;
         const message = await channel.messages.fetch(reference.messageId).catch(() => null);
@@ -207,7 +222,8 @@ async function refreshSavedSessionPanels(guild: Guild): Promise<number> {
         }).catch(() => null);
         return edited ? reference : null;
     }))).filter((reference): reference is { channelId: string; messageId: string } => Boolean(reference));
-    if (retained.length !== guildConfig.session.panelMessages.length) {
+    if (retained.length !== guildConfig.session.panelMessages.length
+        || retained.some((reference, index) => reference.messageId !== guildConfig.session.panelMessages[index]?.messageId)) {
         await replaceSessionPanelReferences(guild, retained);
     }
     return retained.length;
