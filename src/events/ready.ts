@@ -4,6 +4,7 @@ import { loadProhibitedWordOverrides } from '../commands/prohibitedWords';
 import { logger } from '../utils/logger';
 import { refreshExistingTicketAccess, refreshExistingTicketPanels } from '../commands/tickets';
 import { autoConfigureGuild } from '../config/autoConfig';
+import { refreshExistingPanelBanners } from '../commands/panels';
 
 export const onReady = async (client: Client): Promise<void> => {
     logger.info(`Logged in as ${client.user?.tag}.`);
@@ -64,6 +65,15 @@ export const onReady = async (client: Client): Promise<void> => {
         }
     } catch (error) {
         logger.warn(`Existing ticket panels could not be refreshed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+
+    try {
+        const refreshedPanels = await refreshExistingPanelBanners(client);
+        if (refreshedPanels > 0) {
+            logger.info(`Applied current banners to ${refreshedPanels} existing panel${refreshedPanels === 1 ? '' : 's'}.`);
+        }
+    } catch (error) {
+        logger.warn(`Existing panel banners could not be refreshed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
 
     try {

@@ -22,6 +22,7 @@ import { markSlashCommandFailed } from '../utils/commandAudit';
 import { BRAND, CHANNEL_IDS, PARTNERSHIP_ROLE_ID } from '../config/constants';
 import { createLogoAttachment } from '../utils/embeds';
 import { embedToV2, embedsToV2 } from '../utils/componentsV2';
+import { bannerFiles, bannerUrl, underbannerEmbed } from '../utils/bannerAssets';
 
 const BRAND_COLOR = BRAND.color;
 const BRAND_FOOTER = BRAND.footer;
@@ -308,7 +309,8 @@ const PARTNERSHIP_PANEL_TEXT = [
 ].join('\n');
 
 function partnershipPanelEmbed(): EmbedBuilder {
-    return partnershipEmbed('🤝 Partnership Request', PARTNERSHIP_PANEL_TEXT, 0xfacc15);
+    return partnershipEmbed('🤝 Partnership Request', PARTNERSHIP_PANEL_TEXT, 0xfacc15)
+        .setImage(bannerUrl('partnership'));
 }
 
 function partnershipPanelComponents(disabled = false): ActionRowBuilder<ButtonBuilder>[] {
@@ -424,7 +426,8 @@ const partnershipCommand = {
             return;
         }
         await destination.send({
-            components: [embedToV2(partnershipPanelEmbed(), partnershipPanelComponents())],
+            components: [embedToV2(partnershipPanelEmbed(), partnershipPanelComponents()), ...embedsToV2([underbannerEmbed()])],
+            files: bannerFiles('partnership'),
             flags: MessageFlags.IsComponentsV2,
             allowedMentions: { parse: [] },
         });

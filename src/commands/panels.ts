@@ -5,6 +5,7 @@ import {
     ButtonStyle,
     ChannelType,
     ChatInputCommandInteraction,
+    Client,
     ContainerBuilder,
     Guild,
     MediaGalleryBuilder,
@@ -160,7 +161,7 @@ function sessionPanel(
 
     return new ContainerBuilder()
         .setAccentColor(BRAND.color)
-        .addMediaGalleryComponents(gallery(customBannerUrl || bannerUrl('dashboard')))
+        .addMediaGalleryComponents(gallery(customBannerUrl || bannerUrl('session')))
         .addTextDisplayComponents(information)
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
         .addActionRowComponents(counters, controls)
@@ -193,7 +194,7 @@ async function currentSessionDisplay(guild: Guild): Promise<SessionDisplayStatus
     };
 }
 
-async function refreshSavedSessionPanels(guild: Guild): Promise<number> {
+export async function refreshSavedSessionPanels(guild: Guild): Promise<number> {
     const [guildConfig, configured, status] = await Promise.all([
         getGuildBotConfig(guild),
         getPanelConfig(guild, 'session'),
@@ -222,6 +223,8 @@ async function refreshSavedSessionPanels(guild: Guild): Promise<number> {
         if (!message) return null;
         const edited = await message.edit({
             components: [sessionPanel(status, configured, customBannerUrl)],
+            attachments: [],
+            files: customBannerUrl ? [bannerAttachment('underbanner')] : bannerFiles('session'),
             flags: MessageFlags.IsComponentsV2,
         }).catch(() => null);
         return edited ? reference : null;
@@ -568,7 +571,7 @@ const sessionPanelCommand = {
 
         const payload = {
             components: [sessionPanel(session, configured, customBannerUrl)],
-            files: [bannerAttachment('dashboard'), bannerAttachment('underbanner')],
+            files: [bannerAttachment('session'), bannerAttachment('underbanner')],
             flags: MessageFlags.IsComponentsV2 as const,
             allowedMentions: { parse: [] as never[] },
         };
@@ -675,6 +678,59 @@ export async function postPanelFromMessage(message: Message, panel: 'dashboard' 
     }
     const config = await getPanelConfig(message.guild, 'session');
     const status = await currentSessionDisplay(message.guild);
-    const sent = await destination.send({ components: [sessionPanel(status, config, await getPanelBannerUrl(message.guild, config))], files: [bannerAttachment('dashboard'), bannerAttachment('underbanner')], flags: MessageFlags.IsComponentsV2 });
+    const sent = await destination.send({ components: [sessionPanel(status, config, await getPanelBannerUrl(message.guild, config))], files: [bannerAttachment('session'), bannerAttachment('underbanner')], flags: MessageFlags.IsComponentsV2 });
     await registerSessionPanel(message.guild, sent.channelId, sent.id);
+}
+
+/** Refreshes previously posted configurable panels so bundled banner updates go live after a restart. */
+export async function refreshExistingPanelBanners(client: Client): Promise<number> {
+    let refreshed = 0;
+    const panels = [
+        { panel: 'dashboard' as const, channel: 'dashboard', marker: '**Members:**', banner: 'dashboard' as const },
+        { panel: 'regulations' as const, channel: 'regulations', marker: REGULATIONS_MENU_ID, banner: 'regulations' as const },
+        { panel: 'application' as const, channel: 'application_panel', marker: 'application:open', banner: 'applications' as const },
+    ] as const;
+
+    for (const guild of client.guilds.cache.values()) {
+        refreshed += await refreshSavedSessionPanels(guild).catch(() => 0);
+        for (const definition of panels) {
+            const channelId = await configuredChannelId(guild, definition.channel);
+            if (!channelId) continue;
+            const channel = await guild.channels.fetch(channelId).catch(() => null);
+            if (!channel?.isTextBased() || !('messages' in channel)) continue;
+            const config = await getPanelConfig(guild, definition.panel);
+            const customBannerUrl = await getPanelBannerUrl(guild, config);
+            const messages = await channel.messages.fetch({ limit: 100 }).catch(() => null);
+            for (const message of messages?.values() || []) {
+                if (message.author.id !== client.user?.id) continue;
+                const serialized = message.components.map(component => component.toJSON());
+                if (!JSON.stringify(serialized).includes(definition.marker)) continue;
+                const media: Array<Record<string, unknown>> = [];
+                const visit = (value: unknown): void => {
+                    if (!value || typeof value !== 'object') return;
+                    const record = value as Record<string, unknown>;
+                    if (record.media && typeof record.media === 'object') media.push(record.media as Record<string, unknown>);
+                    for (const child of Object.values(record)) {
+                        if (Array.isArray(child)) child.forEach(visit);
+                        else if (child && typeof child === 'object') visit(child);
+                    }
+                };
+                serialized.forEach(visit);
+                if (!media.length) continue;
+                media[0].url = customBannerUrl || bannerUrl(definition.banner);
+                if (media.length > 1) media[media.length - 1].url = bannerUrl('underbanner');
+                const files = customBannerUrl
+                    ? [bannerAttachment('underbanner')]
+                    : [bannerAttachment(definition.banner), bannerAttachment('underbanner')];
+                const edited = await message.edit({
+                    components: serialized as never,
+                    attachments: [],
+                    files,
+                    flags: MessageFlags.IsComponentsV2,
+                }).catch(() => null);
+                if (edited) refreshed += 1;
+            }
+        }
+    }
+    return refreshed;
 }
