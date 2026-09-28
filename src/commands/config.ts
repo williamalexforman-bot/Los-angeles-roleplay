@@ -75,6 +75,9 @@ const roleLabels: Record<ConfigRoleKey, string> = {
     bot_permissions: 'Bot Permissions', staff: 'Staff Team', general_support: 'General Support', internal_affairs: 'Internal Affairs',
     management: 'Management', high_rank: 'High Rank', application_reviewer: 'Application Reviewer', session_host: 'Session Host',
     on_duty: 'On Duty', on_break: 'On Break',
+    infraction_warning: 'Infraction: Warning', infraction_strike: 'Infraction: Strike',
+    infraction_suspension: 'Infraction: Suspension', infraction_demotion: 'Infraction: Demotion',
+    infraction_termination: 'Infraction: Termination', infraction_blacklist: 'Infraction: Blacklist',
 };
 
 function channelConfigView() {

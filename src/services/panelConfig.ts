@@ -33,6 +33,8 @@ export type ConfigChannelKey = typeof CONFIG_CHANNEL_KEYS[number];
 export const CONFIG_ROLE_KEYS = [
     'bot_permissions', 'staff', 'general_support', 'internal_affairs', 'management', 'high_rank',
     'application_reviewer', 'session_host', 'on_duty', 'on_break',
+    'infraction_warning', 'infraction_strike', 'infraction_suspension', 'infraction_demotion',
+    'infraction_termination', 'infraction_blacklist',
 ] as const;
 export type ConfigRoleKey = typeof CONFIG_ROLE_KEYS[number];
 

@@ -26,7 +26,10 @@ import {
 import { markSlashCommandFailed } from '../utils/commandAudit';
 import { bannerFiles, bannerUrl, underbannerEmbed } from '../utils/bannerAssets';
 import { CHANNEL_IDS } from '../config/constants';
-import { applyTemplate, configuredChannelId, getPanelBannerUrl, getPanelConfig, parseEmojiMap, type PanelConfig } from '../services/panelConfig';
+import {
+    applyTemplate, configuredChannelId, getGuildBotConfig, getPanelBannerUrl, getPanelConfig,
+    parseEmojiMap, saveGuildBotConfig, type ConfigRoleKey, type PanelConfig,
+} from '../services/panelConfig';
 import { embedsToV2 } from '../utils/componentsV2';
 
 const BRAND_COLOR = 0xfacc15;
@@ -37,21 +40,63 @@ const LOGO_NAME = 'larp-logo.png';
 const LOGO_PATH = resolve(__dirname, '..', '..', 'assets', LOGO_NAME);
 
 const INFRACTION_ACTIONS = [
-    'Verbal Warning',
-    'Warning I',
-    'Warning II',
     'Warning',
-    'Strike I',
-    'Strike II',
     'Strike',
     'Suspension',
     'Demotion',
     'Termination',
-    'Under Investigation',
     'Blacklist',
 ] as const;
 
 type InfractionAction = (typeof INFRACTION_ACTIONS)[number];
+
+const INFRACTION_ROLE_KEYS: Record<InfractionAction, ConfigRoleKey> = {
+    Warning: 'infraction_warning',
+    Strike: 'infraction_strike',
+    Suspension: 'infraction_suspension',
+    Demotion: 'infraction_demotion',
+    Termination: 'infraction_termination',
+    Blacklist: 'infraction_blacklist',
+};
+
+function normalizedRoleName(value: string): string {
+    return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+async function applyInfractionRole(
+    guild: NonNullable<ChatInputCommandInteraction['guild']>,
+    memberId: string,
+    action: InfractionAction,
+): Promise<string> {
+    const member = await guild.members.fetch(memberId).catch(() => null);
+    if (!member) return 'The member could not be found, so no infraction role was applied.';
+    await guild.roles.fetch().catch(() => null);
+    const config = await getGuildBotConfig(guild);
+    const roleKey = INFRACTION_ROLE_KEYS[action];
+    let role = config.roles[roleKey]
+        ? await guild.roles.fetch(config.roles[roleKey]!).catch(() => null)
+        : null;
+    if (!role) {
+        const expected = normalizedRoleName(action);
+        role = guild.roles.cache.find(candidate => {
+            const name = normalizedRoleName(candidate.name);
+            return name === expected || name === `staff ${expected}` || name === `${expected} staff`;
+        }) || null;
+    }
+    if (!role) {
+        role = await guild.roles.create({ name: action, reason: `Created automatically for ${action} infractions` }).catch(() => null);
+    }
+    if (!role) return `The **${action}** role could not be found or created.`;
+
+    config.roles[roleKey] = role.id;
+    await saveGuildBotConfig(guild, config);
+    const otherRoleIds = Object.values(INFRACTION_ROLE_KEYS)
+        .map(key => config.roles[key])
+        .filter((id): id is string => Boolean(id) && id !== role!.id);
+    if (otherRoleIds.length) await member.roles.remove(otherRoleIds, `Replaced by ${action} infraction`).catch(() => undefined);
+    const added = await member.roles.add(role, `${action} infraction issued`).then(() => true).catch(() => false);
+    return added ? `<@&${role.id}> was applied automatically.` : `I found <@&${role.id}>, but could not apply it. Move the bot role above it.`;
+}
 export type InfractionStatus = 'Active' | 'Voided' | 'Closed';
 
 export interface InfractionHistoryEntry {
@@ -503,7 +548,7 @@ function infractionCommand() {
 
             try {
                 interaction.options.getSubcommand(true);
-                if (!interaction.guildId) {
+                if (!interaction.guildId || !interaction.guild) {
                     await interaction.editReply('This command can only be used in a server.');
                     return;
                 }
@@ -565,29 +610,9 @@ function infractionCommand() {
                 } catch (error) { throw error; }
                 record.headerMessageId = detailMessage.id;
                 record.detailMessageId = detailMessage.id;
-
-                let thread: ThreadChannel;
-                try {
-                    thread = await detailMessage.startThread({
-                        name: `${caseNumber} | ${sanitizeThreadSegment(member.username)} | ${action}`.slice(0, 100),
-                        autoArchiveDuration: ThreadAutoArchiveDuration.OneDay,
-                        reason: `${caseNumber} issued by ${interaction.user.id}`,
-                    });
-                    record.threadId = thread.id;
-                    await detailMessage.edit({
-                        embeds: [],
-                        components: [buildInfractionPanel(record, configured, customBannerUrl, infractionControls(record.status, thread.id, thread.url))],
-                        flags: MessageFlags.IsComponentsV2,
-                    });
-                } catch (error) {
-                    await detailMessage.delete().catch(() => null);
-                    throw error;
-                }
-
-                await thread.send({
-                    content: `**Evidence Workspace | ${caseNumber}**\nUpload screenshots, recordings, files, and links in this thread. The complete infraction record and management controls are in ${detailMessage.url}.`,
-                    allowedMentions: { parse: [] },
-                }).catch(() => null);
+                // No evidence thread or management buttons are created. The infraction is a clean V2 record.
+                record.threadId = detailMessage.id;
+                const roleResult = await applyInfractionRole(interaction.guild, member.id, action);
 
                 let memberNotified = !notifyMember;
                 if (notifyMember) {
@@ -608,15 +633,10 @@ function infractionCommand() {
                 }
 
                 const persisted = await persistRecord(record);
-                if (!memberNotified) {
-                    await thread.send('The member could not be notified by direct message.');
-                }
-                if (!persisted) {
-                    await thread.send('Database persistence is currently unavailable. The case remains active in this process only.');
-                }
 
                 await interaction.editReply(
-                    `${caseNumber} was created successfully: ${detailMessage.url}`
+                    `${caseNumber} was created successfully: ${detailMessage.url}\n${roleResult}`
+                    + `${memberNotified ? '' : '\nThe member could not be notified by direct message.'}`
                     + `${persisted ? '' : '\nWarning: database persistence is unavailable.'}`,
                 );
             } catch (error) {
