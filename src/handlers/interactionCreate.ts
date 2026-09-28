@@ -103,8 +103,8 @@ async function reportInteractionError(interaction: Interaction, error: unknown):
     try {
         if (!interaction.isRepliable()) return;
         if (interaction.deferred) await interaction.editReply({ content: message });
-        else if (interaction.replied) await interaction.followUp({ content: message, ephemeral: true });
-        else await interaction.reply({ content: message, ephemeral: true });
+        else if (interaction.replied) await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral });
+        else await interaction.reply({ content: message, flags: MessageFlags.Ephemeral });
     } catch {
         // The interaction may have expired while an external service was unavailable.
     }
@@ -119,7 +119,7 @@ async function handleChatCommand(interaction: ChatInputCommandInteraction): Prom
     try {
         const handler = commandHandlers.get(interaction.commandName);
         if (!handler) {
-            await interaction.reply({ content: 'That command is not currently available.', ephemeral: true });
+            await interaction.reply({ content: 'That command is not currently available.', flags: MessageFlags.Ephemeral });
             return;
         }
         if ((interaction.commandName === 'say' || PANEL_COMMANDS.has(interaction.commandName)) && !await hasSayCommandPermission(interaction)) {
@@ -137,12 +137,12 @@ async function handleChatCommand(interaction: ChatInputCommandInteraction): Prom
             return;
         }
         if (MANAGEMENT_COMMANDS.has(interaction.commandName) && !await hasManagementCommandPermission(interaction)) {
-            await interaction.reply({ content: 'You must be authorized management or a server administrator to use this command.', ephemeral: true });
+            await interaction.reply({ content: 'You must be authorized management or a server administrator to use this command.', flags: MessageFlags.Ephemeral });
             return;
         }
         const moderationPermission = MODERATION_PERMISSIONS.get(interaction.commandName);
         if (moderationPermission && !await hasModerationCommandPermission(interaction, moderationPermission)) {
-            await interaction.reply({ content: 'You do not have permission to use this moderation command.', ephemeral: true });
+            await interaction.reply({ content: 'You do not have permission to use this moderation command.', flags: MessageFlags.Ephemeral });
             return;
         }
 
@@ -153,7 +153,7 @@ async function handleChatCommand(interaction: ChatInputCommandInteraction): Prom
             if (channel?.parentId && ticketCategoryIds.has(channel.parentId)) {
                 const ticket = await safelyGetTicketByChannel(interaction.channelId);
                 if (!ticket || ticket.status !== 'open') {
-                    await interaction.reply({ content: 'This is not an active ticket channel.', ephemeral: true });
+                    await interaction.reply({ content: 'This is not an active ticket channel.', flags: MessageFlags.Ephemeral });
                     return;
                 }
             }
@@ -202,7 +202,7 @@ export const interactionCreate = async (interaction: Interaction): Promise<void>
             if (interaction.customId === 'ticket_select') {
                 const modal = ticketOpeningModalForValue(interaction.values[0]);
                 if (modal) await interaction.showModal(modal);
-                else await interaction.reply({ content: 'That ticket category is unavailable.', ephemeral: true });
+                else await interaction.reply({ content: 'That ticket category is unavailable.', flags: MessageFlags.Ephemeral });
                 return;
             }
         }

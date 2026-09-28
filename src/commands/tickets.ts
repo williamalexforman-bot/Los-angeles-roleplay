@@ -80,6 +80,23 @@ Please do not troll in the tickets. If caught trolling you will be punished.
 › Marketplace concerns
 › Ownership Questions`;
 
+const TICKET_PANEL_EMOJIS = {
+    title: '<:support:1525234150045519982>',
+    general: '<:general:1516784296340230194>',
+    management: '<:management:1553956417273340045>',
+    highrank: '<:highrank:1553956417273340045>',
+} as const;
+const TICKET_OPENED_EMOJI = '<:support:1525234150045519982>';
+const TICKET_THANKS_EMOJI = '<:ticketthanks:1525234122568765710>';
+const REQUESTED_TICKET_OPENING = `## ${TICKET_THANKS_EMOJI} Thanks {opener} for contacting support!
+
+Thank you for opening a ticket in **California State Roleplay**. {staff} will help you shortly. While you wait, please do not ping staff. Responses may take up to an hour. If you have not received an answer within **12 hours**, you may ping a staff member. If you are reporting someone, include the user’s **ID**, **screenshots**, and a clear explanation below.
+
+**Ticket Information**
+› **Opener:** {opener}
+› **Ticket ID:** \`{ticket_id}\`
+› **Inquiry:** {inquiry}`;
+
 interface TicketCategoryDefinition {
     key: TicketCategory;
     label: string;
@@ -129,15 +146,16 @@ const ticketCategories: Record<TicketCategory, TicketCategoryDefinition> = {
     },
 };
 
-const ticketCategoryKeys: TicketCategory[] = (Object.keys(ticketCategories) as TicketCategory[])
-    .filter(key => key !== 'internal');
+type SupportTicketCategory = Exclude<TicketCategory, 'internal'>;
+const ticketCategoryKeys = (Object.keys(ticketCategories) as TicketCategory[])
+    .filter((key): key is SupportTicketCategory => key !== 'internal');
 
-function isTicketCategory(value: string): value is TicketCategory {
-    return ticketCategoryKeys.includes(value as TicketCategory);
+function isTicketCategory(value: string): value is SupportTicketCategory {
+    return ticketCategoryKeys.includes(value as SupportTicketCategory);
 }
 
 function panelDropdown(config?: PanelConfig): ActionRowBuilder<StringSelectMenuBuilder> {
-    const emojis = parseEmojiMap(config?.emojiText);
+    const emojis = { ...parseEmojiMap(config?.emojiText), ...TICKET_PANEL_EMOJIS };
     const options = ticketCategoryKeys.map(key => {
         const definition = ticketCategories[key];
         const configuredEmoji = emojis[key];
@@ -166,7 +184,7 @@ function panelDropdown(config?: PanelConfig): ActionRowBuilder<StringSelectMenuB
 }
 
 function ticketPanelV2(config: PanelConfig, customBannerUrl?: string | null): ContainerBuilder {
-    const emojis = parseEmojiMap(config.emojiText);
+    const emojis = { ...parseEmojiMap(config.emojiText), ...TICKET_PANEL_EMOJIS };
     return new ContainerBuilder()
         .setAccentColor(BRAND.color)
         .addMediaGalleryComponents(new MediaGalleryBuilder().addItems(
@@ -402,7 +420,9 @@ export function buildOpeningPanel(
         inquiry,
         category: category.label,
     };
-    const emojis = parseEmojiMap(configured.emojiText);
+    const configuredDescription = configured.description.includes('Thank you for opening a ticket with **California State Roleplay**.')
+        ? REQUESTED_TICKET_OPENING
+        : configured.description;
     void roblox;
     void fallbackAvatarUrl;
     return new ContainerBuilder()
@@ -411,8 +431,8 @@ export function buildOpeningPanel(
             new MediaGalleryItemBuilder().setURL(customBannerUrl || bannerUrl('support')),
         ))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent([
-            `# ${emojis.title || '🎫'} ${applyTemplate(configured.title, values)}`,
-            applyTemplate(configured.description, values),
+            `# ${TICKET_OPENED_EMOJI} ${applyTemplate(configured.title, values)}`,
+            applyTemplate(configuredDescription, values),
             '',
             `-# ${BRAND.footer} • <t:${Math.floor(ticket.createdAt.getTime() / 1_000)}:f>`,
         ].join('\n')))
@@ -465,7 +485,7 @@ export async function postTicketPanel(interaction: ChatInputCommandInteraction):
 
     const refreshedPanels = await refreshExistingTicketPanels(interaction.client);
     if (refreshedPanels > 0) {
-        await interaction.editReply(`Updated ${refreshedPanels} existing ticket panel${refreshedPanels === 1 ? '' : 's'}.`);
+        await interaction.deleteReply().catch(() => undefined);
         return;
     }
 
@@ -476,7 +496,7 @@ export async function postTicketPanel(interaction: ChatInputCommandInteraction):
         files: [createLogoAttachment(), ...bannerFiles('support')],
         flags: MessageFlags.IsComponentsV2,
     });
-    await interaction.editReply(`The professional ticket panel was posted in <#${panelChannel.id}>.`);
+    await interaction.deleteReply().catch(() => undefined);
 }
 
 export async function postTicketPanelFromMessage(message: Message): Promise<void> {

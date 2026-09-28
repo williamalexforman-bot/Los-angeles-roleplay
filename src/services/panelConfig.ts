@@ -69,13 +69,13 @@ export interface GuildBotConfig {
 export const DEFAULT_PANEL_CONFIGS: Record<ConfigurablePanel, PanelConfig> = {
     ticket: {
         title: 'Support Ticket Opened',
-        description: '## Thanks {opener} for contacting support!\n\nThank you for opening a ticket with **California State Roleplay**. {staff} will assist you as soon as possible. Please avoid pinging staff unless this ticket has gone unanswered for more than **12 hours**. If you are reporting a user, include their **User ID**, relevant **screenshots**, and a **clear explanation** below.\n\n**Ticket Information**\n› **Opener:** {opener}\n› **Ticket ID:** `{ticket_id}`\n› **Inquiry:** {inquiry}',
-        emojiText: 'title=🎫\nclaim=🙋\nclose=🔒\nescalate=🚨',
+        description: '## <:ticketthanks:1525234122568765710> Thanks {opener} for contacting support!\n\nThank you for opening a ticket in **California State Roleplay**. {staff} will help you shortly. While you wait, please do not ping staff. Responses may take up to an hour. If you have not received an answer within **12 hours**, you may ping a staff member. If you are reporting someone, include the user’s **ID**, **screenshots**, and a clear explanation below.\n\n**Ticket Information**\n› **Opener:** {opener}\n› **Ticket ID:** `{ticket_id}`\n› **Inquiry:** {inquiry}',
+        emojiText: 'title=<:support:1525234150045519982>\nclaim=🙋\nclose=🔒\nescalate=🚨',
     },
     ticket_panel: {
         title: 'Help & Support',
         description: 'Welcome to the **California State Roleplay Support Center**. Select the department that best matches your request. Please provide complete and truthful information so our staff can assist you efficiently.',
-        emojiText: 'title=🎫\ngeneral=🎫\nmanagement=🏛️\nhighrank=⭐',
+        emojiText: 'title=<:support:1525234150045519982>\ngeneral=<:general:1516784296340230194>\nmanagement=<:management:1553956417273340045>\nhighrank=<:highrank:1553956417273340045>',
     },
     dashboard: {
         title: 'California State Roleplay Dashboard',
@@ -85,7 +85,7 @@ export const DEFAULT_PANEL_CONFIGS: Record<ConfigurablePanel, PanelConfig> = {
     regulations: {
         title: 'Community Regulations',
         description: 'Select a category below to review the rules. Your selection will be shown privately.',
-        emojiText: 'title=📜\ndiscord=💬\ngame=🎮',
+        emojiText: 'title=<:regulations:1516784266556604528>\ndiscord=💬\ngame=🎮',
         questions: '# Discord Rules\n\n1. Swearing may not be directed at another person, and slurs are never allowed.\n2. Treat staff and community members with respect.\n3. Advertising, self-promotion, and spam are prohibited.\n4. Use every channel for its intended purpose.\n5. Follow Discord Terms of Service.\n6. Staff may enforce serious unlisted violations when necessary.\n---GAME---\n# In-Game Rules\n\n1. If you vote for a session, you are expected to join.\n2. RDM, VDM, NLR, and similar roleplay violations will result in punishment.\n3. Do not disrespect staff while they are on duty.\n4. Proper and realistic roleplay is expected at all times.\n5. Follow Roblox Terms of Service.\n6. Staff may enforce serious unlisted violations when necessary.',
     },
     application: {
@@ -107,7 +107,7 @@ export const DEFAULT_PANEL_CONFIGS: Record<ConfigurablePanel, PanelConfig> = {
     session: {
         title: 'Session Information',
         description: '> Ready to join one of our amazing sessions? Use the panel below to view live session information, including the player count, staff online, and queue status.\n\n**Last Updated:** {updated}',
-        emojiText: 'title=🌐\nstaff=👥\nplayers=👤\nqueue=🕒\nonline=✅\noffline=📡\nvote=🗳️\nboost=🚀\njoin=🎮',
+        emojiText: 'title=<:session:1525234122568765710>\nstaff=👥\nplayers=👤\nonline=✅\noffline=📡\nvote=🗳️\nboost=🚀',
     },
 };
 

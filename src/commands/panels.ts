@@ -3,6 +3,7 @@ import {
     ButtonBuilder,
     ButtonInteraction,
     ButtonStyle,
+    ChannelType,
     ChatInputCommandInteraction,
     ContainerBuilder,
     Guild,
@@ -12,6 +13,7 @@ import {
     MessageFlags,
     ModalBuilder,
     ModalSubmitInteraction,
+    PermissionFlagsBits,
     SeparatorBuilder,
     SlashCommandBuilder,
     StringSelectMenuBuilder,
@@ -20,7 +22,7 @@ import {
     TextInputBuilder,
     TextInputStyle,
 } from 'discord.js';
-import { BRAND, CHANNEL_IDS } from '../config/constants';
+import { BRAND, CHANNEL_IDS, TICKET_STAFF_ROLE_ID } from '../config/constants';
 import { bannerAttachment, bannerFiles, bannerUrl } from '../utils/bannerAssets';
 import { fetchErlcServer } from '../services/erlcService';
 import {
@@ -41,6 +43,8 @@ import {
 
 const QUICK_JOIN_URL = 'https://www.roblox.com/games/start?launchData=%7B%22psCode%22%3A%22califorp%22%7D&placeId=2534724415';
 const REGULATIONS_MENU_ID = 'regulations:menu';
+const SESSION_TITLE_EMOJI = '<:session:1525234122568765710>';
+const REGULATIONS_TITLE_EMOJI = '<:regulations:1516784266556604528>';
 
 const DISCORD_RULES = `# Discord Rules
 
@@ -80,7 +84,7 @@ function loadingSessionPanel(): ContainerBuilder {
     return new ContainerBuilder()
         .setAccentColor(BRAND.color)
         .addTextDisplayComponents(
-            new TextDisplayBuilder().setContent('# 🌐 Session Information\n> Loading the latest session information…'),
+            new TextDisplayBuilder().setContent(`# ${SESSION_TITLE_EMOJI} Session Information\n> Loading the latest session information…`),
         );
 }
 
@@ -115,7 +119,7 @@ function sessionPanel(
         status: lifecycleDisplay(status.lifecycle).label.replace('Session ', ''),
     };
     const information = new TextDisplayBuilder().setContent([
-        `# ${emojis.title} ${applyTemplate(configured.title, values)}`,
+        `# ${SESSION_TITLE_EMOJI} ${applyTemplate(configured.title, values)}`,
         applyTemplate(configured.description, values),
     ].join('\n'));
 
@@ -134,11 +138,11 @@ function sessionPanel(
             .setLabel(`Players In-Game: ${status.players}/${status.maximum}`)
             .setStyle(ButtonStyle.Secondary)
             .setDisabled(true), emojis.players),
-        setEmoji(new ButtonBuilder()
+        new ButtonBuilder()
             .setCustomId('session:queue-count')
             .setLabel(`In Queue: ${status.queue}`)
             .setStyle(ButtonStyle.Secondary)
-            .setDisabled(true), emojis.queue),
+            .setDisabled(true),
     );
 
     const display = lifecycleDisplay(status.lifecycle);
@@ -148,10 +152,10 @@ function sessionPanel(
             .setLabel(display.label)
             .setStyle(display.style)
             .setDisabled(true), emojis[display.emoji]),
-        setEmoji(new ButtonBuilder()
+        new ButtonBuilder()
             .setLabel('Quick Join')
             .setStyle(ButtonStyle.Link)
-            .setURL(QUICK_JOIN_URL), emojis.join),
+            .setURL(QUICK_JOIN_URL),
     );
 
     return new ContainerBuilder()
@@ -270,7 +274,8 @@ async function runSessionAction(interaction: ChatInputCommandInteraction, action
             allowedMentions: { parse: [] },
         });
     }
-    await interaction.editReply(`Session status changed to **${lifecycleDisplay(action).label.replace('Session ', '')}**. Updated ${updatedPanels} saved session panel${updatedPanels === 1 ? '' : 's'}.`);
+    void updatedPanels;
+    await interaction.deleteReply().catch(() => undefined);
 }
 
 function regulationsPanel(config: PanelConfig, customBannerUrl?: string | null): ContainerBuilder {
@@ -298,7 +303,7 @@ function regulationsPanel(config: PanelConfig, customBannerUrl?: string | null):
         .addMediaGalleryComponents(gallery(customBannerUrl || bannerUrl('regulations')))
         .addTextDisplayComponents(
             new TextDisplayBuilder().setContent([
-                `# ${emojis.title || '📜'} ${config.title}`,
+                `# ${REGULATIONS_TITLE_EMOJI} ${config.title}`,
                 config.description,
             ].join('\n')),
         )
@@ -326,9 +331,10 @@ const dashboardCommand = {
         .setDescription('Post the CSRP server dashboard'),
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
         if (!interaction.guild) {
-            await interaction.reply({ content: 'This command can only be used in a server.', ephemeral: true });
+            await interaction.reply({ content: 'This command can only be used in a server.', flags: MessageFlags.Ephemeral });
             return;
         }
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         const guild = interaction.guild;
         const config = await getPanelConfig(guild, 'dashboard');
         const customBannerUrl = await getPanelBannerUrl(guild, config);
@@ -360,10 +366,10 @@ const dashboardCommand = {
         };
         const targetId = await configuredChannelId(guild, 'dashboard');
         const target = targetId ? await interaction.client.channels.fetch(targetId).catch(() => null) : null;
-        if (target?.isSendable() && target.id !== interaction.channelId) {
-            await target.send(payload);
-            await interaction.reply({ content: `Dashboard posted in <#${target.id}>.`, flags: MessageFlags.Ephemeral });
-        } else await interaction.reply(payload);
+        const destination = target?.isSendable() ? target : interaction.channel?.isSendable() ? interaction.channel : null;
+        if (!destination) { await interaction.editReply('I could not find a channel for the dashboard.'); return; }
+        await destination.send(payload);
+        await interaction.deleteReply().catch(() => undefined);
     },
 };
 
@@ -372,6 +378,7 @@ const regulationsCommand = {
         .setName('regulations')
         .setDescription('Post the community regulations'),
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         const config = await getPanelConfig(interaction.guild, 'regulations');
         const customBannerUrl = await getPanelBannerUrl(interaction.guild, config);
         const payload = {
@@ -382,10 +389,10 @@ const regulationsCommand = {
         };
         const targetId = await configuredChannelId(interaction.guild, 'regulations');
         const target = targetId ? await interaction.client.channels.fetch(targetId).catch(() => null) : null;
-        if (target?.isSendable() && target.id !== interaction.channelId) {
-            await target.send(payload);
-            await interaction.reply({ content: `Regulations posted in <#${target.id}>.`, flags: MessageFlags.Ephemeral });
-        } else await interaction.reply(payload);
+        const destination = target?.isSendable() ? target : interaction.channel?.isSendable() ? interaction.channel : null;
+        if (!destination) { await interaction.editReply('I could not find a channel for regulations.'); return; }
+        await destination.send(payload);
+        await interaction.deleteReply().catch(() => undefined);
     },
 };
 
@@ -406,6 +413,7 @@ function applicationPanel(config: PanelConfig, customBannerUrl?: string | null):
 const applicationPanelCommand = {
     data: new SlashCommandBuilder().setName('application-panel').setDescription('Post the staff application panel'),
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         const config = await getPanelConfig(interaction.guild, 'application');
         const customBannerUrl = await getPanelBannerUrl(interaction.guild, config);
         const payload = {
@@ -416,24 +424,72 @@ const applicationPanelCommand = {
         };
         const targetId = await configuredChannelId(interaction.guild, 'application_panel');
         const target = targetId ? await interaction.client.channels.fetch(targetId).catch(() => null) : null;
-        if (target?.isSendable() && target.id !== interaction.channelId) {
-            await target.send(payload);
-            await interaction.reply({ content: `Application panel posted in <#${target.id}>.`, flags: MessageFlags.Ephemeral });
-        } else await interaction.reply(payload);
+        const destination = target?.isSendable() ? target : interaction.channel?.isSendable() ? interaction.channel : null;
+        if (!destination) { await interaction.editReply('I could not find a channel for applications.'); return; }
+        await destination.send(payload);
+        await interaction.deleteReply().catch(() => undefined);
     },
 };
 
 export async function handlePanelButton(interaction: ButtonInteraction): Promise<boolean> {
-    if (interaction.customId !== 'application:open') return false;
-    const config = await getPanelConfig(interaction.guild, 'application');
-    const questions = (config.questions || '').split(/\r?\n/).map(question => question.trim()).filter(Boolean).slice(0, 5);
-    const modal = new ModalBuilder().setCustomId('application:submit').setTitle('CSRP Staff Application');
-    for (const [index, question] of questions.entries()) {
-        modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(
-            new TextInputBuilder().setCustomId(`q${index}`).setLabel(question.slice(0, 45)).setStyle(TextInputStyle.Paragraph).setMaxLength(1000).setRequired(true),
-        ));
+    if (interaction.customId === 'application:open') {
+        const config = await getPanelConfig(interaction.guild, 'application');
+        const questions = (config.questions || '').split(/\r?\n/).map(question => question.trim()).filter(Boolean).slice(0, 5);
+        const modal = new ModalBuilder().setCustomId('application:submit').setTitle('CSRP Staff Application');
+        for (const [index, question] of questions.entries()) {
+            modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(
+                new TextInputBuilder().setCustomId(`q${index}`).setLabel(question.slice(0, 45)).setStyle(TextInputStyle.Paragraph).setMaxLength(1000).setRequired(true),
+            ));
+        }
+        await interaction.showModal(modal);
+        return true;
     }
-    await interaction.showModal(modal);
+    const match = /^application:review:(accept|deny):(\d{17,20})$/.exec(interaction.customId);
+    if (!match || !interaction.guild) return false;
+    const [, decision, applicantId] = match;
+    const saved = await getGuildBotConfig(interaction.guild);
+    const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
+    const allowedRoleIds = [saved.roles.application_reviewer, saved.roles.staff, saved.roles.bot_permissions, TICKET_STAFF_ROLE_ID]
+        .filter((roleId): roleId is string => Boolean(roleId));
+    const authorized = interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)
+        || allowedRoleIds.some(roleId => member?.roles.cache.has(roleId));
+    if (!authorized) {
+        await interaction.reply({ content: 'You are not authorized to review applications.', flags: MessageFlags.Ephemeral });
+        return true;
+    }
+    await interaction.deferUpdate();
+    const accepted = decision === 'accept';
+    const applicant = await interaction.client.users.fetch(applicantId).catch(() => null);
+    const dmDelivered = applicant ? await applicant.send({
+        components: [new ContainerBuilder().setAccentColor(BRAND.color)
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+                `# Application ${accepted ? 'Accepted' : 'Denied'}`,
+                accepted
+                    ? 'Your California State Roleplay staff application has been **accepted**. Staff will contact you with the next steps.'
+                    : 'Your California State Roleplay staff application has been **denied**. You may contact staff if you have questions about reapplying.',
+                '', `**Reviewed by:** ${interaction.user.tag}`,
+            ].join('\n')))],
+        flags: MessageFlags.IsComponentsV2,
+    }).then(() => true).catch(() => false) : false;
+    const rawComponents = interaction.message.components.map(component => component.toJSON()) as unknown as Array<Record<string, unknown>>;
+    for (const component of rawComponents) {
+        const children = component.components as Array<Record<string, unknown>> | undefined;
+        for (const child of children || []) {
+            if (child.type !== 1) continue;
+            for (const button of (child.components as Array<Record<string, unknown>> | undefined) || []) button.disabled = true;
+        }
+    }
+    await interaction.message.edit({ components: rawComponents as never, flags: MessageFlags.IsComponentsV2 });
+    if (interaction.channel?.isSendable()) {
+        await interaction.channel.send({
+            components: [new ContainerBuilder().setAccentColor(BRAND.color)
+                .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+                    `# Application ${accepted ? 'Accepted' : 'Denied'}\n<@${applicantId}> was **${accepted ? 'accepted' : 'denied'}** by <@${interaction.user.id}>. ${dmDelivered ? 'The applicant was notified by DM.' : 'The applicant’s DMs are closed, so the DM could not be delivered.'}`,
+                ))],
+            flags: MessageFlags.IsComponentsV2,
+            allowedMentions: { parse: [] },
+        });
+    }
     return true;
 }
 
@@ -449,18 +505,45 @@ export async function handlePanelModal(interaction: ModalSubmitInteraction): Pro
         await interaction.editReply('The application review channel is not configured. An administrator can set it in `/config`.');
         return true;
     }
-    await destination.send({
+    if (!interaction.guild) return true;
+    const saved = await getGuildBotConfig(interaction.guild);
+    const botMember = interaction.guild.members.me || await interaction.guild.members.fetchMe();
+    const reviewerRoleIds = [...new Set([
+        saved.roles.application_reviewer,
+        saved.roles.staff,
+        saved.roles.bot_permissions,
+        TICKET_STAFF_ROLE_ID,
+    ].filter((roleId): roleId is string => Boolean(roleId)))];
+    const reviewChannel = await interaction.guild.channels.create({
+        name: `application-${interaction.user.username}`.toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 90),
+        type: ChannelType.GuildText,
+        parent: 'parentId' in destination && destination.parentId ? destination.parentId : undefined,
+        topic: `CSRP application | Applicant ${interaction.user.id} | Applicant removed from staff review access`,
+        permissionOverwrites: [
+            { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+            { id: interaction.user.id, deny: [PermissionFlagsBits.ViewChannel] },
+            { id: botMember.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels] },
+            ...reviewerRoleIds.map(id => ({ id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] })),
+        ],
+        reason: `Staff application submitted by ${interaction.user.tag}`,
+    }).catch(() => null);
+    const reviewDestination = reviewChannel?.isSendable() ? reviewChannel : destination;
+    await reviewDestination.send({
         components: [new ContainerBuilder().setAccentColor(BRAND.color)
             .addTextDisplayComponents(new TextDisplayBuilder().setContent([
                 `# ${emojis.title || '📋'} Staff Application • ${interaction.user.tag}`,
                 `**Applicant:** <@${interaction.user.id}>`,
                 `**Submitted:** <t:${Math.floor(Date.now() / 1000)}:f>`,
                 '', ...answers,
-            ].join('\n')))],
+            ].join('\n')))
+            .addActionRowComponents(new ActionRowBuilder<ButtonBuilder>().addComponents(
+                new ButtonBuilder().setCustomId(`application:review:accept:${interaction.user.id}`).setLabel('Accept').setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId(`application:review:deny:${interaction.user.id}`).setLabel('Deny').setStyle(ButtonStyle.Danger),
+            ))],
         flags: MessageFlags.IsComponentsV2,
         allowedMentions: { parse: [] },
     });
-    await interaction.editReply('Your application was submitted successfully.');
+    await interaction.editReply('Your application was submitted successfully. You have been removed from the private staff review ticket and will receive the decision by DM.');
     return true;
 }
 
@@ -477,11 +560,7 @@ const sessionPanelCommand = {
         const targetId = await configuredChannelId(guild, 'sessions');
         const target = targetId ? await interaction.client.channels.fetch(targetId).catch(() => null) : null;
         const externalTarget = target?.isSendable() && target.id !== interaction.channelId ? target : null;
-        await interaction.reply({
-            ...(externalTarget ? { content: 'Loading the live session panel…' } : { components: [loadingSessionPanel()] }),
-            flags: externalTarget ? MessageFlags.Ephemeral : MessageFlags.IsComponentsV2,
-            allowedMentions: { parse: [] },
-        });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         const configured = await getPanelConfig(guild, 'session');
         const customBannerUrl = await getPanelBannerUrl(guild, configured);
@@ -493,14 +572,11 @@ const sessionPanelCommand = {
             flags: MessageFlags.IsComponentsV2 as const,
             allowedMentions: { parse: [] as never[] },
         };
-        if (externalTarget) {
-            const sent = await externalTarget.send(payload);
-            await registerSessionPanel(guild, sent.channelId, sent.id);
-            await interaction.editReply(`Session panel posted in <#${externalTarget.id}>.`);
-        } else {
-            const sent = await interaction.editReply(payload);
-            await registerSessionPanel(guild, sent.channelId, sent.id);
-        }
+        const destination = externalTarget || (interaction.channel?.isSendable() ? interaction.channel : null);
+        if (!destination) { await interaction.editReply('I could not find a channel for the session panel.'); return; }
+        const sent = await destination.send(payload);
+        await registerSessionPanel(guild, sent.channelId, sent.id);
+        await interaction.deleteReply().catch(() => undefined);
     },
 };
 
