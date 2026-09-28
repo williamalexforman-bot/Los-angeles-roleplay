@@ -52,7 +52,7 @@ const config = {
     BOT_PERMISSIONS_ROLE_ID: process.env.BOT_PERMISSIONS_ROLE_ID,
     EMERGENCY_STAFF_ROLE_ID: process.env.EMERGENCY_STAFF_ROLE_ID,
     BLOXLINK_API_KEY: getBloxlinkApiKey(),
-    ERLC_SERVER_KEY: process.env.ERLC_SERVER_KEY,
+    ERLC_SERVER_KEY: process.env.ERLC_SERVER_KEY || process.env.ERLC_API,
     OPENAI_API_KEY: getOpenAiApiKey(),
     OPENAI_MODEL: getOpenAiModel(),
 };

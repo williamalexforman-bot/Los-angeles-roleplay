@@ -340,7 +340,7 @@ function failure(
 
 /** Fetches the requested combined ER:LC v2 server snapshot without exposing the server key. */
 export async function fetchErlcServer(options: ErlcFetchOptions = {}): Promise<ErlcFetchResult> {
-    const serverKey = (options.serverKey ?? process.env.ERLC_SERVER_KEY ?? '').trim();
+    const serverKey = (options.serverKey ?? process.env.ERLC_SERVER_KEY ?? process.env.ERLC_API ?? '').trim();
     const emptyRateLimit = parseRateLimit();
     if (!serverKey) {
         return failure(

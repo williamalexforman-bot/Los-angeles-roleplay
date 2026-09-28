@@ -73,8 +73,8 @@ function createConfiguredClient(privilegedIntents: boolean): Client {
         if (!process.env.EMERGENCY_STAFF_ROLE_ID) {
             logger.info('No emergency staff role was found; raid alerts will be logged without a role ping.');
         }
-        if (!process.env.ERLC_SERVER_KEY) {
-            logger.info('ER:LC monitoring is disabled because ERLC_SERVER_KEY is not configured; Quick Join still works.');
+        if (!process.env.ERLC_SERVER_KEY && !process.env.ERLC_API) {
+            logger.info('ER:LC monitoring is disabled because ERLC_API is not configured; Quick Join still works.');
             return;
         }
         // OOM fix — set DISABLE_ERLC_MONITOR=true on bot-hosting.net to save ~50MB RAM

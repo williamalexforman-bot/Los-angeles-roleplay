@@ -59,7 +59,7 @@ Legacy ticket commands remain registered as compatibility aliases. Existing appl
 - **Bloxlink:** set `BLOXLINK_API_KEY`. A missing or unverified account never blocks ticket creation.
 - **OpenAI:** set `OPENAI_API_KEY`; `OPENAI_MODEL` defaults to `gpt-5.6-sol`. The assistant uses the Responses API with `store: false`, strict non-staff guardrails, and official-domain web search for ER:LC questions. Paid-partner and rules-channel routing remains available without an OpenAI key.
 - **Partnership role:** set `PARTNERSHIP_ROLE_ID` so approving a partnership automatically assigns the role. Configure `PARTNERSHIP_REQUEST_CHANNEL_ID` and `STAFF_COMPLAINT_CHANNEL_ID` with IDs from the new server.
-- **ER:LC:** set `ERLC_SERVER_KEY`. The monitor uses `GET https://api.erlc.gg/v2/server` with Players, CommandLogs, and JoinLogs enabled, honors rate-limit reset/retry data, and persists processed state in MongoDB.
+- **ER:LC:** set `ERLC_API` (or the supported alias `ERLC_SERVER_KEY`). The monitor uses `GET https://api.erlc.gg/v2/server` with Players, CommandLogs, and JoinLogs enabled, honors rate-limit reset/retry data, and persists processed state in MongoDB.
 - **Official ER:LC webhooks:** point the configured event webhook to the public HTTPS route `/erlc-event`. Signed Ed25519 payloads are verified before processing. `/roblox-event` remains available only when `WEBHOOK_SECRET` is configured for backward compatibility.
 - **Ticket recovery:** abandoned pending reservations are cleaned after 15 minutes by default; override this with `TICKET_PENDING_TTL_MS`.
 
