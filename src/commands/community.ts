@@ -308,7 +308,7 @@ const PARTNERSHIP_PANEL_TEXT = [
 ].join('\n');
 
 function partnershipPanelEmbed(): EmbedBuilder {
-    return partnershipEmbed('🤝 Partnership Request', PARTNERSHIP_PANEL_TEXT, 0x3b82f6);
+    return partnershipEmbed('🤝 Partnership Request', PARTNERSHIP_PANEL_TEXT, 0xfacc15);
 }
 
 function partnershipPanelComponents(disabled = false): ActionRowBuilder<ButtonBuilder>[] {
@@ -557,7 +557,7 @@ export async function handleCommunityModal(interaction: ModalSubmitInteraction):
             return true;
         }
 
-        const requestEmbed = partnershipEmbed('🤝 Partnership Request', undefined, 0x3b82f6)
+        const requestEmbed = partnershipEmbed('🤝 Partnership Request', undefined, 0xfacc15)
             .addFields(
                 { name: 'Server Name', value: serverName, inline: true },
                 { name: 'Representative', value: representative, inline: true },

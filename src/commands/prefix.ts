@@ -1,5 +1,6 @@
 import { Message, PermissionFlagsBits } from 'discord.js';
-import { postPanelFromMessage } from './panels';
+import { postPanelFromMessage, runSessionActionFromMessage } from './panels';
+import type { SessionLifecycleStatus } from '../services/panelConfig';
 import { postTicketPanelFromMessage } from './tickets';
 import { configuredRoleId } from '../services/panelConfig';
 
@@ -8,6 +9,17 @@ async function canUsePrefix(message: Message): Promise<boolean> {
     if (message.guild.ownerId === message.author.id || message.member.permissions.has(PermissionFlagsBits.Administrator)) return true;
     const roleId = await configuredRoleId(message.guild, 'bot_permissions', process.env.BOT_PERMISSIONS_ROLE_ID || '');
     return Boolean(roleId && message.member.roles.cache.has(roleId));
+}
+
+async function canUseSessionPrefix(message: Message): Promise<boolean> {
+    if (!message.guild || !message.member) return false;
+    if (message.guild.ownerId === message.author.id || message.member.permissions.has(PermissionFlagsBits.Administrator)) return true;
+    const allowedRoles = await Promise.all([
+        configuredRoleId(message.guild, 'session_host'),
+        configuredRoleId(message.guild, 'staff'),
+        configuredRoleId(message.guild, 'bot_permissions', process.env.BOT_PERMISSIONS_ROLE_ID || ''),
+    ]);
+    return allowedRoles.some(roleId => roleId && message.member?.roles.cache.has(roleId));
 }
 
 export async function handlePrefixCommand(message: Message): Promise<boolean> {
@@ -21,10 +33,20 @@ export async function handlePrefixCommand(message: Message): Promise<boolean> {
         sessionpanel: 'session', session: 'session',
         applicationpanel: 'application', applications: 'application',
     };
-    const recognized = command === 'say' || command === 'ticketpanel' || command === 'ticket-panel' || command in panelCommands;
+    const sessionCommands: Record<string, SessionLifecycleStatus> = {
+        sessionstart: 'online', 'session-start': 'online',
+        sessionend: 'offline', 'session-end': 'offline',
+        sessionvote: 'voting', 'session-vote': 'voting',
+        sessionboost: 'boosted', 'session-boost': 'boosted',
+    };
+    const recognized = command === 'say' || command === 'ticketpanel' || command === 'ticket-panel'
+        || command in panelCommands || command in sessionCommands;
     if (!recognized) return false;
-    if (!await canUsePrefix(message)) {
-        await message.reply('You need the configured bot-permissions role or Administrator permission to use that prefix command.');
+    const allowed = command in sessionCommands ? await canUseSessionPrefix(message) : await canUsePrefix(message);
+    if (!allowed) {
+        await message.reply(command in sessionCommands
+            ? 'You need the configured Session Host, Staff, or bot-permissions role to use that session command.'
+            : 'You need the configured bot-permissions role or Administrator permission to use that prefix command.');
         return true;
     }
     if (command === 'say') {
@@ -34,7 +56,8 @@ export async function handlePrefixCommand(message: Message): Promise<boolean> {
         await message.delete().catch(() => undefined);
         return true;
     }
-    if (command === 'ticketpanel' || command === 'ticket-panel') await postTicketPanelFromMessage(message);
+    if (command in sessionCommands) await runSessionActionFromMessage(message, sessionCommands[command]);
+    else if (command === 'ticketpanel' || command === 'ticket-panel') await postTicketPanelFromMessage(message);
     else await postPanelFromMessage(message, panelCommands[command]);
     await message.delete().catch(() => undefined);
     return true;

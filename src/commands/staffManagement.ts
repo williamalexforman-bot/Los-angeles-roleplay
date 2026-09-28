@@ -29,7 +29,7 @@ import { CHANNEL_IDS } from '../config/constants';
 import { applyTemplate, configuredChannelId, getPanelBannerUrl, getPanelConfig, parseEmojiMap, type PanelConfig } from '../services/panelConfig';
 import { embedsToV2 } from '../utils/componentsV2';
 
-const BRAND_COLOR = 0x3b82f6;
+const BRAND_COLOR = 0xfacc15;
 const PASS_COLOR = 0x22c55e;
 const FAIL_COLOR = 0xef4444;
 const BRAND_FOOTER = 'California State Roleplay | Realism at its Finest';

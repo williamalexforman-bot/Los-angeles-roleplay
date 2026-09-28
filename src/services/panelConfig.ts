@@ -43,10 +43,25 @@ export interface ManagedRoleConfig {
     permissions: string[];
 }
 
+export type SessionLifecycleStatus = 'offline' | 'voting' | 'online' | 'boosted';
+
+export interface SessionPanelReference {
+    channelId: string;
+    messageId: string;
+}
+
+export interface SessionState {
+    status: SessionLifecycleStatus;
+    updatedAt: number;
+    updatedBy: string;
+    panelMessages: SessionPanelReference[];
+}
+
 export interface GuildBotConfig {
     channels: Partial<Record<ConfigChannelKey, string>>;
     roles: Partial<Record<ConfigRoleKey, string>>;
     managedRoles: ManagedRoleConfig[];
+    session: SessionState;
 }
 
 export const DEFAULT_PANEL_CONFIGS: Record<ConfigurablePanel, PanelConfig> = {
@@ -90,7 +105,7 @@ export const DEFAULT_PANEL_CONFIGS: Record<ConfigurablePanel, PanelConfig> = {
     session: {
         title: 'Session Information',
         description: '> Ready to join one of our amazing sessions? Use the panel below to view live session information, including the player count, staff online, and queue status.\n\n**Last Updated:** {updated}',
-        emojiText: 'title=🌐\nstaff=👥\nplayers=👤\nqueue=🕒\nonline=✅\noffline=📡\njoin=🎮',
+        emojiText: 'title=🌐\nstaff=👥\nplayers=👤\nqueue=🕒\nonline=✅\noffline=📡\nvote=🗳️\nboost=🚀\njoin=🎮',
     },
 };
 
@@ -219,11 +234,13 @@ export interface SessionEmojis {
     queue: string;
     online: string;
     offline: string;
+    vote: string;
+    boost: string;
     join: string;
 }
 
 const DEFAULT_SESSION_EMOJIS: SessionEmojis = {
-    title: '🌐', staff: '👥', players: '👤', queue: '🕒', online: '✅', offline: '📡', join: '🎮',
+    title: '🌐', staff: '👥', players: '👤', queue: '🕒', online: '✅', offline: '📡', vote: '🗳️', boost: '🚀', join: '🎮',
 };
 
 export function parseSessionEmojis(value?: string): SessionEmojis {
@@ -265,7 +282,23 @@ function normalizeGuildConfig(value?: Partial<GuildBotConfig>): GuildBotConfig {
         role && typeof role.roleId === 'string' && typeof role.name === 'string' && typeof role.purpose === 'string'
             && Array.isArray(role.permissions),
     ).slice(0, 50) : [];
-    return { channels, roles, managedRoles };
+    const validStatuses: SessionLifecycleStatus[] = ['offline', 'voting', 'online', 'boosted'];
+    const status = validStatuses.includes(value?.session?.status as SessionLifecycleStatus)
+        ? value!.session!.status
+        : 'offline';
+    const panelMessages = Array.isArray(value?.session?.panelMessages)
+        ? value.session.panelMessages.filter(reference => reference
+            && typeof reference.channelId === 'string' && /^\d{17,20}$/.test(reference.channelId)
+            && typeof reference.messageId === 'string' && /^\d{17,20}$/.test(reference.messageId))
+            .slice(-10)
+        : [];
+    const session: SessionState = {
+        status,
+        updatedAt: typeof value?.session?.updatedAt === 'number' ? value.session.updatedAt : 0,
+        updatedBy: typeof value?.session?.updatedBy === 'string' ? value.session.updatedBy : '',
+        panelMessages,
+    };
+    return { channels, roles, managedRoles, session };
 }
 
 export async function getGuildBotConfig(guild: Guild | null): Promise<GuildBotConfig> {
@@ -306,4 +339,32 @@ export async function configuredChannelId(guild: Guild | null, key: ConfigChanne
 
 export async function configuredRoleId(guild: Guild | null, key: ConfigRoleKey, fallback = ''): Promise<string> {
     return (await getGuildBotConfig(guild)).roles[key] || fallback;
+}
+
+export async function getSessionState(guild: Guild | null): Promise<SessionState> {
+    return (await getGuildBotConfig(guild)).session;
+}
+
+export async function setSessionState(guild: Guild, status: SessionLifecycleStatus, updatedBy: string): Promise<SessionState> {
+    const config = await getGuildBotConfig(guild);
+    config.session.status = status;
+    config.session.updatedAt = Date.now();
+    config.session.updatedBy = updatedBy;
+    await saveGuildBotConfig(guild, config);
+    return config.session;
+}
+
+export async function registerSessionPanel(guild: Guild, channelId: string, messageId: string): Promise<void> {
+    const config = await getGuildBotConfig(guild);
+    config.session.panelMessages = [
+        ...config.session.panelMessages.filter(reference => reference.messageId !== messageId),
+        { channelId, messageId },
+    ].slice(-10);
+    await saveGuildBotConfig(guild, config);
+}
+
+export async function replaceSessionPanelReferences(guild: Guild, references: SessionPanelReference[]): Promise<void> {
+    const config = await getGuildBotConfig(guild);
+    config.session.panelMessages = references.slice(-10);
+    await saveGuildBotConfig(guild, config);
 }

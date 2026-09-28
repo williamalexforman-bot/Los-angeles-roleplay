@@ -29,7 +29,10 @@ const TICKET_COMMAND_NAMES = new Set([
 ]);
 
 const MANAGEMENT_COMMANDS = new Set(['infraction', 'promotion', 'training-results', 'training-result', 'request-training', 'teamswitch', 'punishment']);
-const PANEL_COMMANDS = new Set(['ticket-panel', 'ticket-message', 'dashboard', 'regulations', 'session-panel', 'application-panel']);
+const PANEL_COMMANDS = new Set([
+    'ticket-panel', 'ticket-message', 'dashboard', 'regulations', 'session-panel', 'application-panel',
+]);
+const SESSION_COMMANDS = new Set(['session-start', 'session-end', 'session-vote', 'session-boost']);
 const MODERATION_PERMISSIONS = new Map<string, bigint>([
     ['punish', PermissionFlagsBits.ModerateMembers],
     ['warn', PermissionFlagsBits.ModerateMembers],
@@ -73,6 +76,17 @@ async function hasSayCommandPermission(interaction: ChatInputCommandInteraction)
     return Boolean(roleId && interactionRoleIds(interaction).includes(roleId));
 }
 
+async function hasSessionCommandPermission(interaction: ChatInputCommandInteraction): Promise<boolean> {
+    if (!interaction.guildId) return false;
+    if (interaction.guild?.ownerId === interaction.user.id
+        || interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return true;
+    const saved = await getGuildBotConfig(interaction.guild);
+    const allowedRoles = [saved.roles.session_host, saved.roles.bot_permissions, saved.roles.staff]
+        .filter((roleId): roleId is string => Boolean(roleId));
+    const memberRoles = new Set(interactionRoleIds(interaction));
+    return allowedRoles.some(roleId => memberRoles.has(roleId));
+}
+
 async function hasModerationCommandPermission(interaction: ChatInputCommandInteraction, permission: bigint): Promise<boolean> {
     if (!interaction.guildId) return false;
     if (interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)
@@ -111,6 +125,13 @@ async function handleChatCommand(interaction: ChatInputCommandInteraction): Prom
         if ((interaction.commandName === 'say' || PANEL_COMMANDS.has(interaction.commandName)) && !await hasSayCommandPermission(interaction)) {
             await interaction.reply({
                 content: 'You must be a server administrator or have the configured bot-permissions role to use this command.',
+                flags: MessageFlags.Ephemeral,
+            });
+            return;
+        }
+        if (SESSION_COMMANDS.has(interaction.commandName) && !await hasSessionCommandPermission(interaction)) {
+            await interaction.reply({
+                content: 'You must be a server administrator or have the configured Session Host, Staff, or bot-permissions role to use this command.',
                 flags: MessageFlags.Ephemeral,
             });
             return;

@@ -5,6 +5,7 @@ import {
     ButtonStyle,
     ChatInputCommandInteraction,
     ContainerBuilder,
+    Guild,
     MediaGalleryBuilder,
     MediaGalleryItemBuilder,
     Message,
@@ -22,7 +23,21 @@ import {
 import { BRAND, CHANNEL_IDS } from '../config/constants';
 import { bannerAttachment, bannerFiles, bannerUrl } from '../utils/bannerAssets';
 import { fetchErlcServer } from '../services/erlcService';
-import { applyTemplate, configuredChannelId, getPanelBannerUrl, getPanelConfig, parseEmojiMap, parseSessionEmojis, type PanelConfig } from '../services/panelConfig';
+import {
+    applyTemplate,
+    configuredChannelId,
+    getPanelBannerUrl,
+    getPanelConfig,
+    getGuildBotConfig,
+    getSessionState,
+    parseEmojiMap,
+    parseSessionEmojis,
+    registerSessionPanel,
+    replaceSessionPanelReferences,
+    setSessionState,
+    type PanelConfig,
+    type SessionLifecycleStatus,
+} from '../services/panelConfig';
 
 const QUICK_JOIN_URL = 'https://www.roblox.com/games/start?launchData=%7B%22psCode%22%3A%22califorp%22%7D&placeId=2534724415';
 const REGULATIONS_MENU_ID = 'regulations:menu';
@@ -69,8 +84,24 @@ function loadingSessionPanel(): ContainerBuilder {
         );
 }
 
+interface SessionDisplayStatus {
+    lifecycle: SessionLifecycleStatus;
+    staff: number;
+    players: number;
+    maximum: number;
+    queue: number;
+    updatedAt: number;
+}
+
+function lifecycleDisplay(status: SessionLifecycleStatus): { label: string; style: ButtonStyle; emoji: keyof ReturnType<typeof parseSessionEmojis> } {
+    if (status === 'online') return { label: 'Session Online', style: ButtonStyle.Success, emoji: 'online' };
+    if (status === 'boosted') return { label: 'Session Boosted', style: ButtonStyle.Success, emoji: 'boost' };
+    if (status === 'voting') return { label: 'Session Vote Open', style: ButtonStyle.Secondary, emoji: 'vote' };
+    return { label: 'Session Offline', style: ButtonStyle.Danger, emoji: 'offline' };
+}
+
 function sessionPanel(
-    status: { online: boolean; staff: number; players: number; maximum: number; queue: number; updatedAt: number },
+    status: SessionDisplayStatus,
     configured: PanelConfig,
     customBannerUrl?: string | null,
 ): ContainerBuilder {
@@ -81,7 +112,7 @@ function sessionPanel(
         players: String(status.players),
         maximum: String(status.maximum),
         queue: String(status.queue),
-        status: status.online ? 'Online' : 'Offline',
+        status: lifecycleDisplay(status.lifecycle).label.replace('Session ', ''),
     };
     const information = new TextDisplayBuilder().setContent([
         `# ${emojis.title} ${applyTemplate(configured.title, values)}`,
@@ -110,12 +141,13 @@ function sessionPanel(
             .setDisabled(true), emojis.queue),
     );
 
+    const display = lifecycleDisplay(status.lifecycle);
     const controls = new ActionRowBuilder<ButtonBuilder>().addComponents(
         setEmoji(new ButtonBuilder()
             .setCustomId('session:status')
-            .setLabel(status.online ? 'Session Online' : 'Session Offline')
-            .setStyle(status.online ? ButtonStyle.Success : ButtonStyle.Danger)
-            .setDisabled(true), status.online ? emojis.online : emojis.offline),
+            .setLabel(display.label)
+            .setStyle(display.style)
+            .setDisabled(true), emojis[display.emoji]),
         setEmoji(new ButtonBuilder()
             .setLabel('Quick Join')
             .setStyle(ButtonStyle.Link)
@@ -129,6 +161,100 @@ function sessionPanel(
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
         .addActionRowComponents(counters, controls)
         .addMediaGalleryComponents(gallery(bannerUrl('underbanner')));
+}
+
+async function currentSessionDisplay(guild: Guild): Promise<SessionDisplayStatus> {
+    const [state, snapshot] = await Promise.all([
+        getSessionState(guild),
+        fetchErlcServer({ timeoutMs: 10_000 }),
+    ]);
+    const active = state.status === 'online' || state.status === 'boosted';
+    if (snapshot.ok && active) {
+        return {
+            lifecycle: state.status,
+            staff: snapshot.data.players.filter(player => player.permission.toLowerCase() !== 'normal').length,
+            players: snapshot.data.currentPlayers,
+            maximum: snapshot.data.maxPlayers,
+            queue: Math.max(0, snapshot.data.currentPlayers - snapshot.data.maxPlayers),
+            updatedAt: state.updatedAt || snapshot.data.fetchedAt,
+        };
+    }
+    return {
+        lifecycle: state.status,
+        staff: 0,
+        players: 0,
+        maximum: snapshot.ok ? snapshot.data.maxPlayers : 40,
+        queue: 0,
+        updatedAt: state.updatedAt || Date.now(),
+    };
+}
+
+async function refreshSavedSessionPanels(guild: Guild): Promise<number> {
+    const [guildConfig, configured, status] = await Promise.all([
+        getGuildBotConfig(guild),
+        getPanelConfig(guild, 'session'),
+        currentSessionDisplay(guild),
+    ]);
+    const customBannerUrl = await getPanelBannerUrl(guild, configured);
+    const retained = (await Promise.all(guildConfig.session.panelMessages.map(async reference => {
+        const channel = await guild.channels.fetch(reference.channelId).catch(() => null);
+        if (!channel?.isTextBased() || !('messages' in channel)) return null;
+        const message = await channel.messages.fetch(reference.messageId).catch(() => null);
+        if (!message) return null;
+        const edited = await message.edit({
+            components: [sessionPanel(status, configured, customBannerUrl)],
+            flags: MessageFlags.IsComponentsV2,
+        }).catch(() => null);
+        return edited ? reference : null;
+    }))).filter((reference): reference is { channelId: string; messageId: string } => Boolean(reference));
+    if (retained.length !== guildConfig.session.panelMessages.length) {
+        await replaceSessionPanelReferences(guild, retained);
+    }
+    return retained.length;
+}
+
+function sessionAnnouncement(action: SessionLifecycleStatus, userId: string): ContainerBuilder {
+    const copy: Record<SessionLifecycleStatus, { title: string; description: string }> = {
+        online: { title: '✅ Session Started', description: 'The California State Roleplay session is now **online**. Use Quick Join below to enter the server.' },
+        offline: { title: '🛑 Session Ended', description: 'The California State Roleplay session is now **offline**. Thank you to everyone who participated.' },
+        voting: { title: '🗳️ Session Vote Open', description: 'A session vote is now open. If you support the session, be ready to join when it begins.' },
+        boosted: { title: '🚀 Session Boost', description: 'The current California State Roleplay session has been **boosted** and needs more players. Join us now!' },
+    };
+    const container = new ContainerBuilder().setAccentColor(BRAND.color)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+            `# ${copy[action].title}`,
+            copy[action].description,
+            '',
+            `**Updated by:** <@${userId}>`,
+            `**Updated:** <t:${Math.floor(Date.now() / 1_000)}:R>`,
+        ].join('\n')));
+    if (action === 'online' || action === 'boosted') {
+        container.addActionRowComponents(new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder().setLabel('Quick Join').setStyle(ButtonStyle.Link).setURL(QUICK_JOIN_URL).setEmoji('🎮'),
+        ));
+    }
+    return container;
+}
+
+async function runSessionAction(interaction: ChatInputCommandInteraction, action: SessionLifecycleStatus): Promise<void> {
+    if (!interaction.guild) {
+        await interaction.reply({ content: 'This command can only be used in a server.', flags: MessageFlags.Ephemeral });
+        return;
+    }
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    await setSessionState(interaction.guild, action, interaction.user.id);
+    const updatedPanels = await refreshSavedSessionPanels(interaction.guild);
+    const channelId = await configuredChannelId(interaction.guild, 'sessions');
+    const configuredChannel = channelId ? await interaction.client.channels.fetch(channelId).catch(() => null) : null;
+    const destination = configuredChannel?.isSendable() ? configuredChannel : interaction.channel?.isSendable() ? interaction.channel : null;
+    if (destination) {
+        await destination.send({
+            components: [sessionAnnouncement(action, interaction.user.id)],
+            flags: MessageFlags.IsComponentsV2,
+            allowedMentions: { parse: [] },
+        });
+    }
+    await interaction.editReply(`Session status changed to **${lifecycleDisplay(action).label.replace('Session ', '')}**. Updated ${updatedPanels} saved session panel${updatedPanels === 1 ? '' : 's'}.`);
 }
 
 function regulationsPanel(config: PanelConfig, customBannerUrl?: string | null): ContainerBuilder {
@@ -327,7 +453,12 @@ const sessionPanelCommand = {
         .setName('session-panel')
         .setDescription('Post the live roleplay session panel'),
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
-        const targetId = await configuredChannelId(interaction.guild, 'sessions');
+        if (!interaction.guild) {
+            await interaction.reply({ content: 'This command can only be used in a server.', flags: MessageFlags.Ephemeral });
+            return;
+        }
+        const guild = interaction.guild;
+        const targetId = await configuredChannelId(guild, 'sessions');
         const target = targetId ? await interaction.client.channels.fetch(targetId).catch(() => null) : null;
         const externalTarget = target?.isSendable() && target.id !== interaction.channelId ? target : null;
         await interaction.reply({
@@ -336,26 +467,9 @@ const sessionPanelCommand = {
             allowedMentions: { parse: [] },
         });
 
-        const snapshot = await fetchErlcServer({ timeoutMs: 10_000 });
-        const configured = await getPanelConfig(interaction.guild, 'session');
-        const customBannerUrl = await getPanelBannerUrl(interaction.guild, configured);
-        const session = snapshot.ok
-            ? {
-                online: true,
-                staff: snapshot.data.players.filter(player => player.permission.toLowerCase() !== 'normal').length,
-                players: snapshot.data.currentPlayers,
-                maximum: snapshot.data.maxPlayers,
-                queue: Math.max(0, snapshot.data.currentPlayers - snapshot.data.maxPlayers),
-                updatedAt: snapshot.data.fetchedAt,
-            }
-            : {
-                online: false,
-                staff: 0,
-                players: 0,
-                maximum: 40,
-                queue: 0,
-                updatedAt: Date.now(),
-            };
+        const configured = await getPanelConfig(guild, 'session');
+        const customBannerUrl = await getPanelBannerUrl(guild, configured);
+        const session = await currentSessionDisplay(guild);
 
         const payload = {
             components: [sessionPanel(session, configured, customBannerUrl)],
@@ -364,11 +478,29 @@ const sessionPanelCommand = {
             allowedMentions: { parse: [] as never[] },
         };
         if (externalTarget) {
-            await externalTarget.send(payload);
+            const sent = await externalTarget.send(payload);
+            await registerSessionPanel(guild, sent.channelId, sent.id);
             await interaction.editReply(`Session panel posted in <#${externalTarget.id}>.`);
-        } else await interaction.editReply(payload);
+        } else {
+            const sent = await interaction.editReply(payload);
+            await registerSessionPanel(guild, sent.channelId, sent.id);
+        }
     },
 };
+
+function sessionActionCommand(name: 'session-start' | 'session-end' | 'session-vote' | 'session-boost', description: string, action: SessionLifecycleStatus) {
+    return {
+        data: new SlashCommandBuilder().setName(name).setDescription(description),
+        async execute(interaction: ChatInputCommandInteraction): Promise<void> {
+            await runSessionAction(interaction, action);
+        },
+    };
+}
+
+const sessionStartCommand = sessionActionCommand('session-start', 'Start the roleplay session and mark every session panel online', 'online');
+const sessionEndCommand = sessionActionCommand('session-end', 'End the roleplay session and mark every session panel offline', 'offline');
+const sessionVoteCommand = sessionActionCommand('session-vote', 'Open a session vote and update every session panel', 'voting');
+const sessionBoostCommand = sessionActionCommand('session-boost', 'Boost the active session and update every session panel', 'boosted');
 
 export async function handlePanelSelectMenu(interaction: StringSelectMenuInteraction): Promise<boolean> {
     if (interaction.customId !== REGULATIONS_MENU_ID) return false;
@@ -383,7 +515,33 @@ export async function handlePanelSelectMenu(interaction: StringSelectMenuInterac
     return true;
 }
 
-export const panelCommands = [dashboardCommand, regulationsCommand, sessionPanelCommand, applicationPanelCommand];
+export const panelCommands = [
+    dashboardCommand,
+    regulationsCommand,
+    sessionPanelCommand,
+    sessionStartCommand,
+    sessionEndCommand,
+    sessionVoteCommand,
+    sessionBoostCommand,
+    applicationPanelCommand,
+];
+
+export async function runSessionActionFromMessage(message: Message, action: SessionLifecycleStatus): Promise<void> {
+    if (!message.guild || !message.channel.isSendable()) return;
+    await setSessionState(message.guild, action, message.author.id);
+    const updatedPanels = await refreshSavedSessionPanels(message.guild);
+    const destinationId = await configuredChannelId(message.guild, 'sessions');
+    const configuredDestination = destinationId ? await message.client.channels.fetch(destinationId).catch(() => null) : null;
+    const destination = configuredDestination?.isSendable() ? configuredDestination : message.channel;
+    await destination.send({
+        components: [sessionAnnouncement(action, message.author.id)],
+        flags: MessageFlags.IsComponentsV2,
+        allowedMentions: { parse: [] },
+    });
+    if (destination.id !== message.channel.id) {
+        await message.reply(`Session status updated. Refreshed ${updatedPanels} saved panel${updatedPanels === 1 ? '' : 's'}.`);
+    }
+}
 
 export async function postPanelFromMessage(message: Message, panel: 'dashboard' | 'regulations' | 'session' | 'application'): Promise<void> {
     if (!message.guild || !message.channel.isSendable()) return;
@@ -423,10 +581,8 @@ export async function postPanelFromMessage(message: Message, panel: 'dashboard' 
         await destination.send({ components: [applicationPanel(config, await getPanelBannerUrl(message.guild, config))], files: [bannerAttachment('applications'), bannerAttachment('underbanner')], flags: MessageFlags.IsComponentsV2 });
         return;
     }
-    const snapshot = await fetchErlcServer({ timeoutMs: 10_000 });
     const config = await getPanelConfig(message.guild, 'session');
-    const status = snapshot.ok
-        ? { online: true, staff: snapshot.data.players.filter(player => player.permission.toLowerCase() !== 'normal').length, players: snapshot.data.currentPlayers, maximum: snapshot.data.maxPlayers, queue: Math.max(0, snapshot.data.currentPlayers - snapshot.data.maxPlayers), updatedAt: snapshot.data.fetchedAt }
-        : { online: false, staff: 0, players: 0, maximum: 40, queue: 0, updatedAt: Date.now() };
-    await destination.send({ components: [sessionPanel(status, config, await getPanelBannerUrl(message.guild, config))], files: [bannerAttachment('dashboard'), bannerAttachment('underbanner')], flags: MessageFlags.IsComponentsV2 });
+    const status = await currentSessionDisplay(message.guild);
+    const sent = await destination.send({ components: [sessionPanel(status, config, await getPanelBannerUrl(message.guild, config))], files: [bannerAttachment('dashboard'), bannerAttachment('underbanner')], flags: MessageFlags.IsComponentsV2 });
+    await registerSessionPanel(message.guild, sent.channelId, sent.id);
 }

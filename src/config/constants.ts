@@ -2,7 +2,7 @@ import path from 'path';
 
 export const BRAND = {
     name: 'California State Roleplay',
-    color: 0x3b82f6,
+    color: 0xfacc15,
     footer: 'California State Roleplay | Realism at its Finest',
     panelFooter: 'Realism at its Finest',
     logoName: 'larp-logo.png',

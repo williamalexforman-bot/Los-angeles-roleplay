@@ -9,7 +9,7 @@ import { BRAND, CHANNEL_IDS } from '../config/constants';
 import { createLogoAttachment } from '../utils/embeds';
 import { embedsToV2 } from '../utils/componentsV2';
 
-const EMBED_COLOR = 0x3b82f6;
+const EMBED_COLOR = 0xfacc15;
 const EMBED_FOOTER = 'California State Roleplay | Realism at its Finest';
 const DEDUPE_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_DEDUPE_ENTRIES = 10_000;
