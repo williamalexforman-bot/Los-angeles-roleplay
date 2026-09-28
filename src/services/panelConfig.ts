@@ -7,12 +7,13 @@ import {
 } from 'discord.js';
 import { logger } from '../utils/logger';
 
-export type ConfigurablePanel = 'ticket' | 'infraction' | 'promotion';
+export type ConfigurablePanel = 'ticket' | 'infraction' | 'promotion' | 'session';
 
 export interface PanelConfig {
     title: string;
     description: string;
     bannerMessageId?: string;
+    emojiText?: string;
 }
 
 const STORE_CHANNEL_NAME = 'bot-config';
@@ -31,6 +32,11 @@ export const DEFAULT_PANEL_CONFIGS: Record<ConfigurablePanel, PanelConfig> = {
     promotion: {
         title: 'Staff Promotion',
         description: '*Authorized by **{promoter}***\n\n› **Promoted staff:** **{member}**\n\n› **Previous role:** {old_role}\n\n› **New role:** **{new_role}**\n\n› **Additional notes:** {notes}',
+    },
+    session: {
+        title: 'Session Information',
+        description: '> Ready to join one of our amazing sessions? Use the panel below to view live session information, including the player count, staff online, and queue status.\n\n**Last Updated:** {updated}',
+        emojiText: 'title=🌐\nstaff=👥\nplayers=👤\nqueue=🕒\nonline=✅\noffline=📡\njoin=🎮',
     },
 };
 
@@ -76,6 +82,7 @@ function parseRecord(content: string, panel: ConfigurablePanel): PanelConfig | n
             title: parsed.title.slice(0, 256),
             description: parsed.description.slice(0, 1_400),
             bannerMessageId: typeof parsed.bannerMessageId === 'string' ? parsed.bannerMessageId : undefined,
+            emojiText: typeof parsed.emojiText === 'string' ? parsed.emojiText.slice(0, 500) : DEFAULT_PANEL_CONFIGS[panel].emojiText,
         };
     } catch {
         return null;
@@ -118,6 +125,7 @@ export async function savePanelConfig(
         title: config.title.trim().slice(0, 256) || DEFAULT_PANEL_CONFIGS[panel].title,
         description: config.description.trim().slice(0, 1_400) || DEFAULT_PANEL_CONFIGS[panel].description,
         bannerMessageId: config.bannerMessageId,
+        emojiText: (config.emojiText || DEFAULT_PANEL_CONFIGS[panel].emojiText)?.trim().slice(0, 500),
     };
     const channel = await ensureStoreChannel(guild);
     if (!channel) {
@@ -146,4 +154,30 @@ export async function savePanelConfig(
 
 export function applyTemplate(template: string, values: Record<string, string>): string {
     return template.replace(/\{([a-z_]+)\}/gi, (match, key: string) => values[key.toLowerCase()] ?? match);
+}
+
+export interface SessionEmojis {
+    title: string;
+    staff: string;
+    players: string;
+    queue: string;
+    online: string;
+    offline: string;
+    join: string;
+}
+
+const DEFAULT_SESSION_EMOJIS: SessionEmojis = {
+    title: '🌐', staff: '👥', players: '👤', queue: '🕒', online: '✅', offline: '📡', join: '🎮',
+};
+
+export function parseSessionEmojis(value?: string): SessionEmojis {
+    const parsed = { ...DEFAULT_SESSION_EMOJIS };
+    for (const line of (value || '').split(/\r?\n/)) {
+        const separator = line.indexOf('=');
+        if (separator < 1) continue;
+        const key = line.slice(0, separator).trim().toLowerCase() as keyof SessionEmojis;
+        const emoji = line.slice(separator + 1).trim();
+        if (key in parsed && emoji && emoji.length <= 100) parsed[key] = emoji;
+    }
+    return parsed;
 }

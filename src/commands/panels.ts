@@ -17,6 +17,7 @@ import {
 import { BRAND, CHANNEL_IDS } from '../config/constants';
 import { bannerAttachment, bannerFiles, bannerUrl, underbannerEmbed } from '../utils/bannerAssets';
 import { fetchErlcServer } from '../services/erlcService';
+import { applyTemplate, getPanelBannerUrl, getPanelConfig, parseSessionEmojis, type PanelConfig } from '../services/panelConfig';
 
 const QUICK_JOIN_URL = 'https://www.roblox.com/games/start?launchData=%7B%22psCode%22%3A%22califorp%22%7D&placeId=2534724415';
 const REGULATIONS_MENU_ID = 'regulations:menu';
@@ -49,7 +50,7 @@ const GAME_RULES = `# In-Game Rules
 
 6) Staff may punish unlisted rule violations if they are deemed severe enough. If you disagree with a staff member's decision, you may report it through the appropriate channels.`;
 
-function gallery(url: string, _description?: string): MediaGalleryBuilder {
+function gallery(url: string): MediaGalleryBuilder {
     return new MediaGalleryBuilder().addItems(
         new MediaGalleryItemBuilder().setURL(url),
     );
@@ -65,56 +66,64 @@ function loadingSessionPanel(): ContainerBuilder {
 
 function sessionPanel(
     status: { online: boolean; staff: number; players: number; maximum: number; queue: number; updatedAt: number },
+    configured: PanelConfig,
+    customBannerUrl?: string | null,
 ): ContainerBuilder {
+    const emojis = parseSessionEmojis(configured.emojiText);
+    const values = {
+        updated: `<t:${Math.floor(status.updatedAt / 1_000)}:R>`,
+        staff: String(status.staff),
+        players: String(status.players),
+        maximum: String(status.maximum),
+        queue: String(status.queue),
+        status: status.online ? 'Online' : 'Offline',
+    };
     const information = new TextDisplayBuilder().setContent([
-        '# 🌐 Session Information',
-        '> Ready to join one of our amazing sessions? Use the panel below to view live session information, including the player count, staff online, and queue status.',
-        '',
-        `**Last Updated:** <t:${Math.floor(status.updatedAt / 1_000)}:R>`,
+        `# ${emojis.title} ${applyTemplate(configured.title, values)}`,
+        applyTemplate(configured.description, values),
     ].join('\n'));
 
+    const setEmoji = (button: ButtonBuilder, emoji: string): ButtonBuilder => {
+        try { return button.setEmoji(emoji); } catch { return button; }
+    };
+
     const counters = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder()
+        setEmoji(new ButtonBuilder()
             .setCustomId('session:staff-count')
             .setLabel(`Staff Online: ${status.staff}`)
-            .setEmoji('👥')
             .setStyle(ButtonStyle.Secondary)
-            .setDisabled(true),
-        new ButtonBuilder()
+            .setDisabled(true), emojis.staff),
+        setEmoji(new ButtonBuilder()
             .setCustomId('session:player-count')
             .setLabel(`Players In-Game: ${status.players}/${status.maximum}`)
-            .setEmoji('👤')
             .setStyle(ButtonStyle.Secondary)
-            .setDisabled(true),
-        new ButtonBuilder()
+            .setDisabled(true), emojis.players),
+        setEmoji(new ButtonBuilder()
             .setCustomId('session:queue-count')
             .setLabel(`In Queue: ${status.queue}`)
-            .setEmoji('🕒')
             .setStyle(ButtonStyle.Secondary)
-            .setDisabled(true),
+            .setDisabled(true), emojis.queue),
     );
 
     const controls = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder()
+        setEmoji(new ButtonBuilder()
             .setCustomId('session:status')
             .setLabel(status.online ? 'Session Online' : 'Session Offline')
-            .setEmoji(status.online ? '✅' : '📡')
             .setStyle(status.online ? ButtonStyle.Success : ButtonStyle.Danger)
-            .setDisabled(true),
-        new ButtonBuilder()
+            .setDisabled(true), status.online ? emojis.online : emojis.offline),
+        setEmoji(new ButtonBuilder()
             .setLabel('Quick Join')
-            .setEmoji('🎮')
             .setStyle(ButtonStyle.Link)
-            .setURL(QUICK_JOIN_URL),
+            .setURL(QUICK_JOIN_URL), emojis.join),
     );
 
     return new ContainerBuilder()
         .setAccentColor(BRAND.color)
-        .addMediaGalleryComponents(gallery(bannerUrl('dashboard'), 'California State Roleplay dashboard banner'))
+        .addMediaGalleryComponents(gallery(customBannerUrl || bannerUrl('dashboard')))
         .addTextDisplayComponents(information)
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
         .addActionRowComponents(counters, controls)
-        .addMediaGalleryComponents(gallery(bannerUrl('underbanner'), 'California State Roleplay'));
+        .addMediaGalleryComponents(gallery(bannerUrl('underbanner')));
 }
 
 function regulationsPanel(): ContainerBuilder {
@@ -138,7 +147,7 @@ function regulationsPanel(): ContainerBuilder {
 
     return new ContainerBuilder()
         .setAccentColor(BRAND.color)
-        .addMediaGalleryComponents(gallery(bannerUrl('regulations'), 'California State Roleplay regulations banner'))
+        .addMediaGalleryComponents(gallery(bannerUrl('regulations')))
         .addTextDisplayComponents(
             new TextDisplayBuilder().setContent([
                 '# 📜 Community Regulations',
@@ -146,7 +155,7 @@ function regulationsPanel(): ContainerBuilder {
             ].join('\n')),
         )
         .addActionRowComponents(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu))
-        .addMediaGalleryComponents(gallery(bannerUrl('underbanner'), 'California State Roleplay'));
+        .addMediaGalleryComponents(gallery(bannerUrl('underbanner')));
 }
 
 function privateRulesPanel(content: string): ContainerBuilder {
@@ -224,6 +233,8 @@ const sessionPanelCommand = {
         });
 
         const snapshot = await fetchErlcServer({ timeoutMs: 10_000 });
+        const configured = await getPanelConfig(interaction.guild, 'session');
+        const customBannerUrl = await getPanelBannerUrl(interaction.guild, configured);
         const session = snapshot.ok
             ? {
                 online: true,
@@ -243,7 +254,7 @@ const sessionPanelCommand = {
             };
 
         await interaction.editReply({
-            components: [sessionPanel(session)],
+            components: [sessionPanel(session, configured, customBannerUrl)],
             files: [bannerAttachment('dashboard'), bannerAttachment('underbanner')],
             flags: MessageFlags.IsComponentsV2,
             allowedMentions: { parse: [] },

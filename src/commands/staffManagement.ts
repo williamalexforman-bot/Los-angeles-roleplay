@@ -6,7 +6,10 @@ import {
     ButtonStyle,
     ChannelType,
     ChatInputCommandInteraction,
+    ContainerBuilder,
     EmbedBuilder,
+    MediaGalleryBuilder,
+    MediaGalleryItemBuilder,
     MessageFlags,
     ModalBuilder,
     ModalSubmitInteraction,
@@ -15,6 +18,7 @@ import {
     TextChannel,
     TextInputBuilder,
     TextInputStyle,
+    TextDisplayBuilder,
     ThreadAutoArchiveDuration,
     type SendableChannels,
     type ThreadChannel,
@@ -194,7 +198,12 @@ async function getInfractionRecord(threadId: string): Promise<InfractionRecord |
     }
 }
 
-function buildInfractionEmbed(record: InfractionRecord, configured?: PanelConfig, customBannerUrl?: string | null): EmbedBuilder {
+function buildInfractionPanel(
+    record: InfractionRecord,
+    configured?: PanelConfig,
+    customBannerUrl?: string | null,
+    controls: ActionRowBuilder<ButtonBuilder>[] = [],
+): ContainerBuilder {
     const config = configured || {
         title: 'Staff Infraction Issued',
         description: '> Hello **{member}**, a **{action}** has been placed on your staff record.\n\n› **Reason:** {reason}\n\n› **Infraction type:** {action}\n\n› **Issued by:** **{issuer}**\n\n› **Appeal status:** {appeal_status}',
@@ -208,9 +217,21 @@ function buildInfractionEmbed(record: InfractionRecord, configured?: PanelConfig
         case_id: record.caseNumber,
         notes: record.ruleBroken,
     };
-    return brandedEmbed(applyTemplate(config.title, values))
-        .setImage(customBannerUrl || bannerUrl('infraction'))
-        .setDescription(applyTemplate(config.description, values));
+    const container = new ContainerBuilder()
+        .setAccentColor(BRAND_COLOR)
+        .addMediaGalleryComponents(new MediaGalleryBuilder().addItems(
+            new MediaGalleryItemBuilder().setURL(customBannerUrl || bannerUrl('infraction')),
+        ))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+            `# ${applyTemplate(config.title, values)}`,
+            applyTemplate(config.description, values),
+            '',
+            `-# ${BRAND_FOOTER} • ${record.caseNumber}`,
+        ].join('\n')));
+    if (controls.length) container.addActionRowComponents(...controls);
+    return container.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(
+        new MediaGalleryItemBuilder().setURL(bannerUrl('underbanner')),
+    ));
 }
 
 function infractionControls(
@@ -265,8 +286,9 @@ async function updateInfractionDetailMessage(thread: ThreadChannel, record: Infr
     const configured = await getPanelConfig(thread.guild, 'infraction');
     const customBannerUrl = await getPanelBannerUrl(thread.guild, configured);
     await message.edit({
-        embeds: [buildInfractionEmbed(record, configured, customBannerUrl), underbannerEmbed()],
-        components: infractionControls(record.status, record.threadId, thread.url),
+        embeds: [],
+        components: [buildInfractionPanel(record, configured, customBannerUrl, infractionControls(record.status, record.threadId, thread.url))],
+        flags: MessageFlags.IsComponentsV2,
     });
 }
 
@@ -410,14 +432,25 @@ function promotionCommand() {
                     effective_date: effectiveDate,
                     issuer: `<@${interaction.user.id}>`,
                 };
-                const embed = brandedEmbed(applyTemplate(configured.title, values))
-                    .setImage(customBannerUrl || bannerUrl('promotion'))
-                    .setDescription(applyTemplate(configured.description, values));
-
                 await destination.send({
-                    content: `🎉 Congratulations <@${member.id}>! You have been promoted to <@&${newRole.id}>.`,
-                    embeds: [embed, underbannerEmbed()],
+                    components: [new ContainerBuilder()
+                        .setAccentColor(BRAND_COLOR)
+                        .addMediaGalleryComponents(new MediaGalleryBuilder().addItems(
+                            new MediaGalleryItemBuilder().setURL(customBannerUrl || bannerUrl('promotion')),
+                        ))
+                        .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+                            `# ${applyTemplate(configured.title, values)}`,
+                            applyTemplate(configured.description, values),
+                            '',
+                            `🎉 Congratulations <@${member.id}>! You have been promoted to <@&${newRole.id}>.`,
+                            '',
+                            `-# ${BRAND_FOOTER}`,
+                        ].join('\n')))
+                        .addMediaGalleryComponents(new MediaGalleryBuilder().addItems(
+                            new MediaGalleryItemBuilder().setURL(bannerUrl('underbanner')),
+                        ))],
                     files: [logoAttachment(), ...bannerFiles('promotion')],
+                    flags: MessageFlags.IsComponentsV2,
                     allowedMentions: { parse: [], users: [member.id] },
                 });
                 await interaction.editReply(`The promotion for ${member.username} has been published successfully.`);
@@ -521,9 +554,9 @@ function infractionCommand() {
                 let detailMessage;
                 try {
                     detailMessage = await fetchedParent.send({
-                        content: `<@${member.id}>, a staff infraction has been issued. Please review the record below.`,
-                        embeds: [buildInfractionEmbed(record, configured, customBannerUrl), underbannerEmbed()],
+                        components: [buildInfractionPanel(record, configured, customBannerUrl)],
                         files: [logoAttachment(), ...bannerFiles('infraction')],
+                        flags: MessageFlags.IsComponentsV2,
                         allowedMentions: { parse: [], users: [member.id] },
                     });
                 } catch (error) { throw error; }
@@ -539,8 +572,9 @@ function infractionCommand() {
                     });
                     record.threadId = thread.id;
                     await detailMessage.edit({
-                        embeds: [buildInfractionEmbed(record, configured, customBannerUrl), underbannerEmbed()],
-                        components: infractionControls(record.status, thread.id, thread.url),
+                        embeds: [],
+                        components: [buildInfractionPanel(record, configured, customBannerUrl, infractionControls(record.status, thread.id, thread.url))],
+                        flags: MessageFlags.IsComponentsV2,
                     });
                 } catch (error) {
                     await detailMessage.delete().catch(() => null);
@@ -554,9 +588,12 @@ function infractionCommand() {
 
                 let memberNotified = !notifyMember;
                 if (notifyMember) {
-                    const notificationEmbed = buildInfractionEmbed(record, configured, customBannerUrl);
                     memberNotified = await member
-                        .send({ embeds: [notificationEmbed], files: [logoAttachment(), ...bannerFiles('infraction')] })
+                        .send({
+                            components: [buildInfractionPanel(record, configured, customBannerUrl)],
+                            files: [logoAttachment(), ...bannerFiles('infraction')],
+                            flags: MessageFlags.IsComponentsV2,
+                        })
                         .then(() => true)
                         .catch(() => false);
                     addHistory(

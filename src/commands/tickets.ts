@@ -7,14 +7,19 @@ import {
     ChannelType,
     ChatInputCommandInteraction,
     Client,
+    ContainerBuilder,
     EmbedBuilder,
     GuildMember,
     Message,
+    MediaGalleryBuilder,
+    MediaGalleryItemBuilder,
+    MessageFlags,
     ModalBuilder,
     ModalSubmitInteraction,
     PermissionFlagsBits,
     SlashCommandBuilder,
     StringSelectMenuBuilder,
+    TextDisplayBuilder,
     TextChannel,
     TextInputBuilder,
     TextInputStyle,
@@ -310,7 +315,7 @@ function discordInfoValue(ticket: TicketRecord): string {
     ].join('\n');
 }
 
-export function buildOpeningEmbeds(
+export function buildOpeningPanel(
     ticket: TicketRecord,
     fallbackAvatarUrl: string,
     configured: PanelConfig = {
@@ -318,7 +323,7 @@ export function buildOpeningEmbeds(
         description: '## Thanks {opener} for contacting support!\n\nThank you for opening a ticket. Staff will assist you shortly.',
     },
     customBannerUrl?: string | null,
-): EmbedBuilder[] {
+): ContainerBuilder {
     const category = ticketCategories[ticket.category];
     const roblox = (ticket.robloxInfo || {}) as Partial<BloxlinkLookupResult>;
     const answers = answerLabels(ticket);
@@ -331,16 +336,22 @@ export function buildOpeningEmbeds(
         inquiry,
         category: category.label,
     };
-    const first = new EmbedBuilder()
-        .setColor(BRAND.color)
-        .setAuthor({ name: BRAND.name, iconURL: BRAND.logoUrl })
-        .setTitle(applyTemplate(configured.title, values))
-        .setDescription(applyTemplate(configured.description, values))
-        .setThumbnail(roblox.status === 'verified' && roblox.robloxAvatarUrl ? roblox.robloxAvatarUrl : fallbackAvatarUrl)
-        .setImage(customBannerUrl || bannerUrl('support'))
-        .setFooter({ text: BRAND.footer })
-        .setTimestamp(ticket.createdAt);
-    return [first];
+    void roblox;
+    void fallbackAvatarUrl;
+    return new ContainerBuilder()
+        .setAccentColor(BRAND.color)
+        .addMediaGalleryComponents(new MediaGalleryBuilder().addItems(
+            new MediaGalleryItemBuilder().setURL(customBannerUrl || bannerUrl('support')),
+        ))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+            `# ${applyTemplate(configured.title, values)}`,
+            applyTemplate(configured.description, values),
+            '',
+            `-# ${BRAND.footer} • <t:${Math.floor(ticket.createdAt.getTime() / 1_000)}:f>`,
+        ].join('\n')))
+        .addMediaGalleryComponents(new MediaGalleryBuilder().addItems(
+            new MediaGalleryItemBuilder().setURL(bannerUrl('underbanner')),
+        ));
 }
 
 function ticketControlRows(ticket: TicketRecord, disabled = false): ActionRowBuilder<ButtonBuilder>[] {
@@ -574,17 +585,14 @@ export async function createTicketFromModal(interaction: ModalSubmitInteraction,
 
         const ticketConfig = await getPanelConfig(interaction.guild, 'ticket');
         const ticketBannerUrl = await getPanelBannerUrl(interaction.guild, ticketConfig);
-        const openingEmbeds = buildOpeningEmbeds(active, interaction.user.displayAvatarURL({ size: 256 }), ticketConfig, ticketBannerUrl);
+        const openingPanel = buildOpeningPanel(active, interaction.user.displayAvatarURL({ size: 256 }), ticketConfig, ticketBannerUrl);
         const openingMessage = await channel.send({
-            content: supportRole ? `<@${interaction.user.id}> <@&${supportRole.id}>` : `<@${interaction.user.id}>`,
-            embeds: [openingEmbeds[0]],
+            components: [openingPanel],
             files: [createLogoAttachment(), ...bannerFiles('support')],
+            flags: MessageFlags.IsComponentsV2,
             allowedMentions: { users: [interaction.user.id], roles: supportRole ? [supportRole.id] : [] },
         });
         await setOpeningMessage(channel.id, openingMessage.id);
-        for (const overflowEmbed of openingEmbeds.slice(1)) {
-            await channel.send({ embeds: [overflowEmbed] });
-        }
         await channel.send({
             content: '👋 Hello! I’m the automated LARP support assistant. I can help collect information before staff assists you.\n\nPlease explain your question or issue. If I am unsure, I will ask you to wait for a staff member.',
             allowedMentions: { parse: [] },
