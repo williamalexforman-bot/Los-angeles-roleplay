@@ -6,7 +6,7 @@ let available = false;
 export async function connectDatabase(): Promise<boolean> {
     const uri = process.env.MONGODB_URI;
     if (!uri) {
-        logger.warn('MONGODB_URI is not configured; persistence will use the in-memory fallback.');
+        logger.info('MongoDB is not configured; the bot will use its built-in runtime storage.');
         return false;
     }
     if (!/^mongodb(?:\+srv)?:\/\//i.test(uri.trim())) {

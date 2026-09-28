@@ -3,11 +3,157 @@ import {
     ButtonBuilder,
     ButtonStyle,
     ChatInputCommandInteraction,
+    ContainerBuilder,
     EmbedBuilder,
+    MediaGalleryBuilder,
+    MediaGalleryItemBuilder,
+    MessageFlags,
+    SeparatorBuilder,
     SlashCommandBuilder,
+    StringSelectMenuBuilder,
+    StringSelectMenuInteraction,
+    TextDisplayBuilder,
 } from 'discord.js';
 import { BRAND, CHANNEL_IDS } from '../config/constants';
-import { bannerFiles, bannerUrl, underbannerEmbed } from '../utils/bannerAssets';
+import { bannerAttachment, bannerFiles, bannerUrl, underbannerEmbed } from '../utils/bannerAssets';
+import { fetchErlcServer } from '../services/erlcService';
+
+const QUICK_JOIN_URL = 'https://www.roblox.com/games/start?launchData=%7B%22psCode%22%3A%22califorp%22%7D&placeId=2534724415';
+const REGULATIONS_MENU_ID = 'regulations:menu';
+
+const DISCORD_RULES = `# Discord Rules
+
+1. Swearing is permitted, but you may not direct it at another person. Keep swearing to a minimum, and **no slurs are allowed**.
+
+2) Treat all staff members and community members with respect. We strive to maintain a welcoming and respectful community.
+
+3. Self-promotion, advertising, and spam are not permitted and will result in punishment.
+
+4) Use the appropriate channels for their intended purpose (e.g. use the **#commands** channel for bot commands).
+
+5. Follow Discord's Terms of Service at all times. Failure to do so will result in severe punishment.
+
+6) Staff reserve the right to enforce unlisted rules if they believe it is in the best interest of the server. If you disagree with a staff member's decision, you may report it through the appropriate channels.`;
+
+const GAME_RULES = `# In-Game Rules
+
+1. If you vote in favor of a session, you are expected to join. Failure to do so may result in severe punishment.
+
+2) Violating roleplay rules such as **RDM, VDM, NLR**, or similar offenses will result in punishment. If you are unsure what these terms mean, please open a support ticket.
+
+3. Disrespecting staff while they are on duty is not permitted and may result in punishment.
+
+4) Proper roleplay is expected at all times. Do your best to create an enjoyable and realistic experience for everyone.
+
+5. Follow Roblox's Terms of Service at all times. Failure to do so will result in severe punishment.
+
+6) Staff may punish unlisted rule violations if they are deemed severe enough. If you disagree with a staff member's decision, you may report it through the appropriate channels.`;
+
+function gallery(url: string, description: string): MediaGalleryBuilder {
+    return new MediaGalleryBuilder().addItems(
+        new MediaGalleryItemBuilder().setURL(url).setDescription(description),
+    );
+}
+
+function loadingSessionPanel(): ContainerBuilder {
+    return new ContainerBuilder()
+        .setAccentColor(BRAND.color)
+        .addTextDisplayComponents(
+            new TextDisplayBuilder().setContent('# 🌐 Session Information\n> Loading the latest session information…'),
+        );
+}
+
+function sessionPanel(
+    status: { online: boolean; staff: number; players: number; maximum: number; queue: number; updatedAt: number },
+): ContainerBuilder {
+    const information = new TextDisplayBuilder().setContent([
+        '# 🌐 Session Information',
+        '> Ready to join one of our amazing sessions? Use the panel below to view live session information, including the player count, staff online, and queue status.',
+        '',
+        `**Last Updated:** <t:${Math.floor(status.updatedAt / 1_000)}:R>`,
+    ].join('\n'));
+
+    const counters = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+            .setCustomId('session:staff-count')
+            .setLabel(`Staff Online: ${status.staff}`)
+            .setEmoji('👥')
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(true),
+        new ButtonBuilder()
+            .setCustomId('session:player-count')
+            .setLabel(`Players In-Game: ${status.players}/${status.maximum}`)
+            .setEmoji('👤')
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(true),
+        new ButtonBuilder()
+            .setCustomId('session:queue-count')
+            .setLabel(`In Queue: ${status.queue}`)
+            .setEmoji('🕒')
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(true),
+    );
+
+    const controls = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+            .setCustomId('session:status')
+            .setLabel(status.online ? 'Session Online' : 'Session Offline')
+            .setEmoji(status.online ? '✅' : '📡')
+            .setStyle(status.online ? ButtonStyle.Success : ButtonStyle.Danger)
+            .setDisabled(true),
+        new ButtonBuilder()
+            .setLabel('Quick Join')
+            .setEmoji('🎮')
+            .setStyle(ButtonStyle.Link)
+            .setURL(QUICK_JOIN_URL),
+    );
+
+    return new ContainerBuilder()
+        .setAccentColor(BRAND.color)
+        .addMediaGalleryComponents(gallery(bannerUrl('dashboard'), 'California State Roleplay dashboard banner'))
+        .addTextDisplayComponents(information)
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .addActionRowComponents(counters, controls)
+        .addMediaGalleryComponents(gallery(bannerUrl('underbanner'), 'California State Roleplay'));
+}
+
+function regulationsPanel(): ContainerBuilder {
+    const menu = new StringSelectMenuBuilder()
+        .setCustomId(REGULATIONS_MENU_ID)
+        .setPlaceholder('Select a regulation category')
+        .addOptions(
+            {
+                label: 'Discord Regulations',
+                description: 'View the community and Discord rules',
+                value: 'discord',
+                emoji: '💬',
+            },
+            {
+                label: 'Game Regulations',
+                description: 'View the in-game and roleplay rules',
+                value: 'game',
+                emoji: '🎮',
+            },
+        );
+
+    return new ContainerBuilder()
+        .setAccentColor(BRAND.color)
+        .addMediaGalleryComponents(gallery(bannerUrl('regulations'), 'California State Roleplay regulations banner'))
+        .addTextDisplayComponents(
+            new TextDisplayBuilder().setContent([
+                '# 📜 Community Regulations',
+                '> Select a category below to review the rules. Your selected rules will be shown privately so only you can see them.',
+            ].join('\n')),
+        )
+        .addActionRowComponents(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu))
+        .addMediaGalleryComponents(gallery(bannerUrl('underbanner'), 'California State Roleplay'));
+}
+
+function privateRulesPanel(content: string): ContainerBuilder {
+    return new ContainerBuilder()
+        .setAccentColor(BRAND.color)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(content));
+}
 
 function linkButton(label: string, guildId: string, channelId: string): ButtonBuilder | null {
     if (!channelId) return null;
@@ -57,25 +203,63 @@ const regulationsCommand = {
         .setName('regulations')
         .setDescription('Post the community regulations'),
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
-        const embed = new EmbedBuilder()
-            .setColor(BRAND.color)
-            .setTitle('Community Regulations')
-            .setDescription([
-                '**Respect** — Treat every community member and staff member respectfully.',
-                '**Appropriate Content** — Keep all messages, media, and profiles suitable for a 13+ audience.',
-                '**No Spam or Advertising** — Do not flood channels or advertise without permission.',
-                '**Roleplay Conduct** — Follow server rules, ER:LC guidelines, and staff directions during sessions.',
-                '**Common Sense** — Not every situation can be listed. Use good judgment and do not disrupt the community.',
-            ].join('\n\n'))
-            .setImage(bannerUrl('regulations'))
-            .setFooter({ text: BRAND.footer })
-            .setTimestamp();
         await interaction.reply({
-            embeds: [embed, underbannerEmbed()],
-            files: bannerFiles('regulations'),
+            components: [regulationsPanel()],
+            files: [bannerAttachment('regulations'), bannerAttachment('underbanner')],
+            flags: MessageFlags.IsComponentsV2,
             allowedMentions: { parse: [] },
         });
     },
 };
 
-export const panelCommands = [dashboardCommand, regulationsCommand];
+const sessionPanelCommand = {
+    data: new SlashCommandBuilder()
+        .setName('session-panel')
+        .setDescription('Post the live roleplay session panel'),
+    async execute(interaction: ChatInputCommandInteraction): Promise<void> {
+        await interaction.reply({
+            components: [loadingSessionPanel()],
+            flags: MessageFlags.IsComponentsV2,
+            allowedMentions: { parse: [] },
+        });
+
+        const snapshot = await fetchErlcServer({ timeoutMs: 10_000 });
+        const session = snapshot.ok
+            ? {
+                online: true,
+                staff: snapshot.data.players.filter(player => player.permission.toLowerCase() !== 'normal').length,
+                players: snapshot.data.currentPlayers,
+                maximum: snapshot.data.maxPlayers,
+                queue: Math.max(0, snapshot.data.currentPlayers - snapshot.data.maxPlayers),
+                updatedAt: snapshot.data.fetchedAt,
+            }
+            : {
+                online: false,
+                staff: 0,
+                players: 0,
+                maximum: 40,
+                queue: 0,
+                updatedAt: Date.now(),
+            };
+
+        await interaction.editReply({
+            components: [sessionPanel(session)],
+            files: [bannerAttachment('dashboard'), bannerAttachment('underbanner')],
+            flags: MessageFlags.IsComponentsV2,
+            allowedMentions: { parse: [] },
+        });
+    },
+};
+
+export async function handlePanelSelectMenu(interaction: StringSelectMenuInteraction): Promise<boolean> {
+    if (interaction.customId !== REGULATIONS_MENU_ID) return false;
+    const content = interaction.values[0] === 'game' ? GAME_RULES : DISCORD_RULES;
+    await interaction.reply({
+        components: [privateRulesPanel(content)],
+        flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
+        allowedMentions: { parse: [] },
+    });
+    return true;
+}
+
+export const panelCommands = [dashboardCommand, regulationsCommand, sessionPanelCommand];

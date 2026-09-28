@@ -730,15 +730,15 @@ export class ErlcMonitor {
 
         return {
             commandDetected: async (_event, embed) => send(
-                this.options.commandLogChannelId ?? ERLC_COMMAND_LOG_CHANNEL_ID,
+                this.options.commandLogChannelId ?? CHANNEL_IDS.erlcCommandLog,
                 embed,
             ),
             teamChanged: async (_event, embed) => send(
-                this.options.teamChangeLogChannelId ?? ERLC_TEAM_CHANGE_LOG_CHANNEL_ID,
+                this.options.teamChangeLogChannelId ?? CHANNEL_IDS.erlcTeamChangeLog,
                 embed,
             ),
             punishmentDetected: async (_event, embed) => send(
-                this.options.punishmentLogChannelId ?? ERLC_PUNISHMENT_LOG_CHANNEL_ID,
+                this.options.punishmentLogChannelId ?? CHANNEL_IDS.erlcPunishmentLog,
                 embed,
             ),
         };

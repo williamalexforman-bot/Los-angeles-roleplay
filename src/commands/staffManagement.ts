@@ -21,6 +21,7 @@ import {
 } from 'discord.js';
 import { markSlashCommandFailed } from '../utils/commandAudit';
 import { bannerFiles, bannerUrl, underbannerEmbed } from '../utils/bannerAssets';
+import { CHANNEL_IDS } from '../config/constants';
 
 const BRAND_COLOR = 0x3b82f6;
 const PASS_COLOR = 0x22c55e;
@@ -28,10 +29,6 @@ const FAIL_COLOR = 0xef4444;
 const BRAND_FOOTER = 'Los Angeles Roleplay | Realism at its Finest';
 const LOGO_NAME = 'larp-logo.png';
 const LOGO_PATH = resolve(__dirname, '..', '..', 'assets', LOGO_NAME);
-
-const TRAINING_RESULTS_CHANNEL_ID = process.env.TRAINING_RESULTS_CHANNEL_ID || '';
-const PROMOTIONS_CHANNEL_ID = process.env.PROMOTIONS_CHANNEL_ID || '';
-const INFRACTION_PARENT_CHANNEL_ID = process.env.INFRACTION_PARENT_CHANNEL_ID || '';
 
 const INFRACTION_ACTIONS = [
     'Verbal Warning',
@@ -325,7 +322,7 @@ function trainingResultCommand() {
                 const professionalism = interaction.options.getInteger('professionalism-score', true);
                 const result = interaction.options.getString('result', true) as 'Pass' | 'Fail';
                 const notes = interaction.options.getString('notes') || 'No additional notes supplied.';
-                const destination = await getSendableChannel(interaction, TRAINING_RESULTS_CHANNEL_ID);
+                const destination = await getSendableChannel(interaction, CHANNEL_IDS.trainingResults);
 
                 if (!destination) {
                     await interaction.editReply('The training-results channel is unavailable. Please contact an administrator.');
@@ -390,7 +387,7 @@ function promotionCommand() {
                 const reason = interaction.options.getString('reason', true);
                 const approvedBy = interaction.options.getUser('approved-by', true);
                 const effectiveDate = interaction.options.getString('effective-date', true);
-                const destination = await getSendableChannel(interaction, PROMOTIONS_CHANNEL_ID);
+                const destination = await getSendableChannel(interaction, CHANNEL_IDS.promotions);
 
                 if (!destination) {
                     await interaction.editReply('The promotions channel is unavailable. Please contact an administrator.');
@@ -472,7 +469,7 @@ function infractionCommand() {
                 const expiration = interaction.options.getString('expiration') || 'No expiration set.';
                 const caseNumber = await nextInfractionCaseNumber(interaction.guildId);
 
-                const fetchedParent = await interaction.client.channels.fetch(INFRACTION_PARENT_CHANNEL_ID).catch(() => null);
+                const fetchedParent = await interaction.client.channels.fetch(CHANNEL_IDS.infractionParent).catch(() => null);
                 if (!(fetchedParent instanceof TextChannel) || fetchedParent.type !== ChannelType.GuildText) {
                     await interaction.editReply('The configured infraction parent channel is unavailable or is not a standard text channel.');
                     return;

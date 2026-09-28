@@ -18,6 +18,7 @@ import {
     TextChannel,
     TextInputBuilder,
     TextInputStyle,
+    type OverwriteResolvable,
 } from 'discord.js';
 import { BRAND, CHANNEL_IDS, SUPPORT_ROLE_IDS, TICKET_CATEGORY_IDS, type TicketCategory } from '../config/constants';
 import { type TicketRecord } from '../database/models';
@@ -88,8 +89,8 @@ const ticketCategories: Record<TicketCategory, TicketCategoryDefinition> = {
         title: '🎫 General Support',
         emoji: '🎫',
         menuDescription: 'General questions and server information',
-        categoryId: TICKET_CATEGORY_IDS.general,
-        supportRoleId: SUPPORT_ROLE_IDS.general,
+        get categoryId() { return TICKET_CATEGORY_IDS.general; },
+        get supportRoleId() { return SUPPORT_ROLE_IDS.general; },
     },
     internal: {
         key: 'internal',
@@ -97,8 +98,8 @@ const ticketCategories: Record<TicketCategory, TicketCategoryDefinition> = {
         title: '📋 Internal Affairs Support',
         emoji: '📋',
         menuDescription: 'Staff reports, applications, and partnerships',
-        categoryId: TICKET_CATEGORY_IDS.internal,
-        supportRoleId: SUPPORT_ROLE_IDS.internal,
+        get categoryId() { return TICKET_CATEGORY_IDS.internal; },
+        get supportRoleId() { return SUPPORT_ROLE_IDS.internal; },
     },
     management: {
         key: 'management',
@@ -106,8 +107,8 @@ const ticketCategories: Record<TicketCategory, TicketCategoryDefinition> = {
         title: '🏛️ Management Support',
         emoji: '🏛️',
         menuDescription: 'Claims, advertisements, transfers, and staff matters',
-        categoryId: TICKET_CATEGORY_IDS.management,
-        supportRoleId: SUPPORT_ROLE_IDS.management,
+        get categoryId() { return TICKET_CATEGORY_IDS.management; },
+        get supportRoleId() { return SUPPORT_ROLE_IDS.management; },
     },
     highrank: {
         key: 'highrank',
@@ -115,8 +116,8 @@ const ticketCategories: Record<TicketCategory, TicketCategoryDefinition> = {
         title: '⭐ High-Rank Support',
         emoji: '⭐',
         menuDescription: 'Payments, marketplace concerns, and ownership questions',
-        categoryId: TICKET_CATEGORY_IDS.highrank,
-        supportRoleId: SUPPORT_ROLE_IDS.highrank,
+        get categoryId() { return TICKET_CATEGORY_IDS.highrank; },
+        get supportRoleId() { return SUPPORT_ROLE_IDS.highrank; },
     },
 };
 
@@ -385,15 +386,20 @@ export async function postTicketPanel(interaction: ChatInputCommandInteraction):
         return;
     }
 
-    const panelChannel = await guild.channels.fetch(CHANNEL_IDS.ticketPanel).catch(() => null);
+    const configuredPanel = CHANNEL_IDS.ticketPanel
+        ? await guild.channels.fetch(CHANNEL_IDS.ticketPanel).catch(() => null)
+        : null;
+    const panelChannel = configuredPanel?.isSendable()
+        ? configuredPanel
+        : interaction.channel?.isSendable() ? interaction.channel : null;
     if (!panelChannel?.isSendable()) {
-        await interaction.editReply('The configured ticket panel channel is unavailable or is not text-based.');
+        await interaction.editReply('I could not find a text channel where the ticket panel can be posted.');
         return;
     }
 
     const refreshedPanels = await refreshExistingTicketPanels(interaction.client);
     if (refreshedPanels > 0) {
-        await interaction.editReply(`Updated ${refreshedPanels} ticket panel${refreshedPanels === 1 ? '' : 's'} in <#${CHANNEL_IDS.ticketPanel}>.`);
+        await interaction.editReply(`Updated ${refreshedPanels} existing ticket panel${refreshedPanels === 1 ? '' : 's'}.`);
         return;
     }
 
@@ -402,7 +408,7 @@ export async function postTicketPanel(interaction: ChatInputCommandInteraction):
         components: [panelDropdown()],
         files: [createLogoAttachment(), ...bannerFiles('support')],
     });
-    await interaction.editReply(`The professional ticket panel was posted in <#${CHANNEL_IDS.ticketPanel}>.`);
+    await interaction.editReply(`The professional ticket panel was posted in <#${panelChannel.id}>.`);
 }
 
 export function ticketOpeningModal(category: TicketCategory): ModalBuilder {
@@ -530,26 +536,33 @@ export async function createTicketFromModal(interaction: ModalSubmitInteraction,
         if (!enrichedTicket) throw new Error('The reserved ticket could not be enriched with verification data.');
         reservedTicket = enrichedTicket;
 
-        const categoryChannel = await interaction.guild.channels.fetch(definition.categoryId).catch(() => null);
-        if (!categoryChannel || categoryChannel.type !== ChannelType.GuildCategory) {
-            throw new Error(`The ${definition.label} category is unavailable.`);
-        }
-        const supportRole = await interaction.guild.roles.fetch(definition.supportRoleId).catch(() => null);
-        if (!supportRole) throw new Error(`The configured ${definition.label} role is unavailable.`);
+        const categoryChannel = definition.categoryId
+            ? await interaction.guild.channels.fetch(definition.categoryId).catch(() => null)
+            : null;
+        const parentId = categoryChannel?.type === ChannelType.GuildCategory ? categoryChannel.id : undefined;
+        const supportRole = definition.supportRoleId
+            ? await interaction.guild.roles.fetch(definition.supportRoleId).catch(() => null)
+            : null;
         const botMember = interaction.guild.members.me || await interaction.guild.members.fetchMe();
         const channelName = `ticket-${reservedTicket.number}-${sanitizeChannelName(interaction.user.username)}`.slice(0, 100);
+        const permissionOverwrites: OverwriteResolvable[] = [
+            { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+            { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.AttachFiles, PermissionFlagsBits.EmbedLinks] },
+            { id: botMember.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ManageMessages, PermissionFlagsBits.AttachFiles, PermissionFlagsBits.EmbedLinks] },
+        ];
+        if (supportRole) {
+            permissionOverwrites.push({
+                id: supportRole.id,
+                allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.AttachFiles, PermissionFlagsBits.EmbedLinks, PermissionFlagsBits.ManageMessages],
+            });
+        }
         channel = await interaction.guild.channels.create({
             name: channelName,
             type: ChannelType.GuildText,
-            parent: definition.categoryId,
+            parent: parentId,
             topic: `LARP ticket #${reservedTicket.number} | ${definition.label} | Creator ${interaction.user.id}`,
             reason: `Ticket #${reservedTicket.number} opened by ${interaction.user.tag}`,
-            permissionOverwrites: [
-                { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
-                { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.AttachFiles, PermissionFlagsBits.EmbedLinks] },
-                { id: definition.supportRoleId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.AttachFiles, PermissionFlagsBits.EmbedLinks, PermissionFlagsBits.ManageMessages] },
-                { id: botMember.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ManageMessages, PermissionFlagsBits.AttachFiles, PermissionFlagsBits.EmbedLinks] },
-            ],
+            permissionOverwrites,
         });
 
         const active = await activateTicket(pendingId, channel.id);
@@ -564,9 +577,9 @@ export async function createTicketFromModal(interaction: ModalSubmitInteraction,
 
         const openingEmbeds = buildOpeningEmbeds(active, interaction.user.displayAvatarURL({ size: 256 }));
         const openingMessage = await channel.send({
-            content: `<@${interaction.user.id}> <@&${definition.supportRoleId}>`,
+            content: supportRole ? `<@${interaction.user.id}> <@&${supportRole.id}>` : `<@${interaction.user.id}>`,
             embeds: [openingEmbeds[0]],
-            allowedMentions: { users: [interaction.user.id], roles: [definition.supportRoleId] },
+            allowedMentions: { users: [interaction.user.id], roles: supportRole ? [supportRole.id] : [] },
         });
         await setOpeningMessage(channel.id, openingMessage.id);
         for (const overflowEmbed of openingEmbeds.slice(1)) {

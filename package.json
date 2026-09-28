@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "A professional Discord management bot for a Roblox roleplay community.",
   "main": "index.js",
+  "engines": {
+    "node": ">=22 <23"
+  },
   "scripts": {
     "start": "node index.js",
     "build": "tsc",

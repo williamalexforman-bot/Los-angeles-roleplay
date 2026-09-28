@@ -24,14 +24,12 @@ const BRAND_COLOR = BRAND.color;
 const BRAND_FOOTER = BRAND.footer;
 const LOGO_NAME = BRAND.logoName;
 
-const MOVIE_FEEDBACK_CHANNEL_ID = process.env.MOVIE_FEEDBACK_CHANNEL_ID || '';
-const STAFF_FEEDBACK_CHANNEL_ID = process.env.STAFF_FEEDBACK_CHANNEL_ID || '';
-const PRIVATE_AUDIT_CHANNEL_ID =
-    process.env.PRIVATE_AUDIT_LOG_CHANNEL_ID ||
-    process.env.AUDIT_LOG_CHANNEL_ID ||
-    process.env.DISCORD_COMMAND_LOG_CHANNEL_ID ||
-    '';
-const PARTNERSHIP_APPROVAL_CHANNEL_ID = process.env.PARTNERSHIP_APPROVAL_CHANNEL_ID || '';
+function privateAuditChannelId(): string {
+    return process.env.PRIVATE_AUDIT_LOG_CHANNEL_ID
+        || process.env.AUDIT_LOG_CHANNEL_ID
+        || CHANNEL_IDS.discordCommandLog
+        || '';
+}
 
 function brandedEmbed(title?: string, description?: string, color: ColorResolvable = BRAND_COLOR, includeLogo = true): EmbedBuilder {
     const embed = new EmbedBuilder()
@@ -67,7 +65,7 @@ async function sendPrivateAudit(
     anonymous: boolean,
     submissionFields: Array<{ name: string; value: string; inline?: boolean }>,
 ): Promise<boolean> {
-    const channel = await getSendableChannel(interaction, PRIVATE_AUDIT_CHANNEL_ID);
+    const channel = await getSendableChannel(interaction, privateAuditChannelId());
     if (!channel) return false;
 
     const auditEmbed = brandedEmbed(`Private Audit | ${submissionType}`).addFields(
@@ -135,7 +133,7 @@ const movieFeedbackCommand = {
             const where = interaction.options.getString('where', true);
             const rating = interaction.options.getInteger('rating', true);
             const anonymous = interaction.options.getBoolean('anonymous') ?? false;
-            const destination = await getSendableChannel(interaction, MOVIE_FEEDBACK_CHANNEL_ID);
+            const destination = await getSendableChannel(interaction, CHANNEL_IDS.movieFeedback);
 
             if (!destination) {
                 await interaction.editReply('The movie feedback channel is unavailable. Please contact an administrator.');
@@ -161,7 +159,7 @@ const movieFeedbackCommand = {
             await sendPrivateAudit(
                 interaction,
                 'Movie Feedback',
-                MOVIE_FEEDBACK_CHANNEL_ID,
+                CHANNEL_IDS.movieFeedback,
                 anonymous,
                 [
                     { name: 'Movie', value: movie },
@@ -226,7 +224,7 @@ const staffFeedbackCommand = {
             const feedback = interaction.options.getString('feedback', true);
             const evidence = interaction.options.getString('evidence') || 'No evidence supplied.';
             const anonymous = interaction.options.getBoolean('anonymous') ?? false;
-            const destination = await getSendableChannel(interaction, STAFF_FEEDBACK_CHANNEL_ID);
+            const destination = await getSendableChannel(interaction, CHANNEL_IDS.staffFeedback);
 
             if (!destination) {
                 await interaction.editReply('The staff feedback channel is unavailable. Please contact an administrator.');
@@ -252,7 +250,7 @@ const staffFeedbackCommand = {
             const auditWritten = await sendPrivateAudit(
                 interaction,
                 'Staff Feedback',
-                STAFF_FEEDBACK_CHANNEL_ID,
+                CHANNEL_IDS.staffFeedback,
                 anonymous,
                 [
                     { name: 'Staff Member', value: `<@${staffMember.id}>`, inline: true },
@@ -495,7 +493,7 @@ export async function handleCommunityButton(interaction: ButtonInteraction): Pro
         currentEmbed.setColor(0x22c55e).setFooter({ text: `✅ Approved by ${interaction.user.tag} • ${BRAND_FOOTER}` });
         await sourceMessage.edit({ embeds: [currentEmbed], components: partnershipReviewComponents(submitterId, true) });
 
-        const approvalChannel = await getSendableChannel(interaction, PARTNERSHIP_APPROVAL_CHANNEL_ID);
+        const approvalChannel = await getSendableChannel(interaction, process.env.PARTNERSHIP_APPROVAL_CHANNEL_ID || '');
         if (approvalChannel) {
             // Send the full partnership embed to the approval channel
             const approvalEmbed = partnershipEmbed('✅ Partnership Approved')

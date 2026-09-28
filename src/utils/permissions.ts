@@ -1,5 +1,4 @@
 import { GuildMember, PermissionsString, PermissionFlagsBits } from 'discord.js';
-import config from '../config/env';
 
 const permissionHierarchy: { [key: string]: number } = {
     'Founder': 10,
@@ -28,19 +27,23 @@ const permissionHierarchy: { [key: string]: number } = {
     'Trial Moderator': 4,
 };
 
-const configuredRoleIds: { [key: string]: string | undefined } = {
-    'High Rank': config.HIGH_RANK_ROLE_ID,
-    'General Support': config.GENERAL_SUPPORT_ROLE_ID,
-    'Management': config.MANAGEMENT_ROLE_ID,
-    'Internal Affairs': config.INTERNAL_AFFAIRS_ROLE_ID,
-    'Support': config.SUPPORT_ROLE_ID,
-    'Admin': config.ADMIN_ROLE_ID,
-};
+function configuredRoleId(requiredRole: string): string | undefined {
+    const keys: Record<string, string> = {
+        'High Rank': 'HIGH_RANK_ROLE_ID',
+        'General Support': 'GENERAL_SUPPORT_ROLE_ID',
+        'Management': 'MANAGEMENT_ROLE_ID',
+        'Internal Affairs': 'INTERNAL_AFFAIRS_ROLE_ID',
+        'Support': 'SUPPORT_ROLE_ID',
+        'Admin': 'ADMIN_ROLE_ID',
+    };
+    const key = keys[requiredRole];
+    return key ? process.env[key]?.trim() : undefined;
+}
 
 export function hasPermission(member: GuildMember, requiredRole: string): boolean {
     if (member.permissions.has(PermissionFlagsBits.Administrator)) return true;
-    const configuredRoleId = configuredRoleIds[requiredRole];
-    if (configuredRoleId && member.roles.cache.some(role => role.id === configuredRoleId)) {
+    const configuredId = configuredRoleId(requiredRole);
+    if (configuredId && member.roles.cache.some(role => role.id === configuredId)) {
         return true;
     }
 

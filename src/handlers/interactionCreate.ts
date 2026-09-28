@@ -17,6 +17,7 @@ import { handleCommunityButton, handleCommunityModal } from '../commands/communi
 import { logSlashCommand, takeSlashCommandFailure } from '../utils/commandAudit';
 import { logger } from '../utils/logger';
 import { TICKET_CATEGORY_IDS } from '../config/constants';
+import { handlePanelSelectMenu } from '../commands/panels';
 
 const TICKET_COMMAND_NAMES = new Set([
     'ticket-panel', 'ticket-message', 'ticket', 'ticket-add', 'ticket-close',
@@ -162,12 +163,16 @@ export const interactionCreate = async (interaction: Interaction): Promise<void>
             return;
         }
 
-        // Compatibility for panels posted by older versions of this bot.
-        if (interaction.isStringSelectMenu() && interaction.customId === 'ticket_select') {
-            const modal = ticketOpeningModalForValue(interaction.values[0]);
-            if (modal) await interaction.showModal(modal);
-            else await interaction.reply({ content: 'That ticket category is unavailable.', ephemeral: true });
-            return;
+        if (interaction.isStringSelectMenu()) {
+            if (await handlePanelSelectMenu(interaction)) return;
+
+            // Compatibility for panels posted by older versions of this bot.
+            if (interaction.customId === 'ticket_select') {
+                const modal = ticketOpeningModalForValue(interaction.values[0]);
+                if (modal) await interaction.showModal(modal);
+                else await interaction.reply({ content: 'That ticket category is unavailable.', ephemeral: true });
+                return;
+            }
         }
 
         if (interaction.isChatInputCommand()) await handleChatCommand(interaction);

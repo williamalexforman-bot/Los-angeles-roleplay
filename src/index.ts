@@ -40,7 +40,8 @@ process.on('uncaughtException', (error: Error) => {
 // Keep-alive timer to prevent event loop from emptying if all timers/promises resolve
 setInterval(() => {}, 60_000).unref();
 
-const enablePrivileged = (process.env.ENABLE_PRIVILEGED_INTENTS || 'false').toLowerCase() === 'true';
+const enablePrivileged = (process.env.ENABLE_PRIVILEGED_INTENTS || 'true').toLowerCase() !== 'false';
+let activePrivilegedIntents = enablePrivileged;
 let erlcMonitor: ErlcMonitor | null = null;
 let webhookServer: Server | null = null;
 const rapidJoinStates = new Map<string, { joins: number[]; lastAlertAt: number }>();
@@ -50,7 +51,7 @@ function createConfiguredClient(privilegedIntents: boolean): Client {
     if (privilegedIntents) {
         intents.push(GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent);
     } else {
-        logger.warn('Running without privileged intents; message moderation, AI ticket replies, and member events are disabled until enabled in the Discord Developer Portal.');
+            logger.info('Running in slash-command-only mode; member events and message moderation are disabled.');
     }
     const bot = new Client({ intents });
     bot.on('interactionCreate', interactionCreate);
@@ -59,21 +60,21 @@ function createConfiguredClient(privilegedIntents: boolean): Client {
     bot.once(Events.ClientReady, async () => {
         await onReady(bot);
         if (!getBloxlinkApiKey()) {
-            logger.warn('BLOXLINK_API_KEY is missing or still a placeholder. Set it in the runtime environment (the project .env file for local hosting), then restart the bot.');
+            logger.info('Bloxlink integration is disabled because BLOXLINK_API_KEY is not configured.');
         }
         if (!getOpenAiApiKey()) {
-            logger.warn('OPENAI_API_KEY is missing or still a placeholder. Set it in the runtime environment (the project .env file for local hosting), then restart the bot.');
+            logger.info('The optional AI ticket assistant is disabled because OPENAI_API_KEY is not configured.');
         } else {
             logger.info(`Automated ticket assistant configured with model ${getOpenAiModel()}.`);
         }
         if (!process.env.BOT_PERMISSIONS_ROLE_ID) {
-            logger.warn('BOT_PERMISSIONS_ROLE_ID is not configured; /ticket-panel remains administrator-only.');
+            logger.info('No bot-permissions role was found; administrative setup commands remain administrator-only.');
         }
         if (!process.env.EMERGENCY_STAFF_ROLE_ID) {
-            logger.warn('EMERGENCY_STAFF_ROLE_ID is not configured; High-confidence raid alerts will log without a role ping.');
+            logger.info('No emergency staff role was found; raid alerts will be logged without a role ping.');
         }
         if (!process.env.ERLC_SERVER_KEY) {
-            logger.warn('ERLC_SERVER_KEY is not configured; ER:LC monitoring is disabled.');
+            logger.info('ER:LC monitoring is disabled because ERLC_SERVER_KEY is not configured; Quick Join still works.');
             return;
         }
         // OOM fix — set DISABLE_ERLC_MONITOR=true on bot-hosting.net to save ~50MB RAM
@@ -245,6 +246,7 @@ async function bootstrap(): Promise<void> {
         }
         logger.warn('Discord rejected privileged intents. Retrying with slash-command-only intents so the bot can remain online.');
         client.destroy();
+        activePrivilegedIntents = false;
         client = createConfiguredClient(false);
         try {
             await client.login(token);
@@ -259,7 +261,7 @@ async function bootstrap(): Promise<void> {
 
     // Log raid-threat monitoring configuration status so you can confirm it at a glance
     logger.info(
-        `[Raid Threat Monitor] ${enablePrivileged ? 'Active (ENABLE_PRIVILEGED_INTENTS=true)' : 'DISABLED (ENABLE_PRIVILEGED_INTENTS not set)'}` +
+        `[Raid Threat Monitor] ${activePrivilegedIntents ? 'Active' : 'Disabled (privileged intents unavailable)'}` +
         ` | EMERGENCY_STAFF_ROLE_ID: ${process.env.EMERGENCY_STAFF_ROLE_ID || 'NOT SET (High confidence alerts will not ping)'}` +
         ` | RAID_THREAT_LOG_CHANNEL_ID: ${process.env.RAID_THREAT_LOG_CHANNEL_ID || CHANNEL_IDS.raidThreatLog}` +
         ` | Rapid join threshold: 5 joins in 10 seconds, 60s cooldown`

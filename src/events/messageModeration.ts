@@ -7,8 +7,6 @@ import prohibitedWords from '../config/prohibitedWords';
 import { BRAND, CHANNEL_IDS } from '../config/constants';
 import { createLogoAttachment } from '../utils/embeds';
 
-const PROFANITY_LOG_CHANNEL_ID = CHANNEL_IDS.profanityLog;
-const RAID_THREAT_LOG_CHANNEL_ID = CHANNEL_IDS.raidThreatLog;
 const EMBED_COLOR = 0x3b82f6;
 const EMBED_FOOTER = 'Los Angeles Roleplay | Realism at its Finest';
 const DEDUPE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -263,7 +261,7 @@ export async function handleMessageModeration(message: Message): Promise<void> {
 
     const detectedWords = detectProhibitedWords(message.content);
     if (detectedWords.length > 0 && reserveMessage(profanityLogDedupe, message.id)) {
-        const sent = await sendToLogChannel(message, PROFANITY_LOG_CHANNEL_ID, {
+        const sent = await sendToLogChannel(message, CHANNEL_IDS.profanityLog, {
             embeds: [buildProfanityEmbed(message, detectedWords)],
             files: [createLogoAttachment()],
             allowedMentions: { parse: [] },
@@ -278,7 +276,7 @@ export async function handleMessageModeration(message: Message): Promise<void> {
         const shouldPingEmergencyStaff = raidThreat.confidence === 'High'
             && Boolean(emergencyRoleId?.match(/^\d{17,20}$/u));
 
-        const sent = await sendToLogChannel(message, RAID_THREAT_LOG_CHANNEL_ID, {
+        const sent = await sendToLogChannel(message, CHANNEL_IDS.raidThreatLog, {
             content: shouldPingEmergencyStaff ? `<@&${emergencyRoleId}>` : undefined,
             embeds: [buildRaidThreatEmbed(message, raidThreat)],
             files: [createLogoAttachment()],

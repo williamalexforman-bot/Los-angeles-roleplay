@@ -1,39 +1,60 @@
-import { Client, REST, Routes } from 'discord.js';
+import { Client, type ApplicationCommandDataResolvable } from 'discord.js';
 import { commandDefinitions } from '../commands/registry';
 import { loadProhibitedWordOverrides } from '../commands/prohibitedWords';
 import { logger } from '../utils/logger';
-import { getDiscordBotToken } from '../config/env';
 import { refreshExistingTicketPanels } from '../commands/tickets';
+import { autoConfigureGuild } from '../config/autoConfig';
 
 export const onReady = async (client: Client): Promise<void> => {
     logger.info(`Logged in as ${client.user?.tag}.`);
-    // Prefer the token that actually authenticated this client. The environment
-    // resolver is retained for mocks and older discord.js-compatible clients.
-    const token = client.token || getDiscordBotToken();
-    if (!token || !client.application) {
-        logger.error('Bot token or application information is missing.');
+    if (!client.application) {
+        logger.error('Discord application information is unavailable.');
         return;
     }
 
+    const configuredGuildId = process.env.GUILD_ID?.trim();
+    const configuredGuild = configuredGuildId ? client.guilds.cache.get(configuredGuildId) : undefined;
+    const guilds = configuredGuild ? [configuredGuild] : [...client.guilds.cache.values()];
+    if (configuredGuildId && !configuredGuild) {
+        logger.warn(`Configured GUILD_ID ${configuredGuildId} is not connected; using the bot's connected server instead.`);
+    }
+
+    for (const guild of guilds) {
+        try {
+            await autoConfigureGuild(guild);
+        } catch (error) {
+            logger.warn(`Automatic server configuration was incomplete for ${guild.name}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    }
+
     const uniqueNames = new Set<string>();
-    const commands = commandDefinitions.map(command => {
+    const commands: ApplicationCommandDataResolvable[] = commandDefinitions.map(command => {
         if (uniqueNames.has(command.data.name)) throw new Error(`Duplicate slash command definition: ${command.data.name}`);
         uniqueNames.add(command.data.name);
-        return command.data.toJSON();
+        return command.data.toJSON() as ApplicationCommandDataResolvable;
     });
 
-    const rest = new REST({ version: '10' }).setToken(token);
-    const guildId = process.env.GUILD_ID;
-    try {
-        if (guildId) {
-            await rest.put(Routes.applicationGuildCommands(client.application.id, guildId), { body: commands });
-            logger.info(`Registered ${commands.length} guild slash commands.`);
-        } else {
-            await rest.put(Routes.applicationCommands(client.application.id), { body: commands });
-            logger.info(`Registered ${commands.length} global slash commands.`);
+    if (guilds.length > 0) {
+        let successes = 0;
+        for (const guild of guilds) {
+            try {
+                await guild.commands.set(commands);
+                successes += 1;
+                logger.info(`Registered ${commands.length} slash commands in ${guild.name}.`);
+            } catch (error) {
+                logger.error(`Could not register slash commands in ${guild.name}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            }
         }
-    } catch (error) {
-        logger.error(`Failed to register slash commands: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        if (successes === 0) {
+            logger.warn('No connected server accepted slash-command registration. Reinvite the bot with the bot and applications.commands scopes.');
+        }
+    } else {
+        try {
+            await client.application.commands.set(commands);
+            logger.info(`Registered ${commands.length} global slash commands.`);
+        } catch (error) {
+            logger.error(`Could not register global slash commands: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
     }
 
     try {
