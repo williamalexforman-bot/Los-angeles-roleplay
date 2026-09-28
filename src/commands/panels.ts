@@ -49,9 +49,9 @@ const GAME_RULES = `# In-Game Rules
 
 6) Staff may punish unlisted rule violations if they are deemed severe enough. If you disagree with a staff member's decision, you may report it through the appropriate channels.`;
 
-function gallery(url: string, description: string): MediaGalleryBuilder {
+function gallery(url: string, _description?: string): MediaGalleryBuilder {
     return new MediaGalleryBuilder().addItems(
-        new MediaGalleryItemBuilder().setURL(url).setDescription(description),
+        new MediaGalleryItemBuilder().setURL(url),
     );
 }
 
