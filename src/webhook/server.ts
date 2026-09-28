@@ -1,0 +1,278 @@
+import { createPublicKey, verify } from 'crypto';
+import { createServer, type IncomingMessage, type ServerResponse } from 'http';
+import { Client, EmbedBuilder } from 'discord.js';
+import { BRAND, CHANNEL_IDS } from '../config/constants';
+import { createLogoAttachment } from '../utils/embeds';
+import { logger } from '../utils/logger';
+import { lookupBloxlinkUser } from '../services/bloxlinkService';
+
+const MAX_BODY_BYTES = 1_000_000;
+const SIGNATURE_REPLAY_WINDOW_MS = 10 * 60 * 1_000;
+const processedSignatures = new Map<string, number>();
+
+class WebhookDeliveryError extends Error {}
+const ERLC_PUBLIC_KEY = createPublicKey({
+    key: Buffer.from('MCowBQYDK2VwAyEAjSICb9pp0kHizGQtdG8ySWsDChfGqi+gyFCttigBNOA=', 'base64'),
+    format: 'der',
+    type: 'spki',
+});
+
+function respond(response: ServerResponse, status: number, body: Record<string, unknown>): void {
+    response.writeHead(status, { 'Content-Type': 'application/json' });
+    response.end(JSON.stringify(body));
+}
+
+async function readBody(request: IncomingMessage): Promise<Buffer> {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    for await (const rawChunk of request) {
+        const chunk = Buffer.isBuffer(rawChunk) ? rawChunk : Buffer.from(rawChunk);
+        size += chunk.length;
+        if (size > MAX_BODY_BYTES) throw new Error('Payload too large');
+        chunks.push(chunk);
+    }
+    return Buffer.concat(chunks);
+}
+
+function verifyErlcSignature(request: IncomingMessage, rawBody: Buffer): boolean {
+    const timestamp = request.headers['x-signature-timestamp'];
+    const signatureHex = request.headers['x-signature-ed25519'];
+    if (typeof timestamp !== 'string' || typeof signatureHex !== 'string' || !/^[a-f0-9]+$/i.test(signatureHex)) return false;
+    const timestampSeconds = Number(timestamp);
+    if (!Number.isFinite(timestampSeconds) || Math.abs(Date.now() - timestampSeconds * 1000) > 5 * 60 * 1000) return false;
+    const message = Buffer.concat([Buffer.from(timestamp, 'utf8'), rawBody]);
+    try {
+        return verify(null, message, ERLC_PUBLIC_KEY, Buffer.from(signatureHex, 'hex'));
+    } catch {
+        return false;
+    }
+}
+
+async function sendEmbed(client: Client, channelId: string, embed: EmbedBuilder): Promise<void> {
+    const channel = await client.channels.fetch(channelId).catch(() => null);
+    if (!channel?.isSendable()) throw new WebhookDeliveryError(`Discord destination ${channelId} is unavailable.`);
+    try {
+        await channel.send({ embeds: [embed], files: [createLogoAttachment()], allowedMentions: { parse: [] } });
+    } catch {
+        throw new WebhookDeliveryError(`Discord delivery to ${channelId} failed.`);
+    }
+}
+
+function baseEmbed(title: string): EmbedBuilder {
+    return new EmbedBuilder()
+        .setColor(BRAND.color)
+        .setTitle(title)
+        .setThumbnail(BRAND.logoUrl)
+        .setFooter({ text: BRAND.footer })
+        .setTimestamp();
+}
+
+async function handleUserInfoEndpoint(client: Client, request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const url = new URL(request.url || '', `http://${request.headers.host || 'localhost'}`);
+    const discordId = url.searchParams.get('discord');
+    const guildId = url.searchParams.get('guild') || process.env.GUILD_ID;
+
+    if (!discordId || !/^\d{16,22}$/.test(discordId)) {
+        respond(response, 400, { ok: false, error: 'Missing or invalid "discord" query parameter (must be a valid Discord user ID).' });
+        return;
+    }
+
+    if (!guildId) {
+        respond(response, 400, { ok: false, error: 'No guild ID configured. Set GUILD_ID or pass "guild" query parameter.' });
+        return;
+    }
+
+    const guild = await client.guilds.fetch(guildId).catch(() => null);
+    if (!guild) {
+        respond(response, 404, { ok: false, error: 'Guild not found.' });
+        return;
+    }
+
+    const member = await guild.members.fetch(discordId).catch(() => null);
+
+    // Discord info
+    const discordInfo: Record<string, unknown> = member
+        ? {
+            id: member.id,
+            username: member.user.username,
+            global_name: member.user.globalName || member.user.username,
+            display_name: member.displayName || member.user.globalName || member.user.username,
+            tag: member.user.tag,
+            avatar_url: member.displayAvatarURL({ size: 256 }),
+            created_at: member.user.createdAt.toISOString(),
+            joined_at: member.joinedAt?.toISOString() || null,
+            roles: [...member.roles.cache.keys()],
+            is_bot: member.user.bot,
+        }
+        : {
+            id: discordId,
+            username: 'Unknown',
+            global_name: 'Unknown',
+            tag: 'Unknown',
+            avatar_url: null,
+            created_at: null,
+            joined_at: null,
+            roles: [],
+            is_bot: false,
+        };
+
+    // Fetch Roblox info via Bloxlink
+    let robloxInfo: Record<string, unknown> = {
+        username: null,
+        display_name: null,
+        user_id: null,
+        avatar_url: null,
+        profile_url: null,
+        verified: false,
+        created_at: null,
+    };
+
+    try {
+        const bloxlinkResult = await lookupBloxlinkUser(guildId, discordId);
+        if (bloxlinkResult.status === 'verified') {
+            robloxInfo = {
+                username: bloxlinkResult.robloxUsername,
+                display_name: bloxlinkResult.robloxDisplayName,
+                user_id: bloxlinkResult.robloxId ? Number(bloxlinkResult.robloxId) : null,
+                avatar_url: bloxlinkResult.robloxAvatarUrl,
+                profile_url: bloxlinkResult.profileUrl,
+                verified: true,
+                created_at: bloxlinkResult.robloxCreatedAt,
+            };
+        }
+    } catch {
+        // Roblox info stays as default unverified
+    }
+
+    const userData: Record<string, unknown> = {
+        user: {
+            discord: discordInfo,
+            roblox: robloxInfo,
+        },
+    };
+
+    respond(response, 200, userData);
+}
+
+async function processLegacyEvent(client: Client, payload: Record<string, unknown>): Promise<void> {
+    const eventType = String(payload.event || payload.type || '');
+    if (eventType === 'teamSwitch') {
+        const player = String(payload.userName || payload.playerName || payload.player || 'Unknown');
+        const previousTeam = String(payload.fromTeam || payload.teamFrom || payload.from || 'Unknown');
+        const newTeam = String(payload.toTeam || payload.teamTo || payload.to || 'Unknown');
+        await sendEmbed(client, CHANNEL_IDS.erlcTeamChangeLog, baseEmbed('ER:LC Team Changed').addFields(
+            { name: 'Player', value: player, inline: true },
+            { name: 'Previous Team', value: previousTeam, inline: true },
+            { name: 'New Team', value: newTeam, inline: true },
+            { name: 'Detected', value: `<t:${Math.floor(Date.now() / 1000)}:F>` },
+        ));
+        return;
+    }
+    if (eventType === 'gameCommand') {
+        const command = String(payload.command || payload.action || 'Unknown');
+        const player = String(payload.userName || payload.playerName || payload.player || 'Unknown');
+        await sendEmbed(client, CHANNEL_IDS.erlcCommandLog, baseEmbed('ER:LC Command Event').addFields(
+            { name: 'Roblox Player', value: player, inline: true },
+            { name: 'Command', value: command.slice(0, 1024) },
+            { name: 'Source', value: 'Configured Legacy Webhook', inline: true },
+        ));
+    }
+}
+
+async function processOfficialErlcEvent(client: Client, payload: Record<string, unknown>): Promise<void> {
+    const eventType = String(payload.event || payload.Event || payload.type || payload.Type || 'Unknown');
+    const lowerEvent = eventType.toLocaleLowerCase();
+    if (['kick', 'ban', 'tempban', 'unban'].includes(lowerEvent)) {
+        const target = String(payload.target || payload.Target || payload.player || payload.Player || 'Unknown');
+        const staff = String(payload.staff || payload.Staff || payload.moderator || payload.Moderator || 'Unknown');
+        await sendEmbed(client, CHANNEL_IDS.erlcPunishmentLog, baseEmbed('Confirmed ER:LC Punishment Event')
+            .setDescription(`ER:LC delivered a signed **${eventType}** event through the configured official webhook.`)
+            .addFields(
+                { name: 'Staff Member', value: staff, inline: true },
+                { name: 'Target', value: target, inline: true },
+                { name: 'Action', value: eventType, inline: true },
+                { name: 'Source', value: 'Signed ER:LC Event Webhook' },
+            ));
+        return;
+    }
+
+    if (eventType !== 'Unknown') {
+        await sendEmbed(client, CHANNEL_IDS.erlcCommandLog, baseEmbed('ER:LC Signed Event Received').addFields(
+            { name: 'Event Type', value: eventType.slice(0, 1024) },
+            { name: 'Source', value: 'Signed ER:LC Event Webhook' },
+        ));
+    }
+}
+
+export function startWebhookServer(client: Client) {
+    // Railway sets PORT automatically; prefer WEBHOOK_PORT if explicitly configured.
+    const portSource = process.env.WEBHOOK_PORT || process.env.PORT || '3000';
+    const configuredPort = Number(portSource);
+    const port = Number.isInteger(configuredPort) && configuredPort >= 1 && configuredPort <= 65_535
+        ? configuredPort
+        : 3000;
+    if (port !== configuredPort) logger.warn('WEBHOOK_PORT or PORT is invalid; using port 3000.');
+    const server = createServer(async (request, response) => {
+        // Tickets v2 user-info API endpoint - used as the API Endpoint URL in external ticket systems
+        if (request.method === 'GET' && request.url?.startsWith('/api/user-info')) {
+            await handleUserInfoEndpoint(client, request, response);
+            return;
+        }
+        if (request.method === 'GET' && request.url === '/health') {
+            respond(response, 200, { ok: true });
+            return;
+        }
+        if (request.method !== 'POST' || !['/roblox-event', '/erlc-event'].includes(request.url || '')) {
+            respond(response, 404, { ok: false, error: 'Not found' });
+            return;
+        }
+
+        try {
+            const rawBody = await readBody(request);
+            if (request.url === '/erlc-event' && !verifyErlcSignature(request, rawBody)) {
+                respond(response, 401, { ok: false, error: 'Invalid signature' });
+                return;
+            }
+            const officialSignature = request.url === '/erlc-event'
+                ? String(request.headers['x-signature-ed25519'])
+                : null;
+            if (officialSignature) {
+                const now = Date.now();
+                for (const [signature, processedAt] of processedSignatures) {
+                    if (now - processedAt > SIGNATURE_REPLAY_WINDOW_MS) processedSignatures.delete(signature);
+                }
+                if (processedSignatures.has(officialSignature)) {
+                    respond(response, 200, { ok: true, duplicate: true });
+                    return;
+                }
+            }
+            if (request.url === '/roblox-event') {
+                const secret = process.env.WEBHOOK_SECRET;
+                if (!secret || request.headers['x-webhook-secret'] !== secret) {
+                    respond(response, 401, { ok: false, error: 'Unauthorized' });
+                    return;
+                }
+            }
+
+            const payload = JSON.parse(rawBody.toString('utf8')) as unknown;
+            if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('Invalid payload');
+            if (request.url === '/erlc-event') await processOfficialErlcEvent(client, payload as Record<string, unknown>);
+            else await processLegacyEvent(client, payload as Record<string, unknown>);
+            if (officialSignature) processedSignatures.set(officialSignature, Date.now());
+            respond(response, 200, { ok: true });
+        } catch (error) {
+            const tooLarge = error instanceof Error && error.message === 'Payload too large';
+            const deliveryFailed = error instanceof WebhookDeliveryError;
+            if (deliveryFailed) logger.warn(error.message);
+            respond(
+                response,
+                tooLarge ? 413 : deliveryFailed ? 503 : 400,
+                { ok: false, error: tooLarge ? 'Payload too large' : deliveryFailed ? 'Discord delivery unavailable' : 'Invalid request' },
+            );
+        }
+    });
+
+    server.on('error', error => logger.warn(`Webhook server unavailable: ${error.message}`));
+    server.listen(port, () => logger.info(`Webhook server listening on port ${port}.`));
+    return server;
+}

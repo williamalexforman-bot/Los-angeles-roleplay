@@ -1,26 +1,24 @@
+# Render Blueprint Configuration
+# Deploy on Render: https://render.com
+# Free tier supports this bot 24/7
+
 services:
-  - type: web
-    name: graphic-design-discord-bot
-    runtime: node
-    buildCommand: npm ci
-    startCommand: npm start
-    healthCheckPath: /livez
+  - type: worker
+    name: discord-management-bot
+    env: node
+    buildCommand: npm install
+    startCommand: node index.js
+    healthCheckPath: /health
+    numInstances: 1
+    plan: free
     envVars:
-      - key: NODE_VERSION
-        value: 22.22.0
+      - key: NODE_ENV
+        value: production
       - key: BOT_TOKEN
+        sync: false  # Set this in Render dashboard
+      - key: MONGODB_URI
         sync: false
-      - key: CLIENT_ID
-        sync: false
-      - key: GUILD_ID
-        sync: false
-      - key: BOT_OWNER_ID
-        sync: false
-      - key: SERVER_NAME
-        value: Your Graphic Design Server
-      - key: SQLITE_PATH
-        value: /var/data/bot.sqlite
-    disk:
-      name: bot-data
-      mountPath: /var/data
-      sizeGB: 1
+      - key: ENABLE_PRIVILEGED_INTENTS
+        value: "true"
+      # Add all other env vars from your .env in the Render dashboard
+

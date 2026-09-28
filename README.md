@@ -1,115 +1,72 @@
-# Graphic Design Discord Bot
+# California State Roleplay Management Bot
 
-A configurable Discord bot for design showcases, requests, portfolios, tickets, moderation, and server utilities. The project deliberately contains no banner system or banner assets.
+A Discord.js v14 management bot for California State Roleplay, with professional ticketing, staff workflows, message safety alerts, command auditing, Bloxlink verification, ER:LC v2 monitoring, and optional automated ticket assistance.
 
-## Requirements
+## Setup
 
-- Node.js 22
-- A Discord application and bot token
-- A Discord server where you can invite the bot
-- A persistent disk when deploying SQLite on Render
+1. Install Node.js 20 or newer.
+2. Run `npm install`.
+3. Copy `.env.example` to `.env`, set the current Discord token as `BOT_TOKEN`, and configure the remaining credentials. Never commit `.env`.
+4. Keep the temporary LARP logo at `assets/larp-logo.png` until the new server artwork is installed.
+5. Enable **Server Members Intent** and **Message Content Intent** in the Discord Developer Portal, then set `ENABLE_PRIVILEGED_INTENTS=true`.
+6. Run `npm run check`, then `npm start`.
 
-## Discord application setup
+## 24/7 production hosting
 
-1. Open the Discord Developer Portal and create an application.
-2. Open **Bot**, create the bot, and copy its token into `BOT_TOKEN` on your host.
-3. Enable **Server Members Intent** and **Message Content Intent**.
-4. Copy the Application ID into `CLIENT_ID`.
-5. Enable Developer Mode in Discord and copy your server ID into `GUILD_ID` and your user ID into `BOT_OWNER_ID`.
-6. In OAuth2 URL Generator, select `bot` and `applications.commands`.
-7. Grant View Channels, Send Messages, Embed Links, Attach Files, Read Message History, Manage Messages, Manage Channels, Moderate Members, Kick Members, and Ban Members. The bot does not require Administrator.
-8. Move the bot role above roles it needs to moderate or assign.
+To keep the bot online all day and night even when your laptop is closed, run it on a VPS or cloud server instead of your own computer.
 
-## Local setup
+### Option A: PM2 (recommended on Linux servers)
 
-```bash
-cp .env.example .env
-npm install
-npm test
-npm start
-```
+1. Install PM2: `npm install -g pm2`
+2. Build the bot: `npm run build`
+3. Start it: `pm2 start ecosystem.config.js`
+4. Save the process list so it restarts after reboot: `pm2 save && pm2 startup`
+5. Monitor it with `pm2 logs discord-management-bot`
 
-Fill every required value in `.env`. SQLite creates its tables automatically at startup.
+### Option B: systemd service
 
-## Render deployment
+1. Copy `deploy/discord-management-bot.service` to `/etc/systemd/system/discord-management-bot.service`.
+2. Edit the file and replace the example working directory and user with your server details.
+3. Reload systemd and start the service:
+   - `sudo systemctl daemon-reload`
+   - `sudo systemctl enable discord-management-bot`
+   - `sudo systemctl start discord-management-bot`
+4. Check status with `sudo systemctl status discord-management-bot`.
 
-1. Push this project to GitHub.
-2. Create a Render Web Service from the repository or use `render.yaml`.
-3. Add `BOT_TOKEN`, `CLIENT_ID`, `GUILD_ID`, and `BOT_OWNER_ID` as secret environment variables.
-4. Attach a persistent disk at `/var/data` and set `SQLITE_PATH=/var/data/bot.sqlite`.
-5. Use `npm ci` as the build command and `npm start` as the start command.
-6. Set the health check to `/livez`. `/readyz` reports Discord and database readiness.
+Either option keeps the bot running continuously and automatically restarts it if it crashes.
 
-## First-time configuration
+The bot needs View Channels, Manage Channels, Manage Roles/Permissions where applicable, Send Messages, Embed Links, Attach Files, Read Message History, Create Public Threads, Send Messages in Threads, Manage Threads, and View Audit Log. Its role must sit high enough to create the requested permission overwrites.
 
-Run `/config`. The bot owner can configure channels, roles, approval behavior, feedback, and commission wording using the private paged dashboard. No source-code edits are needed.
+## Main commands
 
-Recommended order:
+- `/ticket-panel` — posts or refreshes the four-category Help & Support dropdown.
+- `/ticket refresh-user` — refreshes Bloxlink and Roblox data in a ticket.
+- `/movie-feedback` — publishes the branded Movie / When / Where layout with a 1–10 star display, submitter footer, timestamp, and CSRP logo.
+- `/say` — lets a server administrator or the configured bot-permissions role send an exact plain-text message as the bot in the current or selected text channel; mentions are displayed without notifying users or roles.
+- Ticket channels place persistent controls first, then the creator/support-team welcome message. Close-with-reason notices ping the ticket creator, show the full reason, and archive a transcript before locking the ticket.
+- `/staff-feedback` — structured public staff feedback with private identity auditing for anonymous submissions.
+- `/partnership request` — posts the branded partnership rules panel; the button opens a server-name, representative, invite-link, and server-ad modal. Completed requests go to the configured partnership review channel with staff-only Approve/Deny controls.
+- `/staff-complaint` — submits a structured 1–5 star complaint about a staff member to the configured private complaint channel.
+- `/training-results` — publishes scored Pass/Fail training results.
+- `/promotion issue` — uses a Discord server-role selector, publishes a professional promotion notice, and pings the promoted member without pinging the selected role.
+- `/infraction issue` — pings the infracted member, posts the complete case embed and controls in the infraction channel, and attaches a public evidence thread directly beneath that message without automatically adding the command user.
+- `/prohibited-word add|remove|list` — administrator management of the whole-word filter.
 
-1. Configure the administrator, staff, designer, and ticket support roles.
-2. Configure showcase, review, request, ticket panel, ticket category, transcript, and log channels.
-3. Toggle showcase approval, feedback, and commission wording as needed.
-4. Run `/ticket panel` to post the support panel.
+Legacy ticket commands remain registered as compatibility aliases. Existing application, training-request, moderation, admin, partnership, complaint, and game commands are retained.
 
-## Commands
+## Optional integrations
 
-- `/config` — private owner/admin configuration dashboard.
-- `/showcase submit|view|mine|feature|remove|restore` — submit and moderate designs.
-- `/portfolio create|view|visibility` — create and display designer portfolios.
-- `/request create|view|mine|claim|status|close|reopen` — design-request workflow.
-- `/ticket panel|claim|unclaim|add|remove|rename|close|reopen|transcript|note` — ticket workflow.
-- `/warn`, `/timeout`, `/kick`, `/ban`, `/unban`, `/purge`, `/slowmode` — moderation tools.
-- `/history` and `/case view|edit|revoke` — moderation records.
-- `/help`, `/serverinfo`, `/userinfo`, `/botinfo` — utilities.
+- **Bloxlink:** set `BLOXLINK_API_KEY`. A missing or unverified account never blocks ticket creation.
+- **OpenAI:** set `OPENAI_API_KEY`; `OPENAI_MODEL` defaults to `gpt-5.6-sol`. The assistant uses the Responses API with `store: false`, strict non-staff guardrails, and official-domain web search for ER:LC questions. Paid-partner and rules-channel routing remains available without an OpenAI key.
+- **Partnership role:** set `PARTNERSHIP_ROLE_ID` so approving a partnership automatically assigns the role. Configure `PARTNERSHIP_REQUEST_CHANNEL_ID` and `STAFF_COMPLAINT_CHANNEL_ID` with IDs from the new server.
+- **ER:LC:** set `ERLC_SERVER_KEY`. The monitor uses `GET https://api.erlc.gg/v2/server` with Players, CommandLogs, and JoinLogs enabled, honors rate-limit reset/retry data, and persists processed state in MongoDB.
+- **Official ER:LC webhooks:** point the configured event webhook to the public HTTPS route `/erlc-event`. Signed Ed25519 payloads are verified before processing. `/roblox-event` remains available only when `WEBHOOK_SECRET` is configured for backward compatibility.
+- **Ticket recovery:** abandoned pending reservations are cleaned after 15 minutes by default; override this with `TICKET_PENDING_TTL_MS`.
 
-Sensitive commands fetch current roles and perform runtime permission checks. Errors and private confirmations use ephemeral responses.
+## Validation
 
-## Command registration
+- `npm run build` — strict TypeScript check.
+- `npm test` — offline integration coverage for the panel, all four ticket channel/permission workflows, controls-first ordering, close-notice/transcript archival, complete modal answers, duplicate and stale-reservation handling, atomic claim/AI state, profanity/raid payloads and dedupe, slash-command auditing/redaction, movie feedback, Pass/Fail training output, public infraction evidence threads/controls, Bloxlink fallback, deterministic support routing, OpenAI serialization, and ER:LC command/team/punishment comparisons.
+- `npm run check` — runs both.
 
-The bot hashes its command definitions. It skips registration when the hash has not changed. If Discord returns HTTP 429, the retry deadline is stored in SQLite and preserved across restarts. Existing interactions remain available while command registration is delayed.
-
-## Database backup and restore
-
-Stop the bot before copying the SQLite file. Back up `bot.sqlite` and, if present, its `-wal` and `-shm` files together. Restore them to the same configured `SQLITE_PATH` before restarting.
-
-## Updating
-
-1. Back up the database.
-2. Pull the new code.
-3. Run `npm ci`.
-4. Run `npm test`.
-5. Restart the service.
-
-Command registration runs only when the serialized command hash changes.
-
-## Testing checklist
-
-- Run `npm test` and confirm all tests pass.
-- Run `/help` and confirm the response is public.
-- Run `/config` as owner and as an unauthorized member.
-- Configure all required channels and roles.
-- Submit and approve a showcase design.
-- Create, claim, update, and close a design request.
-- Create and view a portfolio.
-- Open a ticket, add and remove a member, save its transcript, and close it.
-- Test moderation commands on a safe test account below the bot role.
-- Restart the bot and confirm settings and records remain.
-- Check `/livez` and `/readyz`.
-
-## Troubleshooting
-
-### The application did not respond
-
-Check that the bot is online, the interaction appears in the host logs, and the bot can send messages in the channel. Long operations defer replies. Errors include an interaction reference ID.
-
-### Commands are missing
-
-Check the command sync log. A Discord 429 includes a saved retry deadline. Do not repeatedly restart the bot because that does not remove Discord's cooldown.
-
-### SQLite data disappears
-
-Attach a persistent Render disk and use `/var/data/bot.sqlite`. The default local path is intended for local development.
-
-### Missing permissions
-
-Move the bot role above managed members and roles, then grant the specific permission named in the error response.
+Live Discord channel/thread creation and external API calls should be exercised in the configured test guild before production rollout.
