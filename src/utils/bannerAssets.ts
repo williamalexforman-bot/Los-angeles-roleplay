@@ -1,0 +1,34 @@
+import path from 'path';
+import { AttachmentBuilder, EmbedBuilder } from 'discord.js';
+import { BRAND } from '../config/constants';
+
+export const BANNERS = {
+    infraction: 'infraction-banner.webp',
+    promotion: 'promotion-banner.webp',
+    support: 'support-banner.webp',
+    dashboard: 'dashboard-banner.webp',
+    regulations: 'regulations-banner.webp',
+    applications: 'applications-banner.webp',
+    passed: 'passed-banner.webp',
+    denied: 'denied-banner.webp',
+    underbanner: 'underbanner.webp',
+} as const;
+
+export type BannerKey = keyof typeof BANNERS;
+
+export function bannerUrl(key: BannerKey): string {
+    return `attachment://${BANNERS[key]}`;
+}
+
+export function bannerAttachment(key: BannerKey): AttachmentBuilder {
+    const name = BANNERS[key];
+    return new AttachmentBuilder(path.resolve(process.cwd(), 'assets', name), { name });
+}
+
+export function bannerFiles(key: Exclude<BannerKey, 'underbanner'>): AttachmentBuilder[] {
+    return [bannerAttachment(key), bannerAttachment('underbanner')];
+}
+
+export function underbannerEmbed(): EmbedBuilder {
+    return new EmbedBuilder().setColor(BRAND.color).setImage(bannerUrl('underbanner'));
+}

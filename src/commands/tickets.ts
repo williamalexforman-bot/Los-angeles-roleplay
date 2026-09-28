@@ -22,6 +22,7 @@ import {
 import { BRAND, CHANNEL_IDS, SUPPORT_ROLE_IDS, TICKET_CATEGORY_IDS, type TicketCategory } from '../config/constants';
 import { type TicketRecord } from '../database/models';
 import { createLogoAttachment } from '../utils/embeds';
+import { bannerFiles, bannerUrl, underbannerEmbed } from '../utils/bannerAssets';
 import { logger } from '../utils/logger';
 import { lookupBloxlinkUser, type BloxlinkLookupResult } from '../services/bloxlinkService';
 import { generateTicketAssistantReply, type TicketConversationMessage } from '../services/aiService';
@@ -147,6 +148,7 @@ function ticketPanelEmbed(): EmbedBuilder {
         .setTitle('Help & Support')
         .setDescription(PANEL_DESCRIPTION)
         .setThumbnail(BRAND.logoUrl)
+        .setImage(bannerUrl('support'))
         .setFooter({ text: BRAND.panelFooter });
 }
 
@@ -164,11 +166,11 @@ export async function refreshExistingTicketPanels(client: Client): Promise<numbe
 
     let updated = 0;
     for (const message of existingPanels.values()) {
-        const hasLogo = message.attachments.some(attachment => attachment.name === BRAND.logoName);
         await message.edit({
-            embeds: [ticketPanelEmbed()],
+            embeds: [ticketPanelEmbed(), underbannerEmbed()],
             components: [panelDropdown()],
-            ...(hasLogo ? {} : { files: [createLogoAttachment()] }),
+            attachments: [],
+            files: [createLogoAttachment(), ...bannerFiles('support')],
         });
         updated += 1;
     }
@@ -396,9 +398,9 @@ export async function postTicketPanel(interaction: ChatInputCommandInteraction):
     }
 
     await panelChannel.send({
-        embeds: [ticketPanelEmbed()],
+        embeds: [ticketPanelEmbed(), underbannerEmbed()],
         components: [panelDropdown()],
-        files: [createLogoAttachment()],
+        files: [createLogoAttachment(), ...bannerFiles('support')],
     });
     await interaction.editReply(`The professional ticket panel was posted in <#${CHANNEL_IDS.ticketPanel}>.`);
 }

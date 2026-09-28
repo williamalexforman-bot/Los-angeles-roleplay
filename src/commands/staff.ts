@@ -4,6 +4,8 @@ import { logAction } from '../utils/logger';
 import { sendToChannel } from '../utils/notify';
 import env from '../config/env';
 import { BRAND } from '../config/constants';
+import { createLogoAttachment } from '../utils/embeds';
+import { bannerFiles, bannerUrl, underbannerEmbed } from '../utils/bannerAssets';
 
 const LOGO = BRAND.logoUrl;
 
@@ -130,11 +132,37 @@ export const staffCommands = [
             .addStringOption(option => option.setName('type').setDescription('Type of application').setRequired(true))
             .addStringOption(option => option.setName('notes').setDescription('Any notes for the application')),
         async execute(interaction: ChatInputCommandInteraction) {
+            await interaction.deferReply({ ephemeral: true });
             const user = interaction.options.getUser('user');
             const type = interaction.options.getString('type') || 'staff';
             const notes = interaction.options.getString('notes') || 'No notes';
             logAction('application-request', interaction.user.id, user?.id, type, notes);
-            await interaction.reply({ content: `Application request received for ${user?.username ?? 'the user'} (${type}).`, ephemeral: true });
+            const destination = await interaction.client.channels.fetch(env.APPLICATION_CHANNEL_ID || '').catch(() => null);
+            if (!destination?.isSendable()) {
+                await interaction.editReply('The application channel is not configured yet.');
+                return;
+            }
+            const embed = new EmbedBuilder()
+                .setColor(BRAND.color)
+                .setTitle('Staff Application')
+                .setDescription('A new application has been submitted for staff review.')
+                .setThumbnail(LOGO)
+                .setImage(bannerUrl('applications'))
+                .addFields(
+                    { name: 'Applicant', value: user ? `<@${user.id}>` : 'Unknown', inline: true },
+                    { name: 'Application Type', value: type, inline: true },
+                    { name: 'Submitted By', value: `<@${interaction.user.id}>`, inline: true },
+                    { name: 'Notes', value: notes },
+                )
+                .setFooter({ text: BRAND.footer })
+                .setTimestamp();
+            await destination.send({
+                content: user ? `<@${user.id}>` : undefined,
+                embeds: [embed, underbannerEmbed()],
+                files: [createLogoAttachment(), ...bannerFiles('applications')],
+                allowedMentions: user ? { users: [user.id], parse: [] } : { parse: [] },
+            });
+            await interaction.editReply(`Application request posted for ${user?.username ?? 'the user'} (${type}).`);
         },
     },
     {

@@ -1,6 +1,9 @@
 import 'dotenv/config';
 import {
+    ActionRowBuilder,
     AuditLogEvent,
+    ButtonBuilder,
+    ButtonStyle,
     Client,
     EmbedBuilder,
     Events,
@@ -99,7 +102,27 @@ function createConfiguredClient(privilegedIntents: boolean): Client {
         bot.on('guildMemberAdd', async member => {
             const joinChannelId = process.env.JOIN_LOG_CHANNEL_ID || '';
             const joinChannel = await member.client.channels.fetch(joinChannelId).catch(() => null);
-            if (joinChannel?.isSendable()) await joinChannel.send(`${member.user.tag} joined the server.`).catch(() => undefined);
+            if (joinChannel?.isSendable()) {
+                const dashboardUrl = process.env.DASHBOARD_URL?.trim()
+                    || `https://discord.com/channels/${member.guild.id}/${joinChannel.id}`;
+                const controls = new ActionRowBuilder<ButtonBuilder>().addComponents(
+                    new ButtonBuilder()
+                        .setCustomId('welcome:member-count')
+                        .setLabel(member.guild.memberCount.toLocaleString())
+                        .setEmoji('👤')
+                        .setStyle(ButtonStyle.Secondary)
+                        .setDisabled(true),
+                    new ButtonBuilder()
+                        .setLabel('Dashboard')
+                        .setStyle(ButtonStyle.Link)
+                        .setURL(dashboardUrl),
+                );
+                await joinChannel.send({
+                    content: `👋 Welcome ${member} to **${member.guild.name}**! Please make yourself feel at home!`,
+                    components: [controls],
+                    allowedMentions: { users: [member.id], parse: [] },
+                }).catch(() => undefined);
+            }
 
             const now = Date.now();
             const state = rapidJoinStates.get(member.guild.id) || { joins: [], lastAlertAt: 0 };

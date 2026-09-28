@@ -20,6 +20,7 @@ import {
     type ThreadChannel,
 } from 'discord.js';
 import { markSlashCommandFailed } from '../utils/commandAudit';
+import { bannerFiles, bannerUrl, underbannerEmbed } from '../utils/bannerAssets';
 
 const BRAND_COLOR = 0x3b82f6;
 const PASS_COLOR = 0x22c55e;
@@ -192,6 +193,7 @@ async function getInfractionRecord(threadId: string): Promise<InfractionRecord |
 
 function buildInfractionEmbed(record: InfractionRecord): EmbedBuilder {
     return brandedEmbed(`Staff Infraction | ${record.caseNumber}`)
+        .setImage(bannerUrl('infraction'))
         .setDescription(
             'The high ranking team at Los Angeles Roleplay has issued you an infraction. '
             + 'Open the linked evidence thread to upload screenshots, recordings, links, and other supporting material.',
@@ -261,7 +263,7 @@ async function updateInfractionDetailMessage(thread: ThreadChannel, record: Infr
     if (!message) message = await thread.messages.fetch(record.detailMessageId).catch(() => null);
     if (!message) return;
     await message.edit({
-        embeds: [buildInfractionEmbed(record)],
+        embeds: [buildInfractionEmbed(record), underbannerEmbed()],
         components: infractionControls(record.status, record.threadId, thread.url),
     });
 }
@@ -334,7 +336,7 @@ function trainingResultCommand() {
                 const embed = brandedEmbed(
                     `${result === 'Pass' ? '✅' : '❌'} Training Result | ${result}`,
                     result === 'Pass' ? PASS_COLOR : FAIL_COLOR,
-                ).addFields(
+                ).setImage(bannerUrl(result === 'Pass' ? 'passed' : 'denied')).addFields(
                     { name: 'Trainee', value: `<@${trainee.id}>`, inline: true },
                     { name: 'Trainer', value: `<@${trainer.id}>`, inline: true },
                     { name: 'Department', value: department, inline: true },
@@ -349,7 +351,7 @@ function trainingResultCommand() {
                     { name: 'Submitted', value: discordTimestamp() },
                 );
 
-                await destination.send({ embeds: [embed], files: [logoAttachment()], allowedMentions: { parse: [] } });
+                await destination.send({ embeds: [embed, underbannerEmbed()], files: [logoAttachment(), ...bannerFiles(result === 'Pass' ? 'passed' : 'denied')], allowedMentions: { parse: [] } });
                 await interaction.editReply('The training result has been published successfully.');
             } catch (error) {
                 console.error('[Staff Management] Training result submission failed.', error);
@@ -396,6 +398,7 @@ function promotionCommand() {
                 }
 
                 const embed = brandedEmbed('🎖️ Staff Promotion')
+                    .setImage(bannerUrl('promotion'))
                     .setDescription('The high ranking team at Los Angeles Roleplay has issued you a promotion.')
                     .addFields(
                     { name: 'Member', value: `<@${member.id}>`, inline: true },
@@ -410,8 +413,8 @@ function promotionCommand() {
 
                 await destination.send({
                     content: `🎉 Congratulations <@${member.id}>! You have been promoted to <@&${newRole.id}>.`,
-                    embeds: [embed],
-                    files: [logoAttachment()],
+                    embeds: [embed, underbannerEmbed()],
+                    files: [logoAttachment(), ...bannerFiles('promotion')],
                     allowedMentions: { parse: [], users: [member.id] },
                 });
                 await interaction.editReply(`The promotion for ${member.username} has been published successfully.`);
@@ -504,8 +507,8 @@ function infractionCommand() {
                 try {
                     detailMessage = await fetchedParent.send({
                         content: `<@${member.id}>, a staff infraction has been issued. Please review the record below.`,
-                        embeds: [buildInfractionEmbed(record)],
-                        files: [logoAttachment()],
+                        embeds: [buildInfractionEmbed(record), underbannerEmbed()],
+                        files: [logoAttachment(), ...bannerFiles('infraction')],
                         allowedMentions: { parse: [], users: [member.id] },
                     });
                 } catch (error) { throw error; }
@@ -521,7 +524,7 @@ function infractionCommand() {
                     });
                     record.threadId = thread.id;
                     await detailMessage.edit({
-                        embeds: [buildInfractionEmbed(record)],
+                        embeds: [buildInfractionEmbed(record), underbannerEmbed()],
                         components: infractionControls(record.status, thread.id, thread.url),
                     });
                 } catch (error) {
