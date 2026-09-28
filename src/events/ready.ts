@@ -2,7 +2,7 @@ import { Client, type ApplicationCommandDataResolvable } from 'discord.js';
 import { commandDefinitions } from '../commands/registry';
 import { loadProhibitedWordOverrides } from '../commands/prohibitedWords';
 import { logger } from '../utils/logger';
-import { refreshExistingTicketPanels } from '../commands/tickets';
+import { refreshExistingTicketAccess, refreshExistingTicketPanels } from '../commands/tickets';
 import { autoConfigureGuild } from '../config/autoConfig';
 
 export const onReady = async (client: Client): Promise<void> => {
@@ -64,6 +64,15 @@ export const onReady = async (client: Client): Promise<void> => {
         }
     } catch (error) {
         logger.warn(`Existing ticket panels could not be refreshed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+
+    try {
+        const refreshedTickets = await refreshExistingTicketAccess(client);
+        if (refreshedTickets > 0) {
+            logger.info(`Applied the universal ticket-staff role to ${refreshedTickets} existing ticket channel${refreshedTickets === 1 ? '' : 's'}.`);
+        }
+    } catch (error) {
+        logger.warn(`Existing ticket access could not be refreshed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
 
     try {

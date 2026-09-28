@@ -59,6 +59,9 @@ export const SUPPORT_ROLE_IDS = {
     highrank: process.env.HIGH_RANK_ROLE_ID || '',
 };
 
+/** Staff role with access to every ticket, regardless of ticket department. */
+export const TICKET_STAFF_ROLE_ID = process.env.TICKET_STAFF_ROLE_ID || '1546570940165656648';
+
 /** Applies IDs discovered after Discord is ready to the live configuration objects. */
 export function applyRuntimeConfiguration(): void {
     CHANNEL_IDS.ticketPanel = process.env.TICKET_PANEL_CHANNEL_ID || CHANNEL_IDS.ticketPanel;

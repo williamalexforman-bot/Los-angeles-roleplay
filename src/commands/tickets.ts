@@ -25,7 +25,7 @@ import {
     TextInputStyle,
     type OverwriteResolvable,
 } from 'discord.js';
-import { BRAND, CHANNEL_IDS, SUPPORT_ROLE_IDS, TICKET_CATEGORY_IDS, type TicketCategory } from '../config/constants';
+import { BRAND, CHANNEL_IDS, TICKET_CATEGORY_IDS, TICKET_STAFF_ROLE_ID, type TicketCategory } from '../config/constants';
 import { type TicketRecord } from '../database/models';
 import { createLogoAttachment } from '../utils/embeds';
 import { bannerFiles, bannerUrl, underbannerEmbed } from '../utils/bannerAssets';
@@ -42,7 +42,7 @@ import {
     setOpeningMessage,
     updateTicket,
 } from '../services/ticketRepository';
-import { applyTemplate, configuredChannelId, configuredRoleId, getPanelBannerUrl, getPanelConfig, parseEmojiMap, type ConfigChannelKey, type ConfigRoleKey, type PanelConfig } from '../services/panelConfig';
+import { applyTemplate, configuredChannelId, getGuildBotConfig, getPanelBannerUrl, getPanelConfig, parseEmojiMap, type ConfigChannelKey, type PanelConfig } from '../services/panelConfig';
 import { embedsToV2 } from '../utils/componentsV2';
 
 const PANEL_DESCRIPTION = `Welcome to California State Roleplay support system!
@@ -96,7 +96,7 @@ const ticketCategories: Record<TicketCategory, TicketCategoryDefinition> = {
         emoji: '🎫',
         menuDescription: 'General questions and server information',
         get categoryId() { return TICKET_CATEGORY_IDS.general; },
-        get supportRoleId() { return SUPPORT_ROLE_IDS.general; },
+        get supportRoleId() { return TICKET_STAFF_ROLE_ID; },
     },
     internal: {
         key: 'internal',
@@ -105,7 +105,7 @@ const ticketCategories: Record<TicketCategory, TicketCategoryDefinition> = {
         emoji: '📋',
         menuDescription: 'Staff reports, applications, and partnerships',
         get categoryId() { return TICKET_CATEGORY_IDS.internal; },
-        get supportRoleId() { return SUPPORT_ROLE_IDS.internal; },
+        get supportRoleId() { return TICKET_STAFF_ROLE_ID; },
     },
     management: {
         key: 'management',
@@ -114,7 +114,7 @@ const ticketCategories: Record<TicketCategory, TicketCategoryDefinition> = {
         emoji: '🏛️',
         menuDescription: 'Claims, advertisements, transfers, and staff matters',
         get categoryId() { return TICKET_CATEGORY_IDS.management; },
-        get supportRoleId() { return SUPPORT_ROLE_IDS.management; },
+        get supportRoleId() { return TICKET_STAFF_ROLE_ID; },
     },
     highrank: {
         key: 'highrank',
@@ -123,7 +123,7 @@ const ticketCategories: Record<TicketCategory, TicketCategoryDefinition> = {
         emoji: '⭐',
         menuDescription: 'Payments, marketplace concerns, and ownership questions',
         get categoryId() { return TICKET_CATEGORY_IDS.highrank; },
-        get supportRoleId() { return SUPPORT_ROLE_IDS.highrank; },
+        get supportRoleId() { return TICKET_STAFF_ROLE_ID; },
     },
 };
 
@@ -214,8 +214,43 @@ async function fetchInteractionMember(interaction: ButtonInteraction | ModalSubm
 function isTicketStaff(member: GuildMember | null, ticket: TicketRecord): boolean {
     if (!member) return false;
     return member.permissions.has(PermissionFlagsBits.Administrator)
+        || member.roles.cache.has(TICKET_STAFF_ROLE_ID)
         || member.roles.cache.has(ticket.supportRoleId)
         || Boolean(process.env.BOT_PERMISSIONS_ROLE_ID && member.roles.cache.has(process.env.BOT_PERMISSIONS_ROLE_ID));
+}
+
+/** Applies the universal ticket-staff role to ticket channels that already existed before this release. */
+export async function refreshExistingTicketAccess(client: Client): Promise<number> {
+    let updated = 0;
+    for (const guild of client.guilds.cache.values()) {
+        const ticketStaffRole = await guild.roles.fetch(TICKET_STAFF_ROLE_ID).catch(() => null);
+        if (!ticketStaffRole) continue;
+        const saved = await getGuildBotConfig(guild);
+        const replacedRoleIds = new Set([
+            saved.roles.general_support,
+            saved.roles.management,
+            process.env.GENERAL_SUPPORT_ROLE_ID,
+            process.env.MANAGEMENT_ROLE_ID,
+        ].filter((roleId): roleId is string => Boolean(roleId) && roleId !== TICKET_STAFF_ROLE_ID));
+        const channels = await guild.channels.fetch().catch(() => null);
+        if (!channels) continue;
+        for (const channel of channels.values()) {
+            if (!(channel instanceof TextChannel) || !channel.topic?.startsWith('CSRP ticket #')) continue;
+            await channel.permissionOverwrites.edit(ticketStaffRole.id, {
+                ViewChannel: true,
+                SendMessages: true,
+                ReadMessageHistory: true,
+                AttachFiles: true,
+                EmbedLinks: true,
+                ManageMessages: true,
+            }, { reason: 'Applied universal CSRP ticket staff access' });
+            for (const roleId of replacedRoleIds) {
+                await channel.permissionOverwrites.delete(roleId, 'Replaced by universal CSRP ticket staff role').catch(() => undefined);
+            }
+            updated += 1;
+        }
+    }
+    return updated;
 }
 
 function formatLongDate(date: Date): string {
@@ -521,11 +556,8 @@ export async function createTicketFromModal(interaction: ModalSubmitInteraction,
     const categoryConfigKeys: Record<TicketCategory, ConfigChannelKey> = {
         general: 'general_ticket_category', internal: 'internal_ticket_category', management: 'management_ticket_category', highrank: 'highrank_ticket_category',
     };
-    const roleConfigKeys: Record<TicketCategory, ConfigRoleKey> = {
-        general: 'general_support', internal: 'internal_affairs', management: 'management', highrank: 'high_rank',
-    };
     const configuredCategoryId = await configuredChannelId(interaction.guild, categoryConfigKeys[category], definition.categoryId);
-    const configuredSupportRoleId = await configuredRoleId(interaction.guild, roleConfigKeys[category], definition.supportRoleId);
+    const configuredSupportRoleId = TICKET_STAFF_ROLE_ID;
     const answers = modalAnswers(interaction, category);
     const pendingRobloxInfo: BloxlinkLookupResult = {
         status: 'service_unavailable',
