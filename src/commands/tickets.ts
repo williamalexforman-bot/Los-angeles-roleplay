@@ -19,11 +19,13 @@ import {
     PermissionFlagsBits,
     SlashCommandBuilder,
     StringSelectMenuBuilder,
+    StringSelectMenuOptionBuilder,
     TextDisplayBuilder,
     TextChannel,
     TextInputBuilder,
     TextInputStyle,
     type OverwriteResolvable,
+    parseEmoji,
 } from 'discord.js';
 import { BRAND, CHANNEL_IDS, TICKET_CATEGORY_IDS, TICKET_STAFF_ROLE_ID, type TicketCategory } from '../config/constants';
 import { type TicketRecord } from '../database/models';
@@ -127,7 +129,8 @@ const ticketCategories: Record<TicketCategory, TicketCategoryDefinition> = {
     },
 };
 
-const ticketCategoryKeys = Object.keys(ticketCategories) as TicketCategory[];
+const ticketCategoryKeys: TicketCategory[] = (Object.keys(ticketCategories) as TicketCategory[])
+    .filter(key => key !== 'internal');
 
 function isTicketCategory(value: string): value is TicketCategory {
     return ticketCategoryKeys.includes(value as TicketCategory);
@@ -135,18 +138,23 @@ function isTicketCategory(value: string): value is TicketCategory {
 
 function panelDropdown(config?: PanelConfig): ActionRowBuilder<StringSelectMenuBuilder> {
     const emojis = parseEmojiMap(config?.emojiText);
+    const options = ticketCategoryKeys.map(key => {
+        const definition = ticketCategories[key];
+        const option = new StringSelectMenuOptionBuilder()
+            .setLabel(definition.label)
+            .setValue(key)
+            .setDescription(definition.menuDescription);
+        const emoji = parseEmoji(emojis[key] || definition.emoji);
+        if (emoji) option.setEmoji(emoji);
+        return option;
+    });
     return new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
         new StringSelectMenuBuilder()
             .setCustomId('ticket_select')
             .setPlaceholder('Select a support department')
             .setMinValues(1)
             .setMaxValues(1)
-            .addOptions(ticketCategoryKeys.map(key => ({
-                label: ticketCategories[key].label,
-                value: key,
-                description: ticketCategories[key].menuDescription,
-                emoji: emojis[key] || ticketCategories[key].emoji,
-            }))),
+            .addOptions(options),
     );
 }
 
@@ -163,7 +171,6 @@ function ticketPanelV2(config: PanelConfig, customBannerUrl?: string | null): Co
             '',
             '**Available Departments**',
             `${emojis.general || '🎫'} **General Support** — Questions and server information`,
-            `${emojis.internal || '📋'} **Internal Affairs** — Staff reports and sensitive matters`,
             `${emojis.management || '🏛️'} **Management Support** — Claims, transfers, and management concerns`,
             `${emojis.highrank || '⭐'} **High-Rank Support** — Payments and ownership questions`,
         ].join('\n')))

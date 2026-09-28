@@ -73,7 +73,7 @@ export const DEFAULT_PANEL_CONFIGS: Record<ConfigurablePanel, PanelConfig> = {
     ticket_panel: {
         title: 'Help & Support',
         description: 'Welcome to the **California State Roleplay Support Center**. Select the department that best matches your request. Please provide complete and truthful information so our staff can assist you efficiently.',
-        emojiText: 'title=🎫\ngeneral=🎫\ninternal=📋\nmanagement=🏛️\nhighrank=⭐',
+        emojiText: 'title=🎫\ngeneral=🎫\nmanagement=🏛️\nhighrank=⭐',
     },
     dashboard: {
         title: 'California State Roleplay Dashboard',
