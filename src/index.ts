@@ -30,6 +30,7 @@ import { getBloxlinkApiKey, getDiscordBotToken } from './config/env';
 import { setDiscordClientForDm } from './commands/punishment';
 import { handlePrefixCommand } from './commands/prefix';
 import { embedsToV2 } from './utils/componentsV2';
+import { configuredChannelId } from './services/panelConfig';
 
 // Crash-proof error handling — prevents Node.js from exiting on unhandled rejections (Node 24+ default)
 process.on('unhandledRejection', (reason: unknown) => {
@@ -98,7 +99,7 @@ function createConfiguredClient(privilegedIntents: boolean): Client {
 
     if (privilegedIntents) {
         bot.on('guildMemberAdd', async member => {
-            const joinChannelId = process.env.JOIN_LOG_CHANNEL_ID || '';
+            const joinChannelId = await configuredChannelId(member.guild, 'welcome', process.env.JOIN_LOG_CHANNEL_ID || '');
             const joinChannel = await member.client.channels.fetch(joinChannelId).catch(() => null);
             if (joinChannel?.isSendable()) {
                 const dashboardUrl = process.env.DASHBOARD_URL?.trim()

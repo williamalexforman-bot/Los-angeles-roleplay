@@ -1,8 +1,10 @@
-import { Message, PermissionFlagsBits } from 'discord.js';
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, Message, PermissionFlagsBits } from 'discord.js';
 import { postPanelFromMessage, runSessionActionFromMessage } from './panels';
 import type { SessionLifecycleStatus } from '../services/panelConfig';
 import { postTicketPanelFromMessage } from './tickets';
-import { configuredRoleId } from '../services/panelConfig';
+import { configuredRoleId, getGuildBotConfig, saveGuildBotConfig } from '../services/panelConfig';
+
+const WELCOME_CHANNEL_ID = '1516784300039864403';
 
 async function canUsePrefix(message: Message): Promise<boolean> {
     if (!message.guild || !message.member) return false;
@@ -40,6 +42,7 @@ export async function handlePrefixCommand(message: Message): Promise<boolean> {
         sessionboost: 'boosted', 'session-boost': 'boosted',
     };
     const recognized = command === 'say' || command === 'ticketpanel' || command === 'ticket-panel'
+        || command === 'welcomeon' || command === 'welcome-on'
         || command in panelCommands || command in sessionCommands;
     if (!recognized) return false;
     const allowed = command in sessionCommands ? await canUseSessionPrefix(message) : await canUsePrefix(message);
@@ -56,7 +59,28 @@ export async function handlePrefixCommand(message: Message): Promise<boolean> {
         await message.delete().catch(() => undefined);
         return true;
     }
-    if (command in sessionCommands) await runSessionActionFromMessage(message, sessionCommands[command]);
+    if (command === 'welcomeon' || command === 'welcome-on') {
+        const target = await message.client.channels.fetch(WELCOME_CHANNEL_ID).catch(() => null);
+        if (!target?.isSendable()) {
+            await message.reply(`I cannot access the welcome channel <#${WELCOME_CHANNEL_ID}>.`);
+            return true;
+        }
+        const config = await getGuildBotConfig(message.guild);
+        config.channels.welcome = WELCOME_CHANNEL_ID;
+        await saveGuildBotConfig(message.guild, config);
+        const dashboardUrl = process.env.DASHBOARD_URL?.trim()
+            || `https://discord.com/channels/${message.guild.id}/${WELCOME_CHANNEL_ID}`;
+        await target.send({
+            content: `👋 Welcome ${message.author} to **${message.guild.name}**! Please make yourself feel at home!`,
+            components: [new ActionRowBuilder<ButtonBuilder>().addComponents(
+                new ButtonBuilder().setCustomId('welcome:member-count')
+                    .setLabel(message.guild.memberCount.toLocaleString()).setEmoji('👤').setStyle(ButtonStyle.Secondary).setDisabled(true),
+                new ButtonBuilder().setLabel('Dashboard').setStyle(ButtonStyle.Link).setURL(dashboardUrl),
+            )],
+            allowedMentions: { users: [message.author.id], parse: [] },
+        });
+    }
+    else if (command in sessionCommands) await runSessionActionFromMessage(message, sessionCommands[command]);
     else if (command === 'ticketpanel' || command === 'ticket-panel') await postTicketPanelFromMessage(message);
     else await postPanelFromMessage(message, panelCommands[command]);
     await message.delete().catch(() => undefined);

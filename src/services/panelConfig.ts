@@ -25,7 +25,7 @@ const guildConfigCache = new Map<string, GuildBotConfig>();
 
 export const CONFIG_CHANNEL_KEYS = [
     'ticket_panel', 'ticket_transcripts', 'regulations', 'dashboard', 'sessions', 'application_panel', 'application_reviews',
-    'infractions', 'promotions', 'command_logs', 'general_ticket_category', 'internal_ticket_category',
+    'infractions', 'promotions', 'command_logs', 'welcome', 'general_ticket_category', 'internal_ticket_category',
     'management_ticket_category', 'highrank_ticket_category',
 ] as const;
 export type ConfigChannelKey = typeof CONFIG_CHANNEL_KEYS[number];

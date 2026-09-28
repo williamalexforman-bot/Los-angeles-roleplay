@@ -67,6 +67,7 @@ function homeView() {
 const channelLabels: Record<ConfigChannelKey, string> = {
     ticket_panel: 'Ticket Panel', ticket_transcripts: 'Ticket Transcripts', regulations: 'Regulations', dashboard: 'Dashboard',
     sessions: 'Sessions', application_panel: 'Application Panel', application_reviews: 'Application Reviews', infractions: 'Infractions', promotions: 'Promotions', command_logs: 'Command Logs',
+    welcome: 'Welcome Messages',
     general_ticket_category: 'General Ticket Category', internal_ticket_category: 'Internal Affairs Category',
     management_ticket_category: 'Management Ticket Category', highrank_ticket_category: 'High-Rank Ticket Category',
 };
