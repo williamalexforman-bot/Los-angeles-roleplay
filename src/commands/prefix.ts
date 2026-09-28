@@ -1,8 +1,9 @@
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, Message, PermissionFlagsBits } from 'discord.js';
+import { Message, PermissionFlagsBits } from 'discord.js';
 import { postPanelFromMessage, runSessionActionFromMessage } from './panels';
 import type { SessionLifecycleStatus } from '../services/panelConfig';
 import { postTicketPanelFromMessage } from './tickets';
 import { configuredRoleId, getGuildBotConfig, saveGuildBotConfig } from '../services/panelConfig';
+import { sendConfiguredWelcome } from '../services/welcomeMessage';
 
 const WELCOME_CHANNEL_ID = '1516784300039864403';
 
@@ -68,17 +69,7 @@ export async function handlePrefixCommand(message: Message): Promise<boolean> {
         const config = await getGuildBotConfig(message.guild);
         config.channels.welcome = WELCOME_CHANNEL_ID;
         await saveGuildBotConfig(message.guild, config);
-        const dashboardUrl = process.env.DASHBOARD_URL?.trim()
-            || `https://discord.com/channels/${message.guild.id}/${WELCOME_CHANNEL_ID}`;
-        await target.send({
-            content: `👋 Welcome ${message.author} to **${message.guild.name}**! Please make yourself feel at home!`,
-            components: [new ActionRowBuilder<ButtonBuilder>().addComponents(
-                new ButtonBuilder().setCustomId('welcome:member-count')
-                    .setLabel(message.guild.memberCount.toLocaleString()).setEmoji('👤').setStyle(ButtonStyle.Secondary).setDisabled(true),
-                new ButtonBuilder().setLabel('Dashboard').setStyle(ButtonStyle.Link).setURL(dashboardUrl),
-            )],
-            allowedMentions: { users: [message.author.id], parse: [] },
-        });
+        await sendConfiguredWelcome(message.guild, message.author, target);
     }
     else if (command in sessionCommands) await runSessionActionFromMessage(message, sessionCommands[command]);
     else if (command === 'ticketpanel' || command === 'ticket-panel') await postTicketPanelFromMessage(message);

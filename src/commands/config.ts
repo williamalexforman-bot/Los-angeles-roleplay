@@ -12,7 +12,7 @@ import {
     savePanelConfig, type ConfigChannelKey, type ConfigRoleKey, type ConfigurablePanel, type PanelConfig,
 } from '../services/panelConfig';
 
-const panels: ConfigurablePanel[] = ['ticket_panel', 'ticket', 'dashboard', 'regulations', 'application', 'infraction', 'promotion', 'session'];
+const panels: ConfigurablePanel[] = ['ticket_panel', 'ticket', 'dashboard', 'regulations', 'application', 'infraction', 'promotion', 'session', 'welcome'];
 const drafts = new Map<string, { panel: ConfigurablePanel; config: PanelConfig }>();
 
 function draftKey(guildId: string, userId: string): string { return `${guildId}:${userId}`; }
@@ -33,6 +33,7 @@ function panelName(panel: ConfigurablePanel): string {
     if (panel === 'application') return 'Application Panel';
     if (panel === 'infraction') return 'Staff Infraction';
     if (panel === 'promotion') return 'Staff Promotion';
+    if (panel === 'welcome') return 'Welcome Message';
     return 'Session Panel';
 }
 
@@ -42,6 +43,7 @@ function placeholders(panel: ConfigurablePanel): string {
     if (panel === 'promotion') return '`{promoter}` `{member}` `{old_role}` `{new_role}` `{notes}` `{effective_date}` `{issuer}`';
     if (panel === 'dashboard') return '`{members}` `{owner}` `{created}`';
     if (panel === 'application') return '`{applicant}` `{submitted}`';
+    if (panel === 'welcome') return '`{member}` `{server}` `{member_count}`';
     return '`{updated}` `{staff}` `{players}` `{maximum}` `{queue}` `{status}`';
 }
 
@@ -140,6 +142,7 @@ function previewValues(panel: ConfigurablePanel, userId: string): Record<string,
     if (panel === 'promotion') return { promoter: `<@${userId}>`, member: `<@${userId}>`, old_role: 'None', new_role: '@Supervisor', notes: 'Example promotion notes', effective_date: 'Immediately', issuer: `<@${userId}>` };
     if (panel === 'dashboard') return { members: '1,250', owner: `<@${userId}>`, created: '<t:1700000000:D>' };
     if (panel === 'application') return { applicant: `<@${userId}>`, submitted: '<t:1770000000:R>' };
+    if (panel === 'welcome') return { member: `<@${userId}>`, server: 'California State Roleplay', member_count: '1,250' };
     return { updated: '<t:1770000000:R>', staff: '4', players: '28', maximum: '40', queue: '0', status: 'Online' };
 }
 

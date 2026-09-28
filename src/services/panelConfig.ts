@@ -7,7 +7,7 @@ import {
 } from 'discord.js';
 import { logger } from '../utils/logger';
 
-export type ConfigurablePanel = 'ticket' | 'ticket_panel' | 'dashboard' | 'regulations' | 'application' | 'infraction' | 'promotion' | 'session';
+export type ConfigurablePanel = 'ticket' | 'ticket_panel' | 'dashboard' | 'regulations' | 'application' | 'infraction' | 'promotion' | 'session' | 'welcome';
 
 export interface PanelConfig {
     title: string;
@@ -108,6 +108,11 @@ export const DEFAULT_PANEL_CONFIGS: Record<ConfigurablePanel, PanelConfig> = {
         title: 'Session Information',
         description: '> Ready to join one of our amazing sessions? Use the panel below to view live session information, including the player count, staff online, and queue status.\n\n**Last Updated:** {updated}',
         emojiText: 'title=<:session:1525234122568765710>\nstaff=👥\nplayers=👤\nonline=✅\noffline=📡\nvote=🗳️\nboost=🚀',
+    },
+    welcome: {
+        title: 'Welcome to {server}!',
+        description: 'Welcome {member}! We are glad to have you here. Please review the server information and make yourself at home.\n\nYou are member **#{member_count}**.',
+        emojiText: 'title=👋\nmember=👤',
     },
 };
 

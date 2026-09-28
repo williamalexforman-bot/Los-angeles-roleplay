@@ -1,9 +1,6 @@
 import 'dotenv/config';
 import {
-    ActionRowBuilder,
     AuditLogEvent,
-    ButtonBuilder,
-    ButtonStyle,
     Client,
     EmbedBuilder,
     Events,
@@ -31,6 +28,7 @@ import { setDiscordClientForDm } from './commands/punishment';
 import { handlePrefixCommand } from './commands/prefix';
 import { embedsToV2 } from './utils/componentsV2';
 import { configuredChannelId } from './services/panelConfig';
+import { sendConfiguredWelcome } from './services/welcomeMessage';
 
 // Crash-proof error handling — prevents Node.js from exiting on unhandled rejections (Node 24+ default)
 process.on('unhandledRejection', (reason: unknown) => {
@@ -102,25 +100,7 @@ function createConfiguredClient(privilegedIntents: boolean): Client {
             const joinChannelId = await configuredChannelId(member.guild, 'welcome', process.env.JOIN_LOG_CHANNEL_ID || '');
             const joinChannel = await member.client.channels.fetch(joinChannelId).catch(() => null);
             if (joinChannel?.isSendable()) {
-                const dashboardUrl = process.env.DASHBOARD_URL?.trim()
-                    || `https://discord.com/channels/${member.guild.id}/${joinChannel.id}`;
-                const controls = new ActionRowBuilder<ButtonBuilder>().addComponents(
-                    new ButtonBuilder()
-                        .setCustomId('welcome:member-count')
-                        .setLabel(member.guild.memberCount.toLocaleString())
-                        .setEmoji('👤')
-                        .setStyle(ButtonStyle.Secondary)
-                        .setDisabled(true),
-                    new ButtonBuilder()
-                        .setLabel('Dashboard')
-                        .setStyle(ButtonStyle.Link)
-                        .setURL(dashboardUrl),
-                );
-                await joinChannel.send({
-                    content: `👋 Welcome ${member} to **${member.guild.name}**! Please make yourself feel at home!`,
-                    components: [controls],
-                    allowedMentions: { users: [member.id], parse: [] },
-                }).catch(() => undefined);
+                await sendConfiguredWelcome(member.guild, member.user, joinChannel).catch(() => undefined);
             }
 
             const now = Date.now();
