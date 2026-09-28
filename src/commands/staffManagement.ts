@@ -374,11 +374,11 @@ function promotionCommand() {
                     .setName('issue')
                     .setDescription('Issue and publish a staff promotion')
                     .addUserOption(option => option.setName('member').setDescription('The member being promoted').setRequired(true))
-                    .addRoleOption(option => option.setName('old-rank').setDescription('The member\'s current rank, if applicable'))
                     .addRoleOption(option => option.setName('new-role').setDescription('The new server role for this promotion').setRequired(true))
                     .addStringOption(option => option.setName('reason').setDescription('The reason for the promotion').setRequired(true).setMaxLength(1024))
                     .addUserOption(option => option.setName('approved-by').setDescription('The person who approved the promotion').setRequired(true))
-                    .addStringOption(option => option.setName('effective-date').setDescription('The date the promotion takes effect').setRequired(true).setMaxLength(100)),
+                    .addStringOption(option => option.setName('effective-date').setDescription('The date the promotion takes effect').setRequired(true).setMaxLength(100))
+                    .addRoleOption(option => option.setName('old-rank').setDescription('The member\'s current rank, if applicable')),
             ),
 
         async execute(interaction: ChatInputCommandInteraction): Promise<void> {
