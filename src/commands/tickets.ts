@@ -38,6 +38,7 @@ import {
     setOpeningMessage,
     updateTicket,
 } from '../services/ticketRepository';
+import { applyTemplate, getPanelBannerUrl, getPanelConfig, type PanelConfig } from '../services/panelConfig';
 
 const PANEL_DESCRIPTION = `Welcome to Los Angeles Roleplay support system!
 
@@ -309,41 +310,37 @@ function discordInfoValue(ticket: TicketRecord): string {
     ].join('\n');
 }
 
-export function buildOpeningEmbeds(ticket: TicketRecord, fallbackAvatarUrl: string): EmbedBuilder[] {
+export function buildOpeningEmbeds(
+    ticket: TicketRecord,
+    fallbackAvatarUrl: string,
+    configured: PanelConfig = {
+        title: 'Support Ticket Opened',
+        description: '## Thanks {opener} for contacting support!\n\nThank you for opening a ticket. Staff will assist you shortly.',
+    },
+    customBannerUrl?: string | null,
+): EmbedBuilder[] {
     const category = ticketCategories[ticket.category];
     const roblox = (ticket.robloxInfo || {}) as Partial<BloxlinkLookupResult>;
-    const answerChunks = answerLabels(ticket).map(([label, value]) => ({ label, chunks: splitText(value) }));
+    const answers = answerLabels(ticket);
+    const inquiry = answers[0]?.[1] || 'No inquiry was provided.';
+    const opener = `<@${ticket.creatorId}>`;
+    const values = {
+        opener,
+        staff: ticket.supportRoleId ? `<@&${ticket.supportRoleId}>` : '**Staff Team**',
+        ticket_id: `TICKET-${String(ticket.number).padStart(6, '0')}`,
+        inquiry,
+        category: category.label,
+    };
     const first = new EmbedBuilder()
         .setColor(BRAND.color)
         .setAuthor({ name: BRAND.name, iconURL: BRAND.logoUrl })
-        .setTitle(category.title)
-        .setDescription('Thank you for creating a support ticket.\nOur team will be with you shortly.\nPlease patiently wait while our team reviews your inquiry.')
+        .setTitle(applyTemplate(configured.title, values))
+        .setDescription(applyTemplate(configured.description, values))
         .setThumbnail(roblox.status === 'verified' && roblox.robloxAvatarUrl ? roblox.robloxAvatarUrl : fallbackAvatarUrl)
-        .addFields(...answerChunks.map(item => ({ name: item.label, value: item.chunks[0] })))
-        .addFields(
-            { name: 'Discord Information', value: discordInfoValue(ticket) },
-            { name: 'Roblox Information', value: robloxInfoValue(roblox) },
-            { name: 'Claimed By', value: ticket.claimedBy ? `<@${ticket.claimedBy}>` : 'Not Claimed' },
-        )
+        .setImage(customBannerUrl || bannerUrl('support'))
         .setFooter({ text: BRAND.footer })
         .setTimestamp(ticket.createdAt);
-
-    const overflowFields = answerChunks.flatMap(item => item.chunks.slice(1).map((chunk, index) => ({
-        name: `${item.label} (continued${item.chunks.length > 2 ? ` ${index + 2}` : ''})`,
-        value: chunk,
-    })));
-    const embeds = [first];
-    for (let index = 0; index < overflowFields.length; index += 5) {
-        embeds.push(new EmbedBuilder()
-            .setColor(BRAND.color)
-            .setAuthor({ name: BRAND.name, iconURL: BRAND.logoUrl })
-            .setTitle(`${category.title} — Submitted Details`)
-            .setThumbnail(BRAND.logoUrl)
-            .addFields(...overflowFields.slice(index, index + 5))
-            .setFooter({ text: BRAND.footer })
-            .setTimestamp(ticket.createdAt));
-    }
-    return embeds;
+    return [first];
 }
 
 function ticketControlRows(ticket: TicketRecord, disabled = false): ActionRowBuilder<ButtonBuilder>[] {
@@ -575,10 +572,13 @@ export async function createTicketFromModal(interaction: ModalSubmitInteraction,
         active.controlsMessageId = controlsMessage.id;
         await updateTicket(channel.id, { controlsMessageId: controlsMessage.id });
 
-        const openingEmbeds = buildOpeningEmbeds(active, interaction.user.displayAvatarURL({ size: 256 }));
+        const ticketConfig = await getPanelConfig(interaction.guild, 'ticket');
+        const ticketBannerUrl = await getPanelBannerUrl(interaction.guild, ticketConfig);
+        const openingEmbeds = buildOpeningEmbeds(active, interaction.user.displayAvatarURL({ size: 256 }), ticketConfig, ticketBannerUrl);
         const openingMessage = await channel.send({
             content: supportRole ? `<@${interaction.user.id}> <@&${supportRole.id}>` : `<@${interaction.user.id}>`,
             embeds: [openingEmbeds[0]],
+            files: [createLogoAttachment(), ...bannerFiles('support')],
             allowedMentions: { users: [interaction.user.id], roles: supportRole ? [supportRole.id] : [] },
         });
         await setOpeningMessage(channel.id, openingMessage.id);

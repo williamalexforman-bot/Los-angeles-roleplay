@@ -18,6 +18,7 @@ import { logSlashCommand, takeSlashCommandFailure } from '../utils/commandAudit'
 import { logger } from '../utils/logger';
 import { TICKET_CATEGORY_IDS } from '../config/constants';
 import { handlePanelSelectMenu } from '../commands/panels';
+import { handleConfigButton, handleConfigModal, handleConfigSelect } from '../commands/config';
 
 const TICKET_COMMAND_NAMES = new Set([
     'ticket-panel', 'ticket-message', 'ticket', 'ticket-add', 'ticket-close',
@@ -150,6 +151,7 @@ async function handleChatCommand(interaction: ChatInputCommandInteraction): Prom
 export const interactionCreate = async (interaction: Interaction): Promise<void> => {
     try {
         if (interaction.isButton()) {
+            if (await handleConfigButton(interaction)) return;
             if (await handleCommunityButton(interaction)) return;
             if (await handleTicketButton(interaction)) return;
             if (await handleStaffManagementButton(interaction)) return;
@@ -157,6 +159,7 @@ export const interactionCreate = async (interaction: Interaction): Promise<void>
         }
 
         if (interaction.isModalSubmit()) {
+            if (await handleConfigModal(interaction)) return;
             if (await handleCommunityModal(interaction)) return;
             if (await handleTicketModal(interaction)) return;
             if (await handleStaffManagementModal(interaction)) return;
@@ -164,6 +167,7 @@ export const interactionCreate = async (interaction: Interaction): Promise<void>
         }
 
         if (interaction.isStringSelectMenu()) {
+            if (await handleConfigSelect(interaction)) return;
             if (await handlePanelSelectMenu(interaction)) return;
 
             // Compatibility for panels posted by older versions of this bot.

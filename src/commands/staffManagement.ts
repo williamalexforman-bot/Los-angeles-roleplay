@@ -22,6 +22,7 @@ import {
 import { markSlashCommandFailed } from '../utils/commandAudit';
 import { bannerFiles, bannerUrl, underbannerEmbed } from '../utils/bannerAssets';
 import { CHANNEL_IDS } from '../config/constants';
+import { applyTemplate, getPanelBannerUrl, getPanelConfig, type PanelConfig } from '../services/panelConfig';
 
 const BRAND_COLOR = 0x3b82f6;
 const PASS_COLOR = 0x22c55e;
@@ -32,7 +33,11 @@ const LOGO_PATH = resolve(__dirname, '..', '..', 'assets', LOGO_NAME);
 
 const INFRACTION_ACTIONS = [
     'Verbal Warning',
+    'Warning I',
+    'Warning II',
     'Warning',
+    'Strike I',
+    'Strike II',
     'Strike',
     'Suspension',
     'Demotion',
@@ -64,6 +69,7 @@ export interface InfractionRecord {
     internalNotes: string;
     notifyMember: boolean;
     expiration: string;
+    appealStatus?: string;
     status: InfractionStatus;
     parentChannelId: string;
     headerMessageId: string;
@@ -188,26 +194,23 @@ async function getInfractionRecord(threadId: string): Promise<InfractionRecord |
     }
 }
 
-function buildInfractionEmbed(record: InfractionRecord): EmbedBuilder {
-    return brandedEmbed(`Staff Infraction | ${record.caseNumber}`)
-        .setImage(bannerUrl('infraction'))
-        .setDescription(
-            'The high ranking team at Los Angeles Roleplay has issued you an infraction. '
-            + 'Open the linked evidence thread to upload screenshots, recordings, links, and other supporting material.',
-        )
-        .addFields(
-            { name: 'Member', value: `<@${record.memberId}>`, inline: true },
-            { name: 'Action', value: record.action, inline: true },
-            { name: 'Status', value: record.status, inline: true },
-            { name: 'Reason', value: record.reason },
-            { name: 'Notes', value: record.ruleBroken },
-            { name: 'Evidence', value: record.evidence || 'No evidence supplied.' },
-            { name: 'Internal Notes', value: record.internalNotes || 'No internal notes supplied.' },
-            { name: 'Expiration', value: record.expiration || 'No expiration set.', inline: true },
-            { name: 'Direct Message', value: record.notifyMember ? 'Requested' : 'Not requested', inline: true },
-            { name: 'Issued By', value: `<@${record.issuedById}>`, inline: true },
-            { name: 'Created', value: discordTimestamp(new Date(record.createdAt)) },
-        );
+function buildInfractionEmbed(record: InfractionRecord, configured?: PanelConfig, customBannerUrl?: string | null): EmbedBuilder {
+    const config = configured || {
+        title: 'Staff Infraction Issued',
+        description: '> Hello **{member}**, a **{action}** has been placed on your staff record.\n\n› **Reason:** {reason}\n\n› **Infraction type:** {action}\n\n› **Issued by:** **{issuer}**\n\n› **Appeal status:** {appeal_status}',
+    };
+    const values = {
+        member: `<@${record.memberId}>`,
+        action: record.action,
+        reason: record.reason,
+        issuer: `<@${record.issuedById}>`,
+        appeal_status: record.appealStatus || 'Appealable',
+        case_id: record.caseNumber,
+        notes: record.ruleBroken,
+    };
+    return brandedEmbed(applyTemplate(config.title, values))
+        .setImage(customBannerUrl || bannerUrl('infraction'))
+        .setDescription(applyTemplate(config.description, values));
 }
 
 function infractionControls(
@@ -259,8 +262,10 @@ async function updateInfractionDetailMessage(thread: ThreadChannel, record: Infr
     // Compatibility for cases created before the record embed moved to the parent channel.
     if (!message) message = await thread.messages.fetch(record.detailMessageId).catch(() => null);
     if (!message) return;
+    const configured = await getPanelConfig(thread.guild, 'infraction');
+    const customBannerUrl = await getPanelBannerUrl(thread.guild, configured);
     await message.edit({
-        embeds: [buildInfractionEmbed(record), underbannerEmbed()],
+        embeds: [buildInfractionEmbed(record, configured, customBannerUrl), underbannerEmbed()],
         components: infractionControls(record.status, record.threadId, thread.url),
     });
 }
@@ -369,7 +374,7 @@ function promotionCommand() {
                     .setName('issue')
                     .setDescription('Issue and publish a staff promotion')
                     .addUserOption(option => option.setName('member').setDescription('The member being promoted').setRequired(true))
-                    .addRoleOption(option => option.setName('old-rank').setDescription('The member\'s current rank').setRequired(true))
+                    .addRoleOption(option => option.setName('old-rank').setDescription('The member\'s current rank, if applicable'))
                     .addRoleOption(option => option.setName('new-role').setDescription('The new server role for this promotion').setRequired(true))
                     .addStringOption(option => option.setName('reason').setDescription('The reason for the promotion').setRequired(true).setMaxLength(1024))
                     .addUserOption(option => option.setName('approved-by').setDescription('The person who approved the promotion').setRequired(true))
@@ -382,7 +387,7 @@ function promotionCommand() {
             try {
                 interaction.options.getSubcommand(true);
                 const member = interaction.options.getUser('member', true);
-                const oldRankRole = interaction.options.getRole('old-rank', true);
+                const oldRankRole = interaction.options.getRole('old-rank');
                 const newRole = interaction.options.getRole('new-role', true);
                 const reason = interaction.options.getString('reason', true);
                 const approvedBy = interaction.options.getUser('approved-by', true);
@@ -394,19 +399,20 @@ function promotionCommand() {
                     return;
                 }
 
-                const embed = brandedEmbed('🎖️ Staff Promotion')
-                    .setImage(bannerUrl('promotion'))
-                    .setDescription('The high ranking team at Los Angeles Roleplay has issued you a promotion.')
-                    .addFields(
-                    { name: 'Member', value: `<@${member.id}>`, inline: true },
-                    { name: 'Old Rank', value: `<@&${oldRankRole.id}>`, inline: true },
-                    { name: 'New Role', value: `<@&${newRole.id}>`, inline: true },
-                    { name: 'Reason', value: reason },
-                    { name: 'Approved By', value: `<@${approvedBy.id}>`, inline: true },
-                    { name: 'Effective Date', value: effectiveDate, inline: true },
-                    { name: 'Issued By', value: `<@${interaction.user.id}>`, inline: true },
-                    { name: 'Submitted', value: discordTimestamp() },
-                );
+                const configured = await getPanelConfig(interaction.guild, 'promotion');
+                const customBannerUrl = await getPanelBannerUrl(interaction.guild, configured);
+                const values = {
+                    promoter: `<@${approvedBy.id}>`,
+                    member: `<@${member.id}>`,
+                    old_role: oldRankRole ? `<@&${oldRankRole.id}>` : 'None',
+                    new_role: `<@&${newRole.id}>`,
+                    notes: reason,
+                    effective_date: effectiveDate,
+                    issuer: `<@${interaction.user.id}>`,
+                };
+                const embed = brandedEmbed(applyTemplate(configured.title, values))
+                    .setImage(customBannerUrl || bannerUrl('promotion'))
+                    .setDescription(applyTemplate(configured.description, values));
 
                 await destination.send({
                     content: `🎉 Congratulations <@${member.id}>! You have been promoted to <@&${newRole.id}>.`,
@@ -446,7 +452,14 @@ function infractionCommand() {
                     .addStringOption(option => option.setName('evidence').setDescription('Evidence link or supporting information').setMaxLength(1024))
                     .addStringOption(option => option.setName('internal-notes').setDescription('Private notes for authorized staff').setMaxLength(1024))
                     .addBooleanOption(option => option.setName('notify-member').setDescription('Also notify the member by direct message'))
-                    .addStringOption(option => option.setName('expiration').setDescription('When this infraction expires, if applicable').setMaxLength(100)),
+                    .addStringOption(option => option.setName('expiration').setDescription('When this infraction expires, if applicable').setMaxLength(100))
+                    .addStringOption(option => option
+                        .setName('appeal-status')
+                        .setDescription('Whether this infraction can be appealed')
+                        .addChoices(
+                            { name: 'Appealable', value: 'Appealable' },
+                            { name: 'Not Appealable', value: 'Not Appealable' },
+                        )),
             ),
 
         async execute(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -467,6 +480,8 @@ function infractionCommand() {
                 const internalNotes = interaction.options.getString('internal-notes') || 'No internal notes supplied.';
                 const notifyMember = interaction.options.getBoolean('notify-member') ?? false;
                 const expiration = interaction.options.getString('expiration') || 'No expiration set.';
+                const appealStatus = interaction.options.getString('appeal-status')
+                    || (action === 'Termination' || action === 'Blacklist' ? 'Not Appealable' : 'Appealable');
                 const caseNumber = await nextInfractionCaseNumber(interaction.guildId);
 
                 const fetchedParent = await interaction.client.channels.fetch(CHANNEL_IDS.infractionParent).catch(() => null);
@@ -489,6 +504,7 @@ function infractionCommand() {
                     internalNotes,
                     notifyMember,
                     expiration,
+                    appealStatus,
                     status: 'Active',
                     parentChannelId: fetchedParent.id,
                     headerMessageId: '',
@@ -500,11 +516,13 @@ function infractionCommand() {
                 };
                 addHistory(record, 'Created', interaction.user.id, `${action} issued to ${member.username}.`);
 
+                const configured = await getPanelConfig(interaction.guild, 'infraction');
+                const customBannerUrl = await getPanelBannerUrl(interaction.guild, configured);
                 let detailMessage;
                 try {
                     detailMessage = await fetchedParent.send({
                         content: `<@${member.id}>, a staff infraction has been issued. Please review the record below.`,
-                        embeds: [buildInfractionEmbed(record), underbannerEmbed()],
+                        embeds: [buildInfractionEmbed(record, configured, customBannerUrl), underbannerEmbed()],
                         files: [logoAttachment(), ...bannerFiles('infraction')],
                         allowedMentions: { parse: [], users: [member.id] },
                     });
@@ -521,7 +539,7 @@ function infractionCommand() {
                     });
                     record.threadId = thread.id;
                     await detailMessage.edit({
-                        embeds: [buildInfractionEmbed(record), underbannerEmbed()],
+                        embeds: [buildInfractionEmbed(record, configured, customBannerUrl), underbannerEmbed()],
                         components: infractionControls(record.status, thread.id, thread.url),
                     });
                 } catch (error) {
@@ -536,16 +554,9 @@ function infractionCommand() {
 
                 let memberNotified = !notifyMember;
                 if (notifyMember) {
-                    const notificationEmbed = brandedEmbed(`Staff Infraction | ${caseNumber}`)
-                        .setDescription('The high ranking team at Los Angeles Roleplay has issued you an infraction.')
-                        .addFields(
-                        { name: 'Action', value: action, inline: true },
-                        { name: 'Reason', value: reason },
-                        { name: 'Notes', value: notes },
-                        { name: 'Expiration', value: expiration },
-                    );
+                    const notificationEmbed = buildInfractionEmbed(record, configured, customBannerUrl);
                     memberNotified = await member
-                        .send({ embeds: [notificationEmbed], files: [logoAttachment()] })
+                        .send({ embeds: [notificationEmbed], files: [logoAttachment(), ...bannerFiles('infraction')] })
                         .then(() => true)
                         .catch(() => false);
                     addHistory(

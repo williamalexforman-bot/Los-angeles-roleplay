@@ -12,6 +12,7 @@ import { prohibitedWordCommand } from './prohibitedWords';
 import { sayCommand } from './say';
 import { punishmentCommands } from './punishment';
 import { panelCommands } from './panels';
+import { configCommand } from './config';
 
 export interface CommandDefinition {
     data: {
@@ -38,6 +39,7 @@ export const commandDefinitions: CommandDefinition[] = [
     prohibitedWordCommand,
     ...punishmentCommands,
     ...panelCommands,
+    configCommand,
 ] as CommandDefinition[];
 
 export const commandHandlers = new Map(commandDefinitions.map(command => [command.data.name, command.execute]));

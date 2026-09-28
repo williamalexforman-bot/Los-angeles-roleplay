@@ -28,6 +28,7 @@ function fromDatabase(record: Record<string, unknown>): CommandInfractionRecord 
         internalNotes: String(record.internalNotes),
         notifyMember: Boolean(record.notifyMember),
         expiration: String(record.expiration),
+        appealStatus: typeof record.appealStatus === 'string' ? record.appealStatus : 'Appealable',
         status: String(record.status) as CommandInfractionRecord['status'],
         parentChannelId: String(record.parentChannelId),
         headerMessageId: String(record.headerMessageId),
@@ -81,4 +82,3 @@ export function configureInfractionDatabaseAdapter(): void {
         },
     });
 }
-
