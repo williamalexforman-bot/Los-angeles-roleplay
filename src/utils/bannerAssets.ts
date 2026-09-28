@@ -5,7 +5,7 @@ import { BRAND } from '../config/constants';
 export const BANNERS = {
     infraction: 'infraction-banner.webp',
     promotion: 'promotion-banner.webp',
-    assistance: 'support-banner.webp',
+    assistance: 'assistance-banner.webp',
     dashboard: 'dashboard-banner.webp',
     session: 'session-banner.webp',
     verification: 'verification-banner.webp',
