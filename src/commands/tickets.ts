@@ -140,12 +140,19 @@ function panelDropdown(config?: PanelConfig): ActionRowBuilder<StringSelectMenuB
     const emojis = parseEmojiMap(config?.emojiText);
     const options = ticketCategoryKeys.map(key => {
         const definition = ticketCategories[key];
+        const configuredEmoji = emojis[key];
+        const customEmoji = configuredEmoji ? parseEmoji(configuredEmoji) : null;
         const option = new StringSelectMenuOptionBuilder()
-            .setLabel(definition.label)
+            .setLabel(customEmoji?.id ? definition.label : `${definition.emoji} ${definition.label}`)
             .setValue(key)
             .setDescription(definition.menuDescription);
-        const emoji = parseEmoji(emojis[key] || definition.emoji);
-        if (emoji) option.setEmoji(emoji);
+        // Discord rejects Unicode serialized as a Components V2 option emoji object.
+        // Keep Unicode in the label and reserve the emoji field for valid custom emoji IDs.
+        if (customEmoji?.id) option.setEmoji({
+            id: customEmoji.id,
+            name: customEmoji.name || undefined,
+            animated: customEmoji.animated,
+        });
         return option;
     });
     return new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
@@ -432,10 +439,10 @@ function ticketControlRows(ticket: TicketRecord, disabled = false, config?: Pane
 
 export async function postTicketPanel(interaction: ChatInputCommandInteraction): Promise<void> {
     if (!interaction.inGuild()) {
-        await interaction.reply({ content: 'This command can only be used in the CSRP server.', ephemeral: true });
+        await interaction.reply({ content: 'This command can only be used in the CSRP server.', flags: MessageFlags.Ephemeral });
         return;
     }
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const guild = interaction.guild;
     if (!guild) return;
     const member = await fetchInteractionMember(interaction);
@@ -555,10 +562,10 @@ async function sendTicketCreationLog(ticket: TicketRecord, channel: TextChannel)
 
 export async function createTicketFromModal(interaction: ModalSubmitInteraction, category: TicketCategory): Promise<void> {
     if (!interaction.guild) {
-        await interaction.reply({ content: 'Tickets can only be opened inside the CSRP server.', ephemeral: true });
+        await interaction.reply({ content: 'Tickets can only be opened inside the CSRP server.', flags: MessageFlags.Ephemeral });
         return;
     }
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const definition = ticketCategories[category];
     const categoryConfigKeys: Record<TicketCategory, ConfigChannelKey> = {
         general: 'general_ticket_category', internal: 'internal_ticket_category', management: 'management_ticket_category', highrank: 'highrank_ticket_category',
@@ -677,18 +684,18 @@ async function requireTicket(
     const channelId = interaction.channelId;
     if (!channelId) {
         if (interaction.deferred || interaction.replied) await interaction.editReply('This action must be used in a server ticket channel.');
-        else await interaction.reply({ content: 'This action must be used in a server ticket channel.', ephemeral: true });
+        else await interaction.reply({ content: 'This action must be used in a server ticket channel.', flags: MessageFlags.Ephemeral });
         return null;
     }
     const ticket = await safelyGetTicketByChannel(channelId);
     if (!ticket) {
         if (interaction.deferred || interaction.replied) await interaction.editReply('This is not an active ticket channel.');
-        else await interaction.reply({ content: 'This is not an active ticket channel.', ephemeral: true });
+        else await interaction.reply({ content: 'This is not an active ticket channel.', flags: MessageFlags.Ephemeral });
         return null;
     }
     if (!allowClosed && ticket.status !== 'open') {
         if (interaction.deferred || interaction.replied) await interaction.editReply('This ticket channel is no longer active.');
-        else await interaction.reply({ content: 'This ticket channel is no longer active.', ephemeral: true });
+        else await interaction.reply({ content: 'This ticket channel is no longer active.', flags: MessageFlags.Ephemeral });
         return null;
     }
     return ticket;
@@ -705,7 +712,7 @@ async function updateControlMessage(channel: TextChannel, ticket: TicketRecord, 
 }
 
 async function claimTicket(interaction: ButtonInteraction | ChatInputCommandInteraction): Promise<void> {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const ticket = await requireTicket(interaction);
     if (!ticket || !(interaction.channel instanceof TextChannel)) return;
     const member = await fetchInteractionMember(interaction);
@@ -731,7 +738,7 @@ async function claimTicket(interaction: ButtonInteraction | ChatInputCommandInte
 }
 
 async function unclaimTicket(interaction: ButtonInteraction): Promise<void> {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const ticket = await requireTicket(interaction);
     if (!ticket || !(interaction.channel instanceof TextChannel)) return;
     const member = await fetchInteractionMember(interaction);
@@ -830,7 +837,7 @@ async function archiveTicketTranscript(
 }
 
 async function closeTicket(interaction: ButtonInteraction | ModalSubmitInteraction | ChatInputCommandInteraction, reason = 'No reason supplied'): Promise<void> {
-    if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ ephemeral: true });
+    if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const ticket = await requireTicket(interaction);
     if (!ticket || !(interaction.channel instanceof TextChannel)) return;
     const member = await fetchInteractionMember(interaction);
@@ -930,7 +937,7 @@ function parseUserId(value: string): string | null {
 }
 
 async function modifyTicketUser(interaction: ModalSubmitInteraction, adding: boolean): Promise<void> {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const ticket = await requireTicket(interaction);
     if (!ticket || !(interaction.channel instanceof TextChannel) || !interaction.guild) return;
     const member = await fetchInteractionMember(interaction);
@@ -972,7 +979,7 @@ async function modifyTicketUser(interaction: ModalSubmitInteraction, adding: boo
 }
 
 async function renameTicketFromModal(interaction: ModalSubmitInteraction): Promise<void> {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const ticket = await requireTicket(interaction);
     if (!ticket || !(interaction.channel instanceof TextChannel)) return;
     const member = await fetchInteractionMember(interaction);
@@ -987,7 +994,7 @@ async function renameTicketFromModal(interaction: ModalSubmitInteraction): Promi
 }
 
 async function createTranscript(interaction: ButtonInteraction | ChatInputCommandInteraction): Promise<void> {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const ticket = await requireTicket(interaction, true);
     if (!ticket || !(interaction.channel instanceof TextChannel)) return;
     const member = await fetchInteractionMember(interaction);
@@ -1003,7 +1010,7 @@ async function createTranscript(interaction: ButtonInteraction | ChatInputComman
 }
 
 async function refreshRobloxInfo(interaction: ButtonInteraction | ChatInputCommandInteraction): Promise<void> {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const ticket = await requireTicket(interaction);
     if (!ticket || !(interaction.channel instanceof TextChannel)) return;
     const member = await fetchInteractionMember(interaction);
@@ -1028,7 +1035,7 @@ async function refreshRobloxInfo(interaction: ButtonInteraction | ChatInputComma
 }
 
 async function escalateTicket(interaction: ButtonInteraction): Promise<void> {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const ticket = await requireTicket(interaction);
     if (!ticket || !(interaction.channel instanceof TextChannel)) return;
     const updated = await updateTicket(interaction.channelId, { escalated: true, aiEnabled: false });
@@ -1046,7 +1053,7 @@ export async function handleTicketButton(interaction: ButtonInteraction): Promis
     if (interaction.customId.startsWith('ticket:open:')) {
         const category = interaction.customId.split(':')[2];
         if (!isTicketCategory(category)) {
-            await interaction.reply({ content: 'That ticket category is unavailable.', ephemeral: true });
+            await interaction.reply({ content: 'That ticket category is unavailable.', flags: MessageFlags.Ephemeral });
             return true;
         }
         await interaction.showModal(ticketOpeningModal(category));
@@ -1065,7 +1072,7 @@ export async function handleTicketButton(interaction: ButtonInteraction): Promis
         case 'transcript': await createTranscript(interaction); break;
         case 'escalate': await escalateTicket(interaction); break;
         case 'refresh_roblox': await refreshRobloxInfo(interaction); break;
-        default: await interaction.reply({ content: 'That ticket control is unavailable.', ephemeral: true });
+        default: await interaction.reply({ content: 'That ticket control is unavailable.', flags: MessageFlags.Ephemeral });
     }
     return true;
 }
@@ -1074,7 +1081,7 @@ export async function handleTicketModal(interaction: ModalSubmitInteraction): Pr
     if (interaction.customId.startsWith('ticket:create:')) {
         const category = interaction.customId.split(':')[2];
         if (!isTicketCategory(category)) {
-            await interaction.reply({ content: 'That ticket category is unavailable.', ephemeral: true });
+            await interaction.reply({ content: 'That ticket category is unavailable.', flags: MessageFlags.Ephemeral });
             return true;
         }
         await createTicketFromModal(interaction, category);
@@ -1093,7 +1100,7 @@ export async function handleTicketModal(interaction: ModalSubmitInteraction): Pr
 }
 
 async function directAddRemove(interaction: ChatInputCommandInteraction, adding: boolean): Promise<void> {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const ticket = await requireTicket(interaction);
     if (!ticket || !(interaction.channel instanceof TextChannel)) return;
     const member = await fetchInteractionMember(interaction);
@@ -1114,7 +1121,7 @@ async function directAddRemove(interaction: ChatInputCommandInteraction, adding:
 }
 
 async function directRename(interaction: ChatInputCommandInteraction): Promise<void> {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const ticket = await requireTicket(interaction);
     if (!ticket || !(interaction.channel instanceof TextChannel)) return;
     const member = await fetchInteractionMember(interaction);
@@ -1128,7 +1135,7 @@ async function directRename(interaction: ChatInputCommandInteraction): Promise<v
 }
 
 async function transferTicket(interaction: ChatInputCommandInteraction): Promise<void> {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const ticket = await requireTicket(interaction);
     if (!ticket || !(interaction.channel instanceof TextChannel)) return;
     const ticketChannel = interaction.channel;
@@ -1180,7 +1187,7 @@ async function transferTicket(interaction: ChatInputCommandInteraction): Promise
 }
 
 async function reopenTicket(interaction: ChatInputCommandInteraction): Promise<void> {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const ticket = await requireTicket(interaction, true);
     if (!ticket || !(interaction.channel instanceof TextChannel)) return;
     const member = await fetchInteractionMember(interaction);
@@ -1215,7 +1222,7 @@ export async function executeTicketSlashCommand(interaction: ChatInputCommandInt
         case 'ticket-switchpanel':
         case 'ticket-edit':
         case 'ticket-notes':
-            await interaction.reply({ content: 'Use the persistent controls in the ticket channel for this action.', ephemeral: true });
+            await interaction.reply({ content: 'Use the persistent controls in the ticket channel for this action.', flags: MessageFlags.Ephemeral });
             return;
         default: throw new Error(`Unsupported ticket command: ${interaction.commandName}`);
     }
