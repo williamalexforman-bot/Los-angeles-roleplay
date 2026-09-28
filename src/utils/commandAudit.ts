@@ -1,7 +1,9 @@
-import { ChatInputCommandInteraction, EmbedBuilder, type CommandInteractionOption } from 'discord.js';
+import { ChatInputCommandInteraction, EmbedBuilder, MessageFlags, type CommandInteractionOption } from 'discord.js';
 import { BRAND, CHANNEL_IDS } from '../config/constants';
 import { createLogoAttachment } from './embeds';
 import { logger } from './logger';
+import { embedsToV2 } from './componentsV2';
+import { configuredChannelId } from '../services/panelConfig';
 
 const SECRET_OPTION_PATTERN = /(token|api.?key|password|passwd|secret|credential|private|internal.?notes?|evidence|proof)/i;
 const recordedCommandFailures = new WeakMap<ChatInputCommandInteraction, unknown>();
@@ -52,7 +54,7 @@ export async function logSlashCommand(
     error?: unknown,
 ): Promise<void> {
     try {
-        const channel = await interaction.client.channels.fetch(CHANNEL_IDS.discordCommandLog).catch(() => null);
+        const channel = await interaction.client.channels.fetch(await configuredChannelId(interaction.guild, 'command_logs', CHANNEL_IDS.discordCommandLog)).catch(() => null);
         if (!channel?.isSendable()) return;
 
         let subcommand = 'None';
@@ -87,7 +89,7 @@ export async function logSlashCommand(
             .setTimestamp();
         if (!success && safeFailure) embed.addFields({ name: 'Failure', value: safeFailure });
 
-        await channel.send({ embeds: [embed], files: [createLogoAttachment()], allowedMentions: { parse: [] } });
+        await channel.send({ components: embedsToV2([embed]), files: [createLogoAttachment()], flags: MessageFlags.IsComponentsV2, allowedMentions: { parse: [] } });
     } catch (loggingError) {
         logger.warn(`Slash-command audit log unavailable: ${loggingError instanceof Error ? loggingError.message : 'Unknown error'}`);
     }

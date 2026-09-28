@@ -1,4 +1,5 @@
-import { Client, type MessageCreateOptions, EmbedBuilder } from 'discord.js';
+import { Client, type MessageCreateOptions, EmbedBuilder, MessageFlags } from 'discord.js';
+import { embedsToV2 } from './componentsV2';
 
 export async function sendToChannel(client: Client, channelId: string, content: string | MessageCreateOptions | EmbedBuilder) {
     try {
@@ -11,7 +12,7 @@ export async function sendToChannel(client: Client, channelId: string, content: 
         }
 
         if (content instanceof EmbedBuilder) {
-            await channel.send({ embeds: [content], allowedMentions: { parse: ['users'] } });
+            await channel.send({ components: embedsToV2([content]), flags: MessageFlags.IsComponentsV2, allowedMentions: { parse: ['users'] } });
             return;
         }
 
@@ -26,4 +27,3 @@ export async function sendToChannel(client: Client, channelId: string, content: 
 }
 
 export default sendToChannel;
-

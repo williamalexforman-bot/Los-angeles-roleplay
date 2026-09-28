@@ -10,6 +10,7 @@ import {
     GatewayIntentBits,
     GuildMember,
     PermissionFlagsBits,
+    MessageFlags,
 } from 'discord.js';
 import type { Server } from 'http';
 import { interactionCreate } from './handlers/interactionCreate';
@@ -18,7 +19,6 @@ import { startWebhookServer } from './webhook/server';
 import { connectDatabase, disconnectDatabase } from './database/connection';
 import { configureInfractionDatabaseAdapter } from './database/infractionAdapter';
 import { handleMessageModeration } from './events/messageModeration';
-import { handleTicketAssistantMessage } from './commands/tickets';
 import { startErlcMonitor, type ErlcMonitor } from './monitors/erlcMonitor';
 import { MongoErlcMonitorStateStore } from './database/erlcStateStore';
 import { BRAND, CHANNEL_IDS } from './config/constants';
@@ -26,8 +26,10 @@ import { createLogoAttachment } from './utils/embeds';
 import { logger } from './utils/logger';
 import { configureInfractionAuthorization } from './commands/staffManagement';
 import { cleanupStaleTicketReservations } from './services/ticketRepository';
-import { getBloxlinkApiKey, getDiscordBotToken, getOpenAiApiKey, getOpenAiModel } from './config/env';
+import { getBloxlinkApiKey, getDiscordBotToken } from './config/env';
 import { setDiscordClientForDm } from './commands/punishment';
+import { handlePrefixCommand } from './commands/prefix';
+import { embedsToV2 } from './utils/componentsV2';
 
 // Crash-proof error handling — prevents Node.js from exiting on unhandled rejections (Node 24+ default)
 process.on('unhandledRejection', (reason: unknown) => {
@@ -61,11 +63,6 @@ function createConfiguredClient(privilegedIntents: boolean): Client {
         await onReady(bot);
         if (!getBloxlinkApiKey()) {
             logger.info('Bloxlink integration is disabled because BLOXLINK_API_KEY is not configured.');
-        }
-        if (!getOpenAiApiKey()) {
-            logger.info('The optional AI ticket assistant is disabled because OPENAI_API_KEY is not configured.');
-        } else {
-            logger.info(`Automated ticket assistant configured with model ${getOpenAiModel()}.`);
         }
         if (!process.env.BOT_PERMISSIONS_ROLE_ID) {
             logger.info('No bot-permissions role was found; administrative setup commands remain administrator-only.');
@@ -139,7 +136,7 @@ function createConfiguredClient(privilegedIntents: boolean): Client {
             const embed = new EmbedBuilder()
                 .setColor(BRAND.color)
                 .setTitle('Rapid Join Alert')
-                .setDescription('A burst of new members may require staff review. No automatic moderation action was taken.')
+                .setDescription(`${emergencyRoleId ? `<@&${emergencyRoleId}>\n\n` : ''}A burst of new members may require staff review. No automatic moderation action was taken.`)
                 .setThumbnail(BRAND.logoUrl)
                 .addFields(
                     { name: 'Joins Detected', value: `${state.joins.length} within 10 seconds`, inline: true },
@@ -148,9 +145,9 @@ function createConfiguredClient(privilegedIntents: boolean): Client {
                 .setFooter({ text: BRAND.footer })
                 .setTimestamp();
             await raidChannel.send({
-                content: emergencyRoleId ? `<@&${emergencyRoleId}>` : undefined,
-                embeds: [embed],
+                components: embedsToV2([embed]),
                 files: [createLogoAttachment()],
+                flags: MessageFlags.IsComponentsV2,
                 allowedMentions: emergencyRoleId ? { roles: [emergencyRoleId] } : { parse: [] },
             }).catch(() => undefined);
         });
@@ -181,10 +178,8 @@ function createConfiguredClient(privilegedIntents: boolean): Client {
         });
 
         bot.on('messageCreate', async message => {
-            await Promise.allSettled([
-                handleMessageModeration(message),
-                handleTicketAssistantMessage(message),
-            ]);
+            const handled = await handlePrefixCommand(message);
+            if (!handled) await handleMessageModeration(message);
         });
     }
     return bot;

@@ -12,6 +12,7 @@ import { Infraction } from '../database/models';
 import { isDatabaseAvailable } from '../database/connection';
 import { markSlashCommandFailed } from '../utils/commandAudit';
 import { createLogoAttachment } from '../utils/embeds';
+import { embedsToV2 } from '../utils/componentsV2';
 
 const BRAND_FOOTER = BRAND.footer;
 const LOGO_URL = BRAND.logoUrl;
@@ -37,7 +38,7 @@ async function sendDm(userId: string, embed: EmbedBuilder): Promise<boolean> {
         if (!client) return false;
         const user = await client.users.fetch(userId);
         if (!user) return false;
-        await user.send({ embeds: [embed], files: [createLogoAttachment()] });
+        await user.send({ components: embedsToV2([embed]), files: [createLogoAttachment()], flags: MessageFlags.IsComponentsV2 });
         return true;
     } catch {
         return false;
@@ -170,7 +171,7 @@ export const punishmentCommands = [
 
                 // Build the DM embed first
                 const dmEmbed = brandedEmbed(`Punishment Notice | ${caseNumber}`)
-                    .setDescription('You have received a punishment from the Los Angeles Roleplay staff team.')
+                    .setDescription('You have received a punishment from the California State Roleplay staff team.')
                     .addFields(
                         { name: 'Action', value: action.charAt(0).toUpperCase() + action.slice(1), inline: true },
                         { name: 'Reason', value: reason },
@@ -231,7 +232,7 @@ export const punishmentCommands = [
                         { name: 'DM Sent', value: dmSent ? '✅ Yes' : '❌ No (DMs may be closed)', inline: true },
                     );
 
-                await interaction.editReply({ embeds: [confirmEmbed], files: [createLogoAttachment()] });
+                await interaction.editReply({ components: embedsToV2([confirmEmbed]), files: [createLogoAttachment()], flags: MessageFlags.IsComponentsV2 });
             } catch (error) {
                 console.error('[Punishment] Command failed.', error);
                 markSlashCommandFailed(interaction, error);
@@ -286,7 +287,7 @@ export const punishmentCommands = [
                     if (records.length === 0) {
                         const embed = brandedEmbed('Punishment History')
                             .setDescription(`${targetUser} has no punishment history.`);
-                        await interaction.editReply({ embeds: [embed], files: [createLogoAttachment()] });
+                        await interaction.editReply({ components: embedsToV2([embed]), files: [createLogoAttachment()], flags: MessageFlags.IsComponentsV2 });
                         return;
                     }
 
@@ -303,7 +304,7 @@ export const punishmentCommands = [
                         .setDescription(`${targetUser} has ${records.length} record(s):\n\n${historyText}`)
                         .setThumbnail(targetUser.displayAvatarURL());
 
-                    await interaction.editReply({ embeds: [embed], files: [createLogoAttachment()] });
+                    await interaction.editReply({ components: embedsToV2([embed]), files: [createLogoAttachment()], flags: MessageFlags.IsComponentsV2 });
                     return;
                 }
 
@@ -338,7 +339,7 @@ export const punishmentCommands = [
                             { name: 'Original Reason', value: record.reason },
                         );
 
-                    await interaction.editReply({ embeds: [embed], files: [createLogoAttachment()] });
+                    await interaction.editReply({ components: embedsToV2([embed]), files: [createLogoAttachment()], flags: MessageFlags.IsComponentsV2 });
                     return;
                 }
             } catch (error) {
@@ -349,4 +350,3 @@ export const punishmentCommands = [
         },
     },
 ];
-

@@ -26,12 +26,13 @@ import {
 import { markSlashCommandFailed } from '../utils/commandAudit';
 import { bannerFiles, bannerUrl, underbannerEmbed } from '../utils/bannerAssets';
 import { CHANNEL_IDS } from '../config/constants';
-import { applyTemplate, getPanelBannerUrl, getPanelConfig, type PanelConfig } from '../services/panelConfig';
+import { applyTemplate, configuredChannelId, getPanelBannerUrl, getPanelConfig, parseEmojiMap, type PanelConfig } from '../services/panelConfig';
+import { embedsToV2 } from '../utils/componentsV2';
 
 const BRAND_COLOR = 0x3b82f6;
 const PASS_COLOR = 0x22c55e;
 const FAIL_COLOR = 0xef4444;
-const BRAND_FOOTER = 'Los Angeles Roleplay | Realism at its Finest';
+const BRAND_FOOTER = 'California State Roleplay | Realism at its Finest';
 const LOGO_NAME = 'larp-logo.png';
 const LOGO_PATH = resolve(__dirname, '..', '..', 'assets', LOGO_NAME);
 
@@ -217,13 +218,14 @@ function buildInfractionPanel(
         case_id: record.caseNumber,
         notes: record.ruleBroken,
     };
+    const emojis = parseEmojiMap(config.emojiText);
     const container = new ContainerBuilder()
         .setAccentColor(BRAND_COLOR)
         .addMediaGalleryComponents(new MediaGalleryBuilder().addItems(
             new MediaGalleryItemBuilder().setURL(customBannerUrl || bannerUrl('infraction')),
         ))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent([
-            `# ${applyTemplate(config.title, values)}`,
+            `# ${emojis.title || '⚠️'} ${applyTemplate(config.title, values)}`,
             applyTemplate(config.description, values),
             '',
             `-# ${BRAND_FOOTER} • ${record.caseNumber}`,
@@ -375,7 +377,7 @@ function trainingResultCommand() {
                     { name: 'Submitted', value: discordTimestamp() },
                 );
 
-                await destination.send({ embeds: [embed, underbannerEmbed()], files: [logoAttachment(), ...bannerFiles(result === 'Pass' ? 'passed' : 'denied')], allowedMentions: { parse: [] } });
+                await destination.send({ components: embedsToV2([embed, underbannerEmbed()]), files: [logoAttachment(), ...bannerFiles(result === 'Pass' ? 'passed' : 'denied')], flags: MessageFlags.IsComponentsV2, allowedMentions: { parse: [] } });
                 await interaction.editReply('The training result has been published successfully.');
             } catch (error) {
                 console.error('[Staff Management] Training result submission failed.', error);
@@ -414,7 +416,7 @@ function promotionCommand() {
                 const reason = interaction.options.getString('reason', true);
                 const approvedBy = interaction.options.getUser('approved-by', true);
                 const effectiveDate = interaction.options.getString('effective-date', true);
-                const destination = await getSendableChannel(interaction, CHANNEL_IDS.promotions);
+                const destination = await getSendableChannel(interaction, await configuredChannelId(interaction.guild, 'promotions', CHANNEL_IDS.promotions));
 
                 if (!destination) {
                     await interaction.editReply('The promotions channel is unavailable. Please contact an administrator.');
@@ -432,6 +434,7 @@ function promotionCommand() {
                     effective_date: effectiveDate,
                     issuer: `<@${interaction.user.id}>`,
                 };
+                const promotionEmojis = parseEmojiMap(configured.emojiText);
                 await destination.send({
                     components: [new ContainerBuilder()
                         .setAccentColor(BRAND_COLOR)
@@ -439,7 +442,7 @@ function promotionCommand() {
                             new MediaGalleryItemBuilder().setURL(customBannerUrl || bannerUrl('promotion')),
                         ))
                         .addTextDisplayComponents(new TextDisplayBuilder().setContent([
-                            `# ${applyTemplate(configured.title, values)}`,
+                            `# ${promotionEmojis.title || '📈'} ${applyTemplate(configured.title, values)}`,
                             applyTemplate(configured.description, values),
                             '',
                             `🎉 Congratulations <@${member.id}>! You have been promoted to <@&${newRole.id}>.`,
@@ -517,7 +520,7 @@ function infractionCommand() {
                     || (action === 'Termination' || action === 'Blacklist' ? 'Not Appealable' : 'Appealable');
                 const caseNumber = await nextInfractionCaseNumber(interaction.guildId);
 
-                const fetchedParent = await interaction.client.channels.fetch(CHANNEL_IDS.infractionParent).catch(() => null);
+                const fetchedParent = await interaction.client.channels.fetch(await configuredChannelId(interaction.guild, 'infractions', CHANNEL_IDS.infractionParent)).catch(() => null);
                 if (!(fetchedParent instanceof TextChannel) || fetchedParent.type !== ChannelType.GuildText) {
                     await interaction.editReply('The configured infraction parent channel is unavailable or is not a standard text channel.');
                     return;
@@ -692,9 +695,11 @@ function singleInputModal(
 }
 
 async function threadEventEmbed(thread: ThreadChannel, title: string, description: string): Promise<void> {
+    const embed = brandedEmbed(title).setDescription(description);
     await thread.send({
-        embeds: [brandedEmbed(title).setDescription(description)],
+        components: embedsToV2([embed]),
         files: [logoAttachment()],
+        flags: MessageFlags.IsComponentsV2,
         allowedMentions: { parse: [] },
     });
 }

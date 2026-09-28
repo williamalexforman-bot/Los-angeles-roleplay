@@ -6,6 +6,7 @@ import {
     ChatInputCommandInteraction,
     Client,
     ColorResolvable,
+    ContainerBuilder,
     EmbedBuilder,
     MessageFlags,
     ModalBuilder,
@@ -14,11 +15,13 @@ import {
     SlashCommandBuilder,
     TextInputBuilder,
     TextInputStyle,
+    TextDisplayBuilder,
     type SendableChannels,
 } from 'discord.js';
 import { markSlashCommandFailed } from '../utils/commandAudit';
 import { BRAND, CHANNEL_IDS, PARTNERSHIP_ROLE_ID } from '../config/constants';
 import { createLogoAttachment } from '../utils/embeds';
+import { embedToV2, embedsToV2 } from '../utils/componentsV2';
 
 const BRAND_COLOR = BRAND.color;
 const BRAND_FOOTER = BRAND.footer;
@@ -50,6 +53,21 @@ function logoAttachment() {
     return createLogoAttachment();
 }
 
+function componentText(message: { components: readonly unknown[] }): string {
+    const lines: string[] = [];
+    const visit = (value: unknown): void => {
+        if (!value || typeof value !== 'object') return;
+        const record = value as Record<string, unknown>;
+        if (typeof record.content === 'string') lines.push(record.content);
+        for (const child of Object.values(record)) {
+            if (Array.isArray(child)) child.forEach(visit);
+            else if (child && typeof child === 'object') visit(child);
+        }
+    };
+    for (const component of message.components) visit('toJSON' in (component as object) ? (component as { toJSON(): unknown }).toJSON() : component);
+    return lines.join('\n').slice(0, 3500);
+}
+
 async function getSendableChannel(
     interaction: { client: Client },
     channelId: string,
@@ -77,7 +95,7 @@ async function sendPrivateAudit(
     );
 
     try {
-        await channel.send({ embeds: [auditEmbed], allowedMentions: { parse: [] } });
+        await channel.send({ components: embedsToV2([auditEmbed]), flags: MessageFlags.IsComponentsV2, allowedMentions: { parse: [] } });
         return true;
     } catch (error) {
         console.error('[Community] Unable to write the private submission audit.', error);
@@ -151,8 +169,9 @@ const movieFeedbackCommand = {
                 );
 
             await destination.send({
-                embeds: [publicEmbed],
+                components: embedsToV2([publicEmbed]),
                 files: [logoAttachment()],
+                flags: MessageFlags.IsComponentsV2,
                 allowedMentions: { parse: [] },
             });
 
@@ -242,8 +261,9 @@ const staffFeedbackCommand = {
             );
 
             await destination.send({
-                embeds: [publicEmbed],
+                components: embedsToV2([publicEmbed]),
                 files: [logoAttachment()],
+                flags: MessageFlags.IsComponentsV2,
                 allowedMentions: { parse: [] },
             });
 
@@ -274,7 +294,7 @@ const staffFeedbackCommand = {
 };
 
 const PARTNERSHIP_PANEL_TEXT = [
-    'Thank you for choosing to partner with LARP!',
+    'Thank you for choosing to partner with CSRP!',
     '',
     'We have a few rules about partnering with us:',
     '- You must stay in the server the whole time; leaving will delete your partnership.',
@@ -282,7 +302,7 @@ const PARTNERSHIP_PANEL_TEXT = [
     '',
     'Perks of partnering with us:',
     '- Gain the partnership role.',
-    '- Show everyone that you are a proud partner of LARP!',
+    '- Show everyone that you are a proud partner of CSRP!',
     '',
     'Please wait as we review your request.',
 ].join('\n');
@@ -312,7 +332,7 @@ function partnershipRequestModal(): ModalBuilder {
             new ActionRowBuilder<TextInputBuilder>().addComponents(new TextInputBuilder()
                 .setCustomId('server_name')
                 .setLabel('Server name')
-                .setPlaceholder('Los Angeles Roleplay')
+                .setPlaceholder('California State Roleplay')
                 .setStyle(TextInputStyle.Short)
                 .setMaxLength(100)
                 .setRequired(true)),
@@ -391,7 +411,7 @@ function partnershipInviteIsValid(value: string): boolean {
 const partnershipCommand = {
     data: new SlashCommandBuilder()
         .setName('partnership')
-        .setDescription('Post or submit a LARP partnership request')
+        .setDescription('Post or submit a CSRP partnership request')
         .addSubcommand(subcommand => subcommand
             .setName('request')
             .setDescription('Post the professional partnership request panel in this channel')),
@@ -404,8 +424,8 @@ const partnershipCommand = {
             return;
         }
         await destination.send({
-            embeds: [partnershipPanelEmbed()],
-            components: partnershipPanelComponents(),
+            components: [embedToV2(partnershipPanelEmbed(), partnershipPanelComponents())],
+            flags: MessageFlags.IsComponentsV2,
             allowedMentions: { parse: [] },
         });
         await interaction.editReply('The partnership request panel has been posted in this channel.');
@@ -454,7 +474,8 @@ const staffComplaintCommand = {
                 );
 
             await destination.send({
-                embeds: [complaintEmbed],
+                components: embedsToV2([complaintEmbed]),
+                flags: MessageFlags.IsComponentsV2,
                 allowedMentions: { parse: [] },
             });
             await interaction.editReply('Your staff complaint has been submitted securely to the review team.');
@@ -479,7 +500,7 @@ export async function handleCommunityButton(interaction: ButtonInteraction): Pro
     const [action, submitterId] = interaction.customId.split(':').slice(1);
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const sourceMessage = interaction.message;
-    const currentEmbed = sourceMessage.embeds[0] ? EmbedBuilder.from(sourceMessage.embeds[0]) : brandedEmbed('🤝 Partnership Request');
+    const originalText = componentText(sourceMessage) || '# 🤝 Partnership Request';
     if (action === 'approve') {
         let roleMessage = 'The partnership was approved.';
         if (PARTNERSHIP_ROLE_ID && interaction.guild) {
@@ -490,23 +511,18 @@ export async function handleCommunityButton(interaction: ButtonInteraction): Pro
         } else if (!PARTNERSHIP_ROLE_ID) {
             roleMessage = 'The partnership was approved, but PARTNERSHIP_ROLE_ID is not configured yet.';
         }
-        currentEmbed.setColor(0x22c55e).setFooter({ text: `✅ Approved by ${interaction.user.tag} • ${BRAND_FOOTER}` });
-        await sourceMessage.edit({ embeds: [currentEmbed], components: partnershipReviewComponents(submitterId, true) });
+        const approvedPanel = new ContainerBuilder().setAccentColor(0x22c55e)
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${originalText}\n\n-# ✅ Approved by ${interaction.user.tag} • ${BRAND_FOOTER}`))
+            .addActionRowComponents(...partnershipReviewComponents(submitterId, true));
+        await sourceMessage.edit({ embeds: [], components: [approvedPanel], flags: MessageFlags.IsComponentsV2 });
 
         const approvalChannel = await getSendableChannel(interaction, process.env.PARTNERSHIP_APPROVAL_CHANNEL_ID || '');
         if (approvalChannel) {
             // Send the full partnership embed to the approval channel
-            const approvalEmbed = partnershipEmbed('✅ Partnership Approved')
-                .addFields(
-                    { name: 'Server Name', value: currentEmbed.data.fields?.find(f => f.name === 'Server Name')?.value || 'Unknown', inline: true },
-                    { name: 'Representative', value: currentEmbed.data.fields?.find(f => f.name === 'Representative')?.value || 'Unknown', inline: true },
-                    { name: 'Invite Link', value: currentEmbed.data.fields?.find(f => f.name === 'Invite Link')?.value || 'Unknown', inline: true },
-                    { name: 'Approved By', value: `<@${interaction.user.id}>`, inline: true },
-                    { name: 'Submitted By', value: `<@${submitterId}>`, inline: true },
-                )
-                .setColor(0x22c55e);
             await approvalChannel.send({
-                embeds: [approvalEmbed],
+                components: [new ContainerBuilder().setAccentColor(0x22c55e)
+                    .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${originalText}\n\n**Approved By:** <@${interaction.user.id}>\n**Submitted By:** <@${submitterId}>`))],
+                flags: MessageFlags.IsComponentsV2,
                 allowedMentions: { parse: ['users'] },
             });
         }
@@ -515,8 +531,10 @@ export async function handleCommunityButton(interaction: ButtonInteraction): Pro
         return true;
     }
 
-    currentEmbed.setColor(0xef4444).setFooter({ text: `❌ Denied by ${interaction.user.tag} • ${BRAND_FOOTER}` });
-    await sourceMessage.edit({ embeds: [currentEmbed], components: partnershipReviewComponents(submitterId, true) });
+    const deniedPanel = new ContainerBuilder().setAccentColor(0xef4444)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${originalText}\n\n-# ❌ Denied by ${interaction.user.tag} • ${BRAND_FOOTER}`))
+        .addActionRowComponents(...partnershipReviewComponents(submitterId, true));
+    await sourceMessage.edit({ embeds: [], components: [deniedPanel], flags: MessageFlags.IsComponentsV2 });
     await interaction.editReply('The partnership request was denied.');
     return true;
 }
@@ -547,8 +565,8 @@ export async function handleCommunityModal(interaction: ModalSubmitInteraction):
                 { name: 'Submitted By', value: `<@${interaction.user.id}> • ${interaction.user.tag}`, inline: false },
             );
         await destination.send({
-            embeds: [requestEmbed],
-            components: partnershipReviewComponents(interaction.user.id),
+            components: [embedToV2(requestEmbed, partnershipReviewComponents(interaction.user.id))],
+            flags: MessageFlags.IsComponentsV2,
             allowedMentions: { parse: [] },
         });
         // Send the server advertisement as a separate message for better visibility

@@ -1,5 +1,6 @@
-import { AttachmentBuilder, ChatInputCommandInteraction, ColorResolvable, EmbedBuilder } from 'discord.js';
+import { AttachmentBuilder, ChatInputCommandInteraction, ColorResolvable, EmbedBuilder, MessageFlags } from 'discord.js';
 import { BRAND } from '../config/constants';
+import { embedsToV2 } from './componentsV2';
 
 export const createEmbed = (title: string, description: string, color: ColorResolvable = BRAND.color) => {
     return new EmbedBuilder()
@@ -39,8 +40,8 @@ export const sendEmbed = async (interaction: ChatInputCommandInteraction, messag
     const embed = createEmbed('Bot Update', message);
 
     if (interaction.replied || interaction.deferred) {
-        return interaction.followUp({ embeds: [embed], files: [createLogoAttachment()] });
+        return interaction.followUp({ components: embedsToV2([embed]), files: [createLogoAttachment()], flags: MessageFlags.IsComponentsV2 });
     }
 
-    return interaction.reply({ embeds: [embed], files: [createLogoAttachment()], ephemeral: true });
+    return interaction.reply({ components: embedsToV2([embed]), files: [createLogoAttachment()], flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral });
 };

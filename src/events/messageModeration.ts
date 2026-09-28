@@ -1,14 +1,16 @@
 import {
     EmbedBuilder,
+    MessageFlags,
     type Message,
     type MessageCreateOptions,
 } from 'discord.js';
 import prohibitedWords from '../config/prohibitedWords';
 import { BRAND, CHANNEL_IDS } from '../config/constants';
 import { createLogoAttachment } from '../utils/embeds';
+import { embedsToV2 } from '../utils/componentsV2';
 
 const EMBED_COLOR = 0x3b82f6;
-const EMBED_FOOTER = 'Los Angeles Roleplay | Realism at its Finest';
+const EMBED_FOOTER = 'California State Roleplay | Realism at its Finest';
 const DEDUPE_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_DEDUPE_ENTRIES = 10_000;
 
@@ -195,7 +197,7 @@ function buildProfanityEmbed(message: Message, detectedWords: readonly string[])
     const embed = new EmbedBuilder()
         .setColor(EMBED_COLOR)
         .setAuthor({
-            name: 'LARP Message Moderation',
+            name: 'CSRP Message Moderation',
             iconURL: message.author.displayAvatarURL(),
         })
         .setTitle('Prohibited Language Detected')
@@ -226,7 +228,7 @@ function buildRaidThreatEmbed(message: Message, detection: RaidThreatDetection):
     const embed = new EmbedBuilder()
         .setColor(EMBED_COLOR)
         .setAuthor({
-            name: 'LARP Safety Monitoring',
+            name: 'CSRP Safety Monitoring',
             iconURL: message.author.displayAvatarURL(),
         })
         .setTitle('Potential Raid Threat Detected')
@@ -262,8 +264,9 @@ export async function handleMessageModeration(message: Message): Promise<void> {
     const detectedWords = detectProhibitedWords(message.content);
     if (detectedWords.length > 0 && reserveMessage(profanityLogDedupe, message.id)) {
         const sent = await sendToLogChannel(message, CHANNEL_IDS.profanityLog, {
-            embeds: [buildProfanityEmbed(message, detectedWords)],
+            components: embedsToV2([buildProfanityEmbed(message, detectedWords)]),
             files: [createLogoAttachment()],
+            flags: MessageFlags.IsComponentsV2,
             allowedMentions: { parse: [] },
         });
 
@@ -276,10 +279,12 @@ export async function handleMessageModeration(message: Message): Promise<void> {
         const shouldPingEmergencyStaff = raidThreat.confidence === 'High'
             && Boolean(emergencyRoleId?.match(/^\d{17,20}$/u));
 
+        const raidEmbed = buildRaidThreatEmbed(message, raidThreat);
+        if (shouldPingEmergencyStaff && emergencyRoleId) raidEmbed.setDescription(`<@&${emergencyRoleId}>\n\n${raidEmbed.data.description || ''}`);
         const sent = await sendToLogChannel(message, CHANNEL_IDS.raidThreatLog, {
-            content: shouldPingEmergencyStaff ? `<@&${emergencyRoleId}>` : undefined,
-            embeds: [buildRaidThreatEmbed(message, raidThreat)],
+            components: embedsToV2([raidEmbed]),
             files: [createLogoAttachment()],
+            flags: MessageFlags.IsComponentsV2,
             allowedMentions: shouldPingEmergencyStaff && emergencyRoleId
                 ? { roles: [emergencyRoleId] }
                 : { parse: [] },

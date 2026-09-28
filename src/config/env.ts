@@ -2,8 +2,6 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-export const DEFAULT_OPENAI_MODEL = 'gpt-5.6-sol';
-
 const PLACEHOLDER_SECRET = /^(?:your(?:[_ -].*)?|replace(?:[_ -]?me)?|change(?:[_ -]?me)?|paste(?:[_ -].*)?|example(?:[_ -].*)?|<.*>)$/i;
 
 /**
@@ -11,22 +9,14 @@ const PLACEHOLDER_SECRET = /^(?:your(?:[_ -].*)?|replace(?:[_ -]?me)?|change(?:[
  * whitespace and placeholder handling. Values such as `your_openai_api_key`
  * are documentation examples, not valid runtime configuration.
  */
-export function getConfiguredSecret(name: 'OPENAI_API_KEY' | 'BLOXLINK_API_KEY'): string | undefined {
+export function getConfiguredSecret(name: 'BLOXLINK_API_KEY'): string | undefined {
     const value = process.env[name]?.trim();
     if (!value || PLACEHOLDER_SECRET.test(value)) return undefined;
     return value;
 }
 
-export function getOpenAiApiKey(): string | undefined {
-    return getConfiguredSecret('OPENAI_API_KEY');
-}
-
 export function getBloxlinkApiKey(): string | undefined {
     return getConfiguredSecret('BLOXLINK_API_KEY');
-}
-
-export function getOpenAiModel(): string {
-    return process.env.OPENAI_MODEL?.trim() || DEFAULT_OPENAI_MODEL;
 }
 
 export function getDiscordBotToken(): string | undefined {
@@ -53,8 +43,6 @@ const config = {
     EMERGENCY_STAFF_ROLE_ID: process.env.EMERGENCY_STAFF_ROLE_ID,
     BLOXLINK_API_KEY: getBloxlinkApiKey(),
     ERLC_SERVER_KEY: process.env.ERLC_SERVER_KEY || process.env.ERLC_API,
-    OPENAI_API_KEY: getOpenAiApiKey(),
-    OPENAI_MODEL: getOpenAiModel(),
 };
 
 export default config;

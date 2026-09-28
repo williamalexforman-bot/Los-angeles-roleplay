@@ -1,7 +1,8 @@
-import { ChatInputCommandInteraction, EmbedBuilder, SlashCommandBuilder } from 'discord.js';
+import { ChatInputCommandInteraction, EmbedBuilder, MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { sendToChannel } from '../utils/notify';
 import { BRAND } from '../config/constants';
 import { createLogoAttachment } from '../utils/embeds';
+import { embedsToV2 } from '../utils/componentsV2';
 
 export const gameCommands = [
     {
@@ -31,8 +32,9 @@ export const gameCommands = [
                 .setTimestamp();
 
             await sendToChannel(interaction.client, process.env.ERLC_TEAM_CHANGE_LOG_CHANNEL_ID || '', {
-                embeds: [embed],
+                components: embedsToV2([embed]),
                 files: [createLogoAttachment()],
+                flags: MessageFlags.IsComponentsV2,
                 allowedMentions: { parse: [] },
             });
             await interaction.reply({ content: `Reported team switch for ${user?.username}.`, ephemeral: true });

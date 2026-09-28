@@ -7,31 +7,85 @@ import {
 } from 'discord.js';
 import { logger } from '../utils/logger';
 
-export type ConfigurablePanel = 'ticket' | 'infraction' | 'promotion' | 'session';
+export type ConfigurablePanel = 'ticket' | 'ticket_panel' | 'dashboard' | 'regulations' | 'application' | 'infraction' | 'promotion' | 'session';
 
 export interface PanelConfig {
     title: string;
     description: string;
     bannerMessageId?: string;
     emojiText?: string;
+    questions?: string;
 }
 
 const STORE_CHANNEL_NAME = 'bot-config';
 const RECORD_PREFIX = 'LARP_PANEL_CONFIG:';
+const GUILD_CONFIG_PREFIX = 'CSRP_GUILD_CONFIG\n';
 const cache = new Map<string, PanelConfig>();
+const guildConfigCache = new Map<string, GuildBotConfig>();
+
+export const CONFIG_CHANNEL_KEYS = [
+    'ticket_panel', 'ticket_transcripts', 'regulations', 'dashboard', 'sessions', 'application_panel', 'application_reviews',
+    'infractions', 'promotions', 'command_logs', 'general_ticket_category', 'internal_ticket_category',
+    'management_ticket_category', 'highrank_ticket_category',
+] as const;
+export type ConfigChannelKey = typeof CONFIG_CHANNEL_KEYS[number];
+
+export const CONFIG_ROLE_KEYS = [
+    'bot_permissions', 'staff', 'general_support', 'internal_affairs', 'management', 'high_rank',
+    'application_reviewer', 'session_host', 'on_duty', 'on_break',
+] as const;
+export type ConfigRoleKey = typeof CONFIG_ROLE_KEYS[number];
+
+export interface ManagedRoleConfig {
+    roleId: string;
+    name: string;
+    purpose: string;
+    permissions: string[];
+}
+
+export interface GuildBotConfig {
+    channels: Partial<Record<ConfigChannelKey, string>>;
+    roles: Partial<Record<ConfigRoleKey, string>>;
+    managedRoles: ManagedRoleConfig[];
+}
 
 export const DEFAULT_PANEL_CONFIGS: Record<ConfigurablePanel, PanelConfig> = {
     ticket: {
         title: 'Support Ticket Opened',
-        description: '## Thanks {opener} for contacting support!\n\nThank you for opening a ticket with **Florida Roleplay**. {staff} will assist you as soon as possible. Please avoid pinging staff unless this ticket has gone unanswered for more than **12 hours**. If you are reporting a user, include their **User ID**, relevant **screenshots**, and a **clear explanation** below.\n\n**Ticket Information**\n› **Opener:** {opener}\n› **Ticket ID:** `{ticket_id}`\n› **Inquiry:** {inquiry}',
+        description: '## Thanks {opener} for contacting support!\n\nThank you for opening a ticket with **California State Roleplay**. {staff} will assist you as soon as possible. Please avoid pinging staff unless this ticket has gone unanswered for more than **12 hours**. If you are reporting a user, include their **User ID**, relevant **screenshots**, and a **clear explanation** below.\n\n**Ticket Information**\n› **Opener:** {opener}\n› **Ticket ID:** `{ticket_id}`\n› **Inquiry:** {inquiry}',
+        emojiText: 'title=🎫\nclaim=🙋\nclose=🔒\nescalate=🚨',
+    },
+    ticket_panel: {
+        title: 'Help & Support',
+        description: 'Welcome to the **California State Roleplay Support Center**. Select the department that best matches your request. Please provide complete and truthful information so our staff can assist you efficiently.',
+        emojiText: 'title=🎫\ngeneral=🎫\ninternal=📋\nmanagement=🏛️\nhighrank=⭐',
+    },
+    dashboard: {
+        title: 'California State Roleplay Dashboard',
+        description: 'Use this dashboard to access important community resources, live server information, regulations, applications, and support.',
+        emojiText: 'title=📊\nrules=📜\nsupport=🎫\napplications=📋\nsession=🌐',
+    },
+    regulations: {
+        title: 'Community Regulations',
+        description: 'Select a category below to review the rules. Your selection will be shown privately.',
+        emojiText: 'title=📜\ndiscord=💬\ngame=🎮',
+        questions: '# Discord Rules\n\n1. Swearing may not be directed at another person, and slurs are never allowed.\n2. Treat staff and community members with respect.\n3. Advertising, self-promotion, and spam are prohibited.\n4. Use every channel for its intended purpose.\n5. Follow Discord Terms of Service.\n6. Staff may enforce serious unlisted violations when necessary.\n---GAME---\n# In-Game Rules\n\n1. If you vote for a session, you are expected to join.\n2. RDM, VDM, NLR, and similar roleplay violations will result in punishment.\n3. Do not disrespect staff while they are on duty.\n4. Proper and realistic roleplay is expected at all times.\n5. Follow Roblox Terms of Service.\n6. Staff may enforce serious unlisted violations when necessary.',
+    },
+    application: {
+        title: 'Staff Applications',
+        description: 'Interested in joining the California State Roleplay staff team? Press **Apply** below and answer every question carefully. Incomplete or dishonest applications may be denied.',
+        emojiText: 'title=📋\napply=📝',
+        questions: 'What is your Roblox username?\nHow old are you?\nWhy do you want to join the CSRP staff team?\nWhat experience do you have?\nHow would you handle a disruptive member?',
     },
     infraction: {
         title: 'Staff Infraction Issued',
         description: '> Hello **{member}**, a **{action}** has been placed on your staff record.\n\n› **Reason:** {reason}\n\n› **Infraction type:** {action}\n\n› **Issued by:** **{issuer}**\n\n› **Appeal status:** {appeal_status}',
+        emojiText: 'title=⚠️',
     },
     promotion: {
         title: 'Staff Promotion',
         description: '*Authorized by **{promoter}***\n\n› **Promoted staff:** **{member}**\n\n› **Previous role:** {old_role}\n\n› **New role:** **{new_role}**\n\n› **Additional notes:** {notes}',
+        emojiText: 'title=📈',
     },
     session: {
         title: 'Session Information',
@@ -83,6 +137,7 @@ function parseRecord(content: string, panel: ConfigurablePanel): PanelConfig | n
             description: parsed.description.slice(0, 1_400),
             bannerMessageId: typeof parsed.bannerMessageId === 'string' ? parsed.bannerMessageId : undefined,
             emojiText: typeof parsed.emojiText === 'string' ? parsed.emojiText.slice(0, 500) : DEFAULT_PANEL_CONFIGS[panel].emojiText,
+            questions: typeof parsed.questions === 'string' ? parsed.questions.slice(0, 3_000) : DEFAULT_PANEL_CONFIGS[panel].questions,
         };
     } catch {
         return null;
@@ -126,6 +181,7 @@ export async function savePanelConfig(
         description: config.description.trim().slice(0, 1_400) || DEFAULT_PANEL_CONFIGS[panel].description,
         bannerMessageId: config.bannerMessageId,
         emojiText: (config.emojiText || DEFAULT_PANEL_CONFIGS[panel].emojiText)?.trim().slice(0, 500),
+        questions: (config.questions || DEFAULT_PANEL_CONFIGS[panel].questions)?.trim().slice(0, 3_000),
     };
     const channel = await ensureStoreChannel(guild);
     if (!channel) {
@@ -180,4 +236,74 @@ export function parseSessionEmojis(value?: string): SessionEmojis {
         if (key in parsed && emoji && emoji.length <= 100) parsed[key] = emoji;
     }
     return parsed;
+}
+
+export function parseEmojiMap(value?: string): Record<string, string> {
+    const result: Record<string, string> = {};
+    for (const line of (value || '').split(/\r?\n/)) {
+        const separator = line.indexOf('=');
+        if (separator < 1) continue;
+        const key = line.slice(0, separator).trim().toLowerCase();
+        const emoji = line.slice(separator + 1).trim();
+        if (/^[a-z0-9_]{1,32}$/.test(key) && emoji && emoji.length <= 100) result[key] = emoji;
+    }
+    return result;
+}
+
+function normalizeGuildConfig(value?: Partial<GuildBotConfig>): GuildBotConfig {
+    const channels: GuildBotConfig['channels'] = {};
+    const roles: GuildBotConfig['roles'] = {};
+    for (const key of CONFIG_CHANNEL_KEYS) {
+        const id = value?.channels?.[key];
+        if (typeof id === 'string' && /^\d{17,20}$/.test(id)) channels[key] = id;
+    }
+    for (const key of CONFIG_ROLE_KEYS) {
+        const id = value?.roles?.[key];
+        if (typeof id === 'string' && /^\d{17,20}$/.test(id)) roles[key] = id;
+    }
+    const managedRoles = Array.isArray(value?.managedRoles) ? value.managedRoles.filter(role =>
+        role && typeof role.roleId === 'string' && typeof role.name === 'string' && typeof role.purpose === 'string'
+            && Array.isArray(role.permissions),
+    ).slice(0, 50) : [];
+    return { channels, roles, managedRoles };
+}
+
+export async function getGuildBotConfig(guild: Guild | null): Promise<GuildBotConfig> {
+    if (!guild) return normalizeGuildConfig();
+    const cached = guildConfigCache.get(guild.id);
+    if (cached) return JSON.parse(JSON.stringify(cached)) as GuildBotConfig;
+    const channel = await findStoreChannel(guild);
+    if (channel) {
+        const messages = await channel.messages.fetch({ limit: 100 }).catch(() => null);
+        const record = messages?.find(message => message.author.id === guild.client.user?.id && message.content.startsWith(GUILD_CONFIG_PREFIX));
+        if (record) {
+            try {
+                const parsed = normalizeGuildConfig(JSON.parse(record.content.slice(GUILD_CONFIG_PREFIX.length)) as Partial<GuildBotConfig>);
+                guildConfigCache.set(guild.id, parsed);
+                return JSON.parse(JSON.stringify(parsed)) as GuildBotConfig;
+            } catch { /* use defaults */ }
+        }
+    }
+    return normalizeGuildConfig();
+}
+
+export async function saveGuildBotConfig(guild: Guild, value: GuildBotConfig): Promise<boolean> {
+    const normalized = normalizeGuildConfig(value);
+    guildConfigCache.set(guild.id, normalized);
+    const channel = await ensureStoreChannel(guild);
+    if (!channel) return false;
+    const messages = await channel.messages.fetch({ limit: 100 }).catch(() => null);
+    const existing = messages?.find(message => message.author.id === guild.client.user?.id && message.content.startsWith(GUILD_CONFIG_PREFIX));
+    const content = `${GUILD_CONFIG_PREFIX}${JSON.stringify(normalized)}`;
+    if (existing) await existing.edit({ content, allowedMentions: { parse: [] } });
+    else await channel.send({ content, allowedMentions: { parse: [] } });
+    return true;
+}
+
+export async function configuredChannelId(guild: Guild | null, key: ConfigChannelKey, fallback = ''): Promise<string> {
+    return (await getGuildBotConfig(guild)).channels[key] || fallback;
+}
+
+export async function configuredRoleId(guild: Guild | null, key: ConfigRoleKey, fallback = ''): Promise<string> {
+    return (await getGuildBotConfig(guild)).roles[key] || fallback;
 }

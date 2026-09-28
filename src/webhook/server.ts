@@ -1,10 +1,11 @@
 import { createPublicKey, verify } from 'crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'http';
-import { Client, EmbedBuilder } from 'discord.js';
+import { Client, EmbedBuilder, MessageFlags } from 'discord.js';
 import { BRAND, CHANNEL_IDS } from '../config/constants';
 import { createLogoAttachment } from '../utils/embeds';
 import { logger } from '../utils/logger';
 import { lookupBloxlinkUser } from '../services/bloxlinkService';
+import { embedsToV2 } from '../utils/componentsV2';
 
 const MAX_BODY_BYTES = 1_000_000;
 const SIGNATURE_REPLAY_WINDOW_MS = 10 * 60 * 1_000;
@@ -52,7 +53,7 @@ async function sendEmbed(client: Client, channelId: string, embed: EmbedBuilder)
     const channel = await client.channels.fetch(channelId).catch(() => null);
     if (!channel?.isSendable()) throw new WebhookDeliveryError(`Discord destination ${channelId} is unavailable.`);
     try {
-        await channel.send({ embeds: [embed], files: [createLogoAttachment()], allowedMentions: { parse: [] } });
+        await channel.send({ components: embedsToV2([embed]), files: [createLogoAttachment()], flags: MessageFlags.IsComponentsV2, allowedMentions: { parse: [] } });
     } catch {
         throw new WebhookDeliveryError(`Discord delivery to ${channelId} failed.`);
     }

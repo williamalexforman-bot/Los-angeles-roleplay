@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { Client, EmbedBuilder } from 'discord.js';
+import { Client, EmbedBuilder, MessageFlags } from 'discord.js';
 import {
     ErlcCommandLog,
     ErlcFetchResult,
@@ -9,13 +9,14 @@ import {
 } from '../services/erlcService';
 import { BRAND, CHANNEL_IDS } from '../config/constants';
 import { createLogoAttachment } from '../utils/embeds';
+import { embedsToV2 } from '../utils/componentsV2';
 
 export const ERLC_COMMAND_LOG_CHANNEL_ID = CHANNEL_IDS.erlcCommandLog;
 export const ERLC_TEAM_CHANGE_LOG_CHANNEL_ID = CHANNEL_IDS.erlcTeamChangeLog;
 export const ERLC_PUNISHMENT_LOG_CHANNEL_ID = CHANNEL_IDS.erlcPunishmentLog;
 
 const CSRP_TEAL = 0x18b6a4;
-const CSRP_FOOTER = 'Los Angeles Roleplay | Realism at its Finest';
+const CSRP_FOOTER = 'California State Roleplay | Realism at its Finest';
 const DEFAULT_POLL_INTERVAL_MS = 30_000;
 const DEFAULT_MAX_SEEN_COMMAND_IDS = 1_000;
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
@@ -725,7 +726,7 @@ export class ErlcMonitor {
             if (!client) return;
             const channel = await client.channels.fetch(channelId);
             if (!channel?.isSendable()) throw new Error(`ER:LC log channel ${channelId} is unavailable.`);
-            await channel.send({ embeds: [embed], files: [createLogoAttachment()], allowedMentions: { parse: [] } });
+            await channel.send({ components: embedsToV2([embed]), files: [createLogoAttachment()], flags: MessageFlags.IsComponentsV2, allowedMentions: { parse: [] } });
         };
 
         return {

@@ -10,9 +10,9 @@ import {
     ContainerBuilder,
     EmbedBuilder,
     GuildMember,
-    Message,
     MediaGalleryBuilder,
     MediaGalleryItemBuilder,
+    Message,
     MessageFlags,
     ModalBuilder,
     ModalSubmitInteraction,
@@ -31,7 +31,6 @@ import { createLogoAttachment } from '../utils/embeds';
 import { bannerFiles, bannerUrl, underbannerEmbed } from '../utils/bannerAssets';
 import { logger } from '../utils/logger';
 import { lookupBloxlinkUser, type BloxlinkLookupResult } from '../services/bloxlinkService';
-import { generateTicketAssistantReply, type TicketConversationMessage } from '../services/aiService';
 import {
     activateTicket,
     claimOpenTicket,
@@ -43,9 +42,10 @@ import {
     setOpeningMessage,
     updateTicket,
 } from '../services/ticketRepository';
-import { applyTemplate, getPanelBannerUrl, getPanelConfig, type PanelConfig } from '../services/panelConfig';
+import { applyTemplate, configuredChannelId, configuredRoleId, getPanelBannerUrl, getPanelConfig, parseEmojiMap, type ConfigChannelKey, type ConfigRoleKey, type PanelConfig } from '../services/panelConfig';
+import { embedsToV2 } from '../utils/componentsV2';
 
-const PANEL_DESCRIPTION = `Welcome to Los Angeles Roleplay support system!
+const PANEL_DESCRIPTION = `Welcome to California State Roleplay support system!
 
 If you have any issue, select the correct department from the dropdown below.
 
@@ -133,7 +133,8 @@ function isTicketCategory(value: string): value is TicketCategory {
     return ticketCategoryKeys.includes(value as TicketCategory);
 }
 
-function panelDropdown(): ActionRowBuilder<StringSelectMenuBuilder> {
+function panelDropdown(config?: PanelConfig): ActionRowBuilder<StringSelectMenuBuilder> {
+    const emojis = parseEmojiMap(config?.emojiText);
     return new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
         new StringSelectMenuBuilder()
             .setCustomId('ticket_select')
@@ -144,19 +145,32 @@ function panelDropdown(): ActionRowBuilder<StringSelectMenuBuilder> {
                 label: ticketCategories[key].label,
                 value: key,
                 description: ticketCategories[key].menuDescription,
-                emoji: ticketCategories[key].emoji,
+                emoji: emojis[key] || ticketCategories[key].emoji,
             }))),
     );
 }
 
-function ticketPanelEmbed(): EmbedBuilder {
-    return new EmbedBuilder()
-        .setColor(BRAND.color)
-        .setTitle('Help & Support')
-        .setDescription(PANEL_DESCRIPTION)
-        .setThumbnail(BRAND.logoUrl)
-        .setImage(bannerUrl('support'))
-        .setFooter({ text: BRAND.panelFooter });
+function ticketPanelV2(config: PanelConfig, customBannerUrl?: string | null): ContainerBuilder {
+    const emojis = parseEmojiMap(config.emojiText);
+    return new ContainerBuilder()
+        .setAccentColor(BRAND.color)
+        .addMediaGalleryComponents(new MediaGalleryBuilder().addItems(
+            new MediaGalleryItemBuilder().setURL(customBannerUrl || bannerUrl('support')),
+        ))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+            `# ${emojis.title || '🎫'} ${config.title}`,
+            config.description || PANEL_DESCRIPTION,
+            '',
+            '**Available Departments**',
+            `${emojis.general || '🎫'} **General Support** — Questions and server information`,
+            `${emojis.internal || '📋'} **Internal Affairs** — Staff reports and sensitive matters`,
+            `${emojis.management || '🏛️'} **Management Support** — Claims, transfers, and management concerns`,
+            `${emojis.highrank || '⭐'} **High-Rank Support** — Payments and ownership questions`,
+        ].join('\n')))
+        .addActionRowComponents(panelDropdown(config))
+        .addMediaGalleryComponents(new MediaGalleryBuilder().addItems(
+            new MediaGalleryItemBuilder().setURL(bannerUrl('underbanner')),
+        ));
 }
 
 /** Updates existing bot-authored panels without posting duplicates during restarts. */
@@ -166,16 +180,18 @@ export async function refreshExistingTicketPanels(client: Client): Promise<numbe
 
     const recentMessages = await panelChannel.messages.fetch({ limit: 100 }).catch(() => null);
     if (!recentMessages) return 0;
-    const existingPanels = recentMessages.filter(message =>
-        message.author.id === client.user?.id
-        && message.embeds.some(embed => embed.title === 'Help & Support'),
-    );
+    const existingPanels = recentMessages.filter(message => message.author.id === client.user?.id
+        && (message.embeds.some(embed => embed.title === 'Help & Support') || JSON.stringify(message.components).includes('ticket_select')));
+
+    const config = await getPanelConfig(panelChannel.guild, 'ticket_panel');
+    const customBannerUrl = await getPanelBannerUrl(panelChannel.guild, config);
 
     let updated = 0;
     for (const message of existingPanels.values()) {
         await message.edit({
-            embeds: [ticketPanelEmbed(), underbannerEmbed()],
-            components: [panelDropdown()],
+            embeds: [],
+            components: [ticketPanelV2(config, customBannerUrl)],
+            flags: MessageFlags.IsComponentsV2,
             attachments: [],
             files: [createLogoAttachment(), ...bannerFiles('support')],
         });
@@ -323,6 +339,7 @@ export function buildOpeningPanel(
         description: '## Thanks {opener} for contacting support!\n\nThank you for opening a ticket. Staff will assist you shortly.',
     },
     customBannerUrl?: string | null,
+    controlsDisabled = false,
 ): ContainerBuilder {
     const category = ticketCategories[ticket.category];
     const roblox = (ticket.robloxInfo || {}) as Partial<BloxlinkLookupResult>;
@@ -336,6 +353,7 @@ export function buildOpeningPanel(
         inquiry,
         category: category.label,
     };
+    const emojis = parseEmojiMap(configured.emojiText);
     void roblox;
     void fallbackAvatarUrl;
     return new ContainerBuilder()
@@ -344,45 +362,35 @@ export function buildOpeningPanel(
             new MediaGalleryItemBuilder().setURL(customBannerUrl || bannerUrl('support')),
         ))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent([
-            `# ${applyTemplate(configured.title, values)}`,
+            `# ${emojis.title || '🎫'} ${applyTemplate(configured.title, values)}`,
             applyTemplate(configured.description, values),
             '',
             `-# ${BRAND.footer} • <t:${Math.floor(ticket.createdAt.getTime() / 1_000)}:f>`,
         ].join('\n')))
+        .addActionRowComponents(...ticketControlRows(ticket, controlsDisabled, configured))
         .addMediaGalleryComponents(new MediaGalleryBuilder().addItems(
             new MediaGalleryItemBuilder().setURL(bannerUrl('underbanner')),
         ));
 }
 
-function ticketControlRows(ticket: TicketRecord, disabled = false): ActionRowBuilder<ButtonBuilder>[] {
-    const rows = [
-        new ActionRowBuilder<ButtonBuilder>().addComponents(
-            new ButtonBuilder().setCustomId('ticket:control:claim').setLabel('Claim').setEmoji('🙋').setStyle(ButtonStyle.Success).setDisabled(disabled),
-            new ButtonBuilder().setCustomId('ticket:control:unclaim').setLabel('Unclaim').setStyle(ButtonStyle.Secondary).setDisabled(disabled),
-            new ButtonBuilder().setCustomId('ticket:control:close').setLabel('Close').setEmoji('🔒').setStyle(ButtonStyle.Danger).setDisabled(disabled),
-            new ButtonBuilder().setCustomId('ticket:control:close_reason').setLabel('Close With Reason').setStyle(ButtonStyle.Danger).setDisabled(disabled),
-            new ButtonBuilder().setCustomId('ticket:control:escalate').setLabel('Request Human Staff').setEmoji('🚨').setStyle(ButtonStyle.Primary).setDisabled(disabled),
-        ),
-        new ActionRowBuilder<ButtonBuilder>().addComponents(
-            new ButtonBuilder().setCustomId('ticket:control:add_user').setLabel('Add User').setStyle(ButtonStyle.Primary).setDisabled(disabled),
-            new ButtonBuilder().setCustomId('ticket:control:remove_user').setLabel('Remove User').setStyle(ButtonStyle.Secondary).setDisabled(disabled),
-            new ButtonBuilder().setCustomId('ticket:control:rename').setLabel('Rename').setStyle(ButtonStyle.Secondary).setDisabled(disabled),
-            new ButtonBuilder().setCustomId('ticket:control:transcript').setLabel('Transcript').setEmoji('📄').setStyle(ButtonStyle.Primary).setDisabled(disabled),
-            new ButtonBuilder().setCustomId('ticket:control:toggle_ai').setLabel(ticket.aiEnabled ? 'Disable AI' : 'Enable AI').setEmoji('🤖').setStyle(ButtonStyle.Secondary).setDisabled(disabled),
-        ),
-    ];
-    const roblox = (ticket.robloxInfo || {}) as Partial<BloxlinkLookupResult>;
-    if (roblox.status !== 'verified') {
-        rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(
-            new ButtonBuilder().setCustomId('ticket:control:refresh_roblox').setLabel('Refresh Roblox Info').setEmoji('🔄').setStyle(ButtonStyle.Primary).setDisabled(disabled),
-        ));
-    }
-    return rows;
+function ticketControlRows(ticket: TicketRecord, disabled = false, config?: PanelConfig): ActionRowBuilder<ButtonBuilder>[] {
+    const emojis = parseEmojiMap(config?.emojiText);
+    const withEmoji = (button: ButtonBuilder, emoji: string): ButtonBuilder => {
+        try { return button.setEmoji(emoji); } catch { return button; }
+    };
+    return [new ActionRowBuilder<ButtonBuilder>().addComponents(
+        withEmoji(new ButtonBuilder().setCustomId('ticket:control:claim')
+            .setLabel(ticket.claimedBy ? 'Claimed' : 'Claim').setStyle(ButtonStyle.Success)
+            .setDisabled(disabled || Boolean(ticket.claimedBy)), emojis.claim || '🙋'),
+        withEmoji(new ButtonBuilder().setCustomId('ticket:control:close').setLabel('Close').setStyle(ButtonStyle.Danger).setDisabled(disabled), emojis.close || '🔒'),
+        withEmoji(new ButtonBuilder().setCustomId('ticket:control:escalate').setLabel(ticket.escalated ? 'Escalated' : 'Escalate')
+            .setStyle(ButtonStyle.Primary).setDisabled(disabled || ticket.escalated), emojis.escalate || '🚨'),
+    )];
 }
 
 export async function postTicketPanel(interaction: ChatInputCommandInteraction): Promise<void> {
     if (!interaction.inGuild()) {
-        await interaction.reply({ content: 'This command can only be used in the LARP server.', ephemeral: true });
+        await interaction.reply({ content: 'This command can only be used in the CSRP server.', ephemeral: true });
         return;
     }
     await interaction.deferReply({ ephemeral: true });
@@ -394,8 +402,9 @@ export async function postTicketPanel(interaction: ChatInputCommandInteraction):
         return;
     }
 
-    const configuredPanel = CHANNEL_IDS.ticketPanel
-        ? await guild.channels.fetch(CHANNEL_IDS.ticketPanel).catch(() => null)
+    const panelChannelId = await configuredChannelId(guild, 'ticket_panel', CHANNEL_IDS.ticketPanel);
+    const configuredPanel = panelChannelId
+        ? await guild.channels.fetch(panelChannelId).catch(() => null)
         : null;
     const panelChannel = configuredPanel?.isSendable()
         ? configuredPanel
@@ -411,12 +420,29 @@ export async function postTicketPanel(interaction: ChatInputCommandInteraction):
         return;
     }
 
+    const config = await getPanelConfig(guild, 'ticket_panel');
+    const customBannerUrl = await getPanelBannerUrl(guild, config);
     await panelChannel.send({
-        embeds: [ticketPanelEmbed(), underbannerEmbed()],
-        components: [panelDropdown()],
+        components: [ticketPanelV2(config, customBannerUrl)],
         files: [createLogoAttachment(), ...bannerFiles('support')],
+        flags: MessageFlags.IsComponentsV2,
     });
     await interaction.editReply(`The professional ticket panel was posted in <#${panelChannel.id}>.`);
+}
+
+export async function postTicketPanelFromMessage(message: Message): Promise<void> {
+    if (!message.guild || !message.channel.isSendable()) return;
+    const config = await getPanelConfig(message.guild, 'ticket_panel');
+    const customBannerUrl = await getPanelBannerUrl(message.guild, config);
+    const targetId = await configuredChannelId(message.guild, 'ticket_panel', CHANNEL_IDS.ticketPanel);
+    const target = targetId ? await message.client.channels.fetch(targetId).catch(() => null) : null;
+    const destination = target?.isSendable() ? target : message.channel;
+    await destination.send({
+        components: [ticketPanelV2(config, customBannerUrl)],
+        files: [createLogoAttachment(), ...bannerFiles('support')],
+        flags: MessageFlags.IsComponentsV2,
+        allowedMentions: { parse: [] },
+    });
 }
 
 export function ticketOpeningModal(category: TicketCategory): ModalBuilder {
@@ -465,7 +491,7 @@ function modalAnswers(interaction: ModalSubmitInteraction, category: TicketCateg
 
 async function sendTicketCreationLog(ticket: TicketRecord, channel: TextChannel): Promise<void> {
     try {
-        const logChannel = await channel.client.channels.fetch(CHANNEL_IDS.discordCommandLog).catch(() => null);
+        const logChannel = await channel.client.channels.fetch(await configuredChannelId(channel.guild, 'command_logs', CHANNEL_IDS.discordCommandLog)).catch(() => null);
         if (!logChannel?.isSendable()) return;
         const embed = new EmbedBuilder()
             .setColor(BRAND.color)
@@ -479,7 +505,7 @@ async function sendTicketCreationLog(ticket: TicketRecord, channel: TextChannel)
             )
             .setFooter({ text: BRAND.footer })
             .setTimestamp();
-        await logChannel.send({ embeds: [embed], files: [createLogoAttachment()] });
+        await logChannel.send({ components: embedsToV2([embed]), files: [createLogoAttachment()], flags: MessageFlags.IsComponentsV2 });
     } catch (error) {
         logger.warn(`Ticket creation audit unavailable: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
@@ -487,11 +513,19 @@ async function sendTicketCreationLog(ticket: TicketRecord, channel: TextChannel)
 
 export async function createTicketFromModal(interaction: ModalSubmitInteraction, category: TicketCategory): Promise<void> {
     if (!interaction.guild) {
-        await interaction.reply({ content: 'Tickets can only be opened inside the LARP server.', ephemeral: true });
+        await interaction.reply({ content: 'Tickets can only be opened inside the CSRP server.', ephemeral: true });
         return;
     }
     await interaction.deferReply({ ephemeral: true });
     const definition = ticketCategories[category];
+    const categoryConfigKeys: Record<TicketCategory, ConfigChannelKey> = {
+        general: 'general_ticket_category', internal: 'internal_ticket_category', management: 'management_ticket_category', highrank: 'highrank_ticket_category',
+    };
+    const roleConfigKeys: Record<TicketCategory, ConfigRoleKey> = {
+        general: 'general_support', internal: 'internal_affairs', management: 'management', highrank: 'high_rank',
+    };
+    const configuredCategoryId = await configuredChannelId(interaction.guild, categoryConfigKeys[category], definition.categoryId);
+    const configuredSupportRoleId = await configuredRoleId(interaction.guild, roleConfigKeys[category], definition.supportRoleId);
     const answers = modalAnswers(interaction, category);
     const pendingRobloxInfo: BloxlinkLookupResult = {
         status: 'service_unavailable',
@@ -511,7 +545,7 @@ export async function createTicketFromModal(interaction: ModalSubmitInteraction,
         guildId: interaction.guild.id,
         creatorId: interaction.user.id,
         category,
-        supportRoleId: definition.supportRoleId,
+        supportRoleId: configuredSupportRoleId,
         answers,
         discordInfo: {
             username: interaction.user.tag,
@@ -544,12 +578,12 @@ export async function createTicketFromModal(interaction: ModalSubmitInteraction,
         if (!enrichedTicket) throw new Error('The reserved ticket could not be enriched with verification data.');
         reservedTicket = enrichedTicket;
 
-        const categoryChannel = definition.categoryId
-            ? await interaction.guild.channels.fetch(definition.categoryId).catch(() => null)
+        const categoryChannel = configuredCategoryId
+            ? await interaction.guild.channels.fetch(configuredCategoryId).catch(() => null)
             : null;
         const parentId = categoryChannel?.type === ChannelType.GuildCategory ? categoryChannel.id : undefined;
-        const supportRole = definition.supportRoleId
-            ? await interaction.guild.roles.fetch(definition.supportRoleId).catch(() => null)
+        const supportRole = configuredSupportRoleId
+            ? await interaction.guild.roles.fetch(configuredSupportRoleId).catch(() => null)
             : null;
         const botMember = interaction.guild.members.me || await interaction.guild.members.fetchMe();
         const channelName = `ticket-${reservedTicket.number}-${sanitizeChannelName(interaction.user.username)}`.slice(0, 100);
@@ -568,21 +602,13 @@ export async function createTicketFromModal(interaction: ModalSubmitInteraction,
             name: channelName,
             type: ChannelType.GuildText,
             parent: parentId,
-            topic: `LARP ticket #${reservedTicket.number} | ${definition.label} | Creator ${interaction.user.id}`,
+            topic: `CSRP ticket #${reservedTicket.number} | ${definition.label} | Creator ${interaction.user.id}`,
             reason: `Ticket #${reservedTicket.number} opened by ${interaction.user.tag}`,
             permissionOverwrites,
         });
 
         const active = await activateTicket(pendingId, channel.id);
         if (!active) throw new Error('The ticket record could not be activated.');
-        const controlsMessage = await channel.send({
-            content: '**Ticket Controls**',
-            components: ticketControlRows(active),
-            allowedMentions: { parse: [] },
-        });
-        active.controlsMessageId = controlsMessage.id;
-        await updateTicket(channel.id, { controlsMessageId: controlsMessage.id });
-
         const ticketConfig = await getPanelConfig(interaction.guild, 'ticket');
         const ticketBannerUrl = await getPanelBannerUrl(interaction.guild, ticketConfig);
         const openingPanel = buildOpeningPanel(active, interaction.user.displayAvatarURL({ size: 256 }), ticketConfig, ticketBannerUrl);
@@ -593,10 +619,8 @@ export async function createTicketFromModal(interaction: ModalSubmitInteraction,
             allowedMentions: { users: [interaction.user.id], roles: supportRole ? [supportRole.id] : [] },
         });
         await setOpeningMessage(channel.id, openingMessage.id);
-        await channel.send({
-            content: '👋 Hello! I’m the automated LARP support assistant. I can help collect information before staff assists you.\n\nPlease explain your question or issue. If I am unsure, I will ask you to wait for a staff member.',
-            allowedMentions: { parse: [] },
-        });
+        active.controlsMessageId = openingMessage.id;
+        await updateTicket(channel.id, { controlsMessageId: openingMessage.id });
         await sendTicketCreationLog(active, channel);
         await interaction.editReply(`Your ${definition.label} ticket is ready: ${channel}`);
     } catch (error) {
@@ -631,24 +655,14 @@ async function requireTicket(
     return ticket;
 }
 
-async function updateOpeningClaim(channel: TextChannel, ticket: TicketRecord): Promise<void> {
-    if (!ticket.openingMessageId) return;
-    const message = await channel.messages.fetch(ticket.openingMessageId).catch(() => null);
-    if (!message?.embeds[0]) return;
-    const embed = EmbedBuilder.from(message.embeds[0]);
-    const fields = message.embeds[0].fields.map(field => field.name === 'Claimed By'
-        ? { name: field.name, value: ticket.claimedBy ? `<@${ticket.claimedBy}>` : 'Not Claimed', inline: field.inline }
-        : { name: field.name, value: field.value, inline: field.inline });
-    embed.setFields(fields);
-    // Claiming only updates the embed, never uploads another logo attachment
-    await message.edit({ embeds: [embed] });
-}
-
 async function updateControlMessage(channel: TextChannel, ticket: TicketRecord, disabled = false): Promise<void> {
     if (!ticket.controlsMessageId) return;
     const message = await channel.messages.fetch(ticket.controlsMessageId).catch(() => null);
     if (!message) return;
-    await message.edit({ content: '**Ticket Controls**', components: ticketControlRows(ticket, disabled) });
+    const configured = await getPanelConfig(channel.guild, 'ticket');
+    const customBannerUrl = await getPanelBannerUrl(channel.guild, configured);
+    const panel = buildOpeningPanel(ticket, String(ticket.discordInfo?.avatarUrl || ''), configured, customBannerUrl, disabled);
+    await message.edit({ embeds: [], components: [panel], flags: MessageFlags.IsComponentsV2 });
 }
 
 async function claimTicket(interaction: ButtonInteraction | ChatInputCommandInteraction): Promise<void> {
@@ -672,10 +686,9 @@ async function claimTicket(interaction: ButtonInteraction | ChatInputCommandInte
             : 'Unable to claim this ticket right now.');
         return;
     }
-    await updateOpeningClaim(interaction.channel, updated);
     await updateControlMessage(interaction.channel, updated);
-    await interaction.channel.send(`${interaction.user} claimed this ticket.\nThe automated assistant has been paused.`);
-    await interaction.editReply('Ticket claimed. AI assistance has been disabled.');
+    await interaction.channel.send(`${interaction.user} claimed this ticket.`);
+    await interaction.editReply('Ticket claimed successfully.');
 }
 
 async function unclaimTicket(interaction: ButtonInteraction): Promise<void> {
@@ -689,9 +702,8 @@ async function unclaimTicket(interaction: ButtonInteraction): Promise<void> {
     }
     const updated = await updateTicket(interaction.channelId, { claimedBy: null });
     if (!updated) throw new Error('Unable to update the ticket claim.');
-    await updateOpeningClaim(interaction.channel, updated);
     await updateControlMessage(interaction.channel, updated);
-    await interaction.channel.send(`${interaction.user} unclaimed this ticket. AI remains disabled until staff explicitly enables it.`);
+    await interaction.channel.send(`${interaction.user} unclaimed this ticket.`);
     await interaction.editReply('Ticket unclaimed.');
 }
 
@@ -726,7 +738,7 @@ export async function buildTicketTranscriptFile(channel: TextChannel, ticket: Ti
         return `[${timestamp}] ${message.author.tag} (${message.author.id}): ${body}`;
     });
     const header = [
-        `Los Angeles Roleplay — Ticket #${ticket.number}`,
+        `California State Roleplay — Ticket #${ticket.number}`,
         `Channel: ${channel.name} (${channel.id})`,
         `Creator: ${ticket.creatorId}`,
         `Generated: ${new Date().toISOString()}`,
@@ -747,7 +759,8 @@ async function archiveTicketTranscript(
     reason: string,
     transcript: TicketTranscriptFile,
 ): Promise<void> {
-    const archiveChannel = await interaction.client.channels.fetch(CHANNEL_IDS.ticketTranscript).catch(() => null);
+    const archiveChannelId = await configuredChannelId(interaction.guild, 'ticket_transcripts', CHANNEL_IDS.ticketTranscript);
+    const archiveChannel = await interaction.client.channels.fetch(archiveChannelId).catch(() => null);
     if (!archiveChannel?.isSendable() || !('guildId' in archiveChannel) || archiveChannel.guildId !== ticket.guildId) {
         throw new Error(`Ticket transcript channel ${CHANNEL_IDS.ticketTranscript} is unavailable.`);
     }
@@ -770,8 +783,9 @@ async function archiveTicketTranscript(
         .setFooter({ text: BRAND.footer })
         .setTimestamp();
     await archiveChannel.send({
-        embeds: [archiveEmbed],
+        components: embedsToV2([archiveEmbed]),
         files: [transcript.attachment],
+        flags: MessageFlags.IsComponentsV2,
         allowedMentions: { parse: [] },
     });
 }
@@ -790,7 +804,7 @@ async function closeTicket(interaction: ButtonInteraction | ModalSubmitInteracti
     const closeEmbed = new EmbedBuilder()
         .setColor(BRAND.color)
         .setTitle(`Ticket #${ticket.number} — Closure Request`)
-        .setDescription('This ticket is being closed and a complete transcript will be preserved for staff records.')
+        .setDescription(`<@${ticket.creatorId}>, this ticket is being closed and a complete transcript will be preserved for staff records.`)
         .addFields(
             { name: 'Requested By', value: `${interaction.user}`, inline: true },
             { name: 'Ticket Creator', value: `<@${ticket.creatorId}>`, inline: true },
@@ -799,8 +813,8 @@ async function closeTicket(interaction: ButtonInteraction | ModalSubmitInteracti
         .setFooter({ text: BRAND.footer })
         .setTimestamp();
     await interaction.channel.send({
-        content: `<@${ticket.creatorId}>, this ticket is being closed for the reason shown below.`,
-        embeds: [closeEmbed],
+        components: embedsToV2([closeEmbed]),
+        flags: MessageFlags.IsComponentsV2,
         allowedMentions: { users: [ticket.creatorId] },
     });
     for (const [index, chunk] of closeReasonChunks.slice(1).entries()) {
@@ -811,7 +825,8 @@ async function closeTicket(interaction: ButtonInteraction | ModalSubmitInteracti
             .setFooter({ text: BRAND.footer })
             .setTimestamp();
         await interaction.channel.send({
-            embeds: [continuation],
+            components: embedsToV2([continuation]),
+            flags: MessageFlags.IsComponentsV2,
             allowedMentions: { parse: [] },
         });
     }
@@ -961,19 +976,6 @@ async function refreshRobloxInfo(interaction: ButtonInteraction | ChatInputComma
     const savedResult = mergeRobloxRefreshResult(ticket.robloxInfo, result);
     const updated = await updateTicket(interaction.channelId, { robloxInfo: { ...savedResult } });
     if (!updated) throw new Error('Unable to save refreshed Roblox information.');
-    if (ticket.openingMessageId) {
-        const message = await interaction.channel.messages.fetch(ticket.openingMessageId).catch(() => null);
-        if (message?.embeds[0]) {
-            const embed = EmbedBuilder.from(message.embeds[0]);
-            const fields = message.embeds[0].fields.map(field => field.name === 'Roblox Information'
-                ? { name: field.name, value: robloxInfoValue(savedResult), inline: field.inline }
-                : { name: field.name, value: field.value, inline: field.inline });
-            embed.setFields(fields).setThumbnail(savedResult.status === 'verified' && savedResult.robloxAvatarUrl
-                ? savedResult.robloxAvatarUrl
-                : String(ticket.discordInfo?.avatarUrl || interaction.user.displayAvatarURL({ size: 256 })));
-            await message.edit({ embeds: [embed] });
-        }
-    }
     await updateControlMessage(interaction.channel, updated);
     if (result.status === 'service_unavailable') {
         await interaction.editReply(savedResult.status === 'verified'
@@ -994,31 +996,10 @@ async function escalateTicket(interaction: ButtonInteraction): Promise<void> {
     if (!updated) throw new Error('Unable to escalate the ticket.');
     await updateControlMessage(interaction.channel, updated);
     await interaction.channel.send({
-        content: `<@&${ticket.supportRoleId}> ${interaction.user} has requested human staff assistance. The automated assistant has been paused.`,
+        content: `<@&${ticket.supportRoleId}> ${interaction.user} has escalated this ticket and requested staff assistance.`,
         allowedMentions: { roles: [ticket.supportRoleId], users: [interaction.user.id] },
     });
     await interaction.editReply('Human staff have been requested.');
-}
-
-async function toggleTicketAi(interaction: ButtonInteraction): Promise<void> {
-    await interaction.deferReply({ ephemeral: true });
-    const ticket = await requireTicket(interaction);
-    if (!ticket || !(interaction.channel instanceof TextChannel)) return;
-    const member = await fetchInteractionMember(interaction);
-    if (!isTicketStaff(member, ticket)) {
-        await interaction.editReply('Only support staff may enable or disable the automated assistant.');
-        return;
-    }
-    const aiEnabled = !ticket.aiEnabled;
-    if (aiEnabled && ticket.claimedBy) {
-        await interaction.editReply('AI cannot be enabled while this ticket is claimed. Unclaim it first.');
-        return;
-    }
-    const updated = await updateTicket(interaction.channelId, { aiEnabled, escalated: aiEnabled ? false : ticket.escalated });
-    if (!updated) throw new Error('Unable to update AI assistance.');
-    await interaction.channel.send(`The automated assistant has been ${aiEnabled ? 'enabled' : 'paused'} by ${interaction.user}.`);
-    await updateControlMessage(interaction.channel, updated);
-    await interaction.editReply(`AI assistance ${aiEnabled ? 'enabled' : 'disabled'}.`);
 }
 
 export async function handleTicketButton(interaction: ButtonInteraction): Promise<boolean> {
@@ -1044,7 +1025,6 @@ export async function handleTicketButton(interaction: ButtonInteraction): Promis
         case 'close': await closeTicket(interaction); break;
         case 'transcript': await createTranscript(interaction); break;
         case 'escalate': await escalateTicket(interaction); break;
-        case 'toggle_ai': await toggleTicketAi(interaction); break;
         case 'refresh_roblox': await refreshRobloxInfo(interaction); break;
         default: await interaction.reply({ content: 'That ticket control is unavailable.', ephemeral: true });
     }
@@ -1218,7 +1198,7 @@ export const ticketCommands = {
 };
 
 export const ticketCommandDefinitions = [
-    { data: new SlashCommandBuilder().setName('ticket-panel').setDescription('Post the LARP Help & Support ticket panel'), execute: executeTicketSlashCommand },
+    { data: new SlashCommandBuilder().setName('ticket-panel').setDescription('Post the CSRP Help & Support ticket panel'), execute: executeTicketSlashCommand },
     { data: new SlashCommandBuilder().setName('ticket').setDescription('Ticket utilities').addSubcommand(command => command.setName('refresh-user').setDescription('Refresh the ticket creator’s Bloxlink and Roblox information')), execute: executeTicketSlashCommand },
     { data: new SlashCommandBuilder().setName('ticket-message').setDescription('Legacy alias: post the ticket panel'), execute: executeTicketSlashCommand },
     { data: new SlashCommandBuilder().setName('ticket-add').setDescription('Add a user to this ticket').addUserOption(option => option.setName('user').setDescription('User to add').setRequired(true)), execute: executeTicketSlashCommand },
@@ -1233,84 +1213,3 @@ export const ticketCommandDefinitions = [
     { data: new SlashCommandBuilder().setName('ticket-edit').setDescription('Edit ticket settings from the channel controls'), execute: executeTicketSlashCommand },
     { data: new SlashCommandBuilder().setName('ticket-closerequest').setDescription('Close this ticket with a reason'), execute: executeTicketSlashCommand },
 ];
-
-export function isTicketAssistantActiveForAuthor(ticket: TicketRecord, authorId: string): boolean {
-    return ticket.status === 'open'
-        && ticket.creatorId === authorId
-        && !ticket.claimedBy
-        && ticket.aiEnabled
-        && !ticket.escalated;
-}
-
-export async function getOpenTicketForMessage(message: Message): Promise<TicketRecord | null> {
-    if (!message.guild || message.author.bot || message.webhookId) return null;
-    const ticket = await getTicketByChannel(message.channelId);
-    if (!ticket || !isTicketAssistantActiveForAuthor(ticket, message.author.id)) return null;
-    return ticket;
-}
-
-const aiUnavailableNotified = new Set<string>();
-const aiChannelQueues = new Map<string, Promise<void>>();
-
-async function processTicketAssistantMessage(message: Message): Promise<void> {
-    const ticket = await getOpenTicketForMessage(message);
-    if (!ticket || !message.channel.isSendable() || !message.content.trim()) return;
-
-    await message.channel.sendTyping().catch(() => undefined);
-    const recentMessages = await message.channel.messages.fetch({ limit: 12, before: message.id }).catch(() => null);
-    const conversation = recentMessages
-        ? [...recentMessages.values()]
-            .sort((left, right) => left.createdTimestamp - right.createdTimestamp)
-            .flatMap((item): TicketConversationMessage[] => {
-                if (item.author.id === ticket.creatorId && item.content.trim()) {
-                    return [{ role: 'user' as const, content: item.content }];
-                }
-                if (item.author.id === message.client.user?.id && item.content.startsWith('🤖 **Automated LARP Support Assistant**')) {
-                    return [{ role: 'assistant' as const, content: item.content.replace(/^🤖 \*\*Automated LARP Support Assistant\*\*\s*/u, '') }];
-                }
-                return [];
-            })
-        : [];
-    const result = await generateTicketAssistantReply({
-        userMessage: message.content,
-        category: ticketCategories[ticket.category].label,
-        ticketReason: ticket.answers.reason || ticket.answers.reportReason,
-        userDisplayName: message.author.globalName || message.author.username,
-        endUserId: message.author.id,
-        conversation,
-        eligibility: {
-            isOpen: ticket.status === 'open',
-            isTicketCreator: message.author.id === ticket.creatorId,
-            authorIsBot: message.author.bot,
-            isClaimed: Boolean(ticket.claimedBy),
-            aiEnabled: ticket.aiEnabled,
-            escalated: ticket.escalated,
-        },
-    });
-
-    const current = await getTicketByChannel(message.channelId);
-    if (!current || !isTicketAssistantActiveForAuthor(current, message.author.id)) return;
-    if (result.status === 'ok') {
-        aiUnavailableNotified.delete(message.channelId);
-        await message.channel.send({ content: result.reply, allowedMentions: { parse: [] } });
-        return;
-    }
-    if (result.status === 'unavailable' && !aiUnavailableNotified.has(message.channelId)) {
-        aiUnavailableNotified.add(message.channelId);
-        await message.channel.send({
-            content: `🤖 **Automated LARP Support Assistant**\n${result.message}`,
-            allowedMentions: { parse: [] },
-        });
-    }
-}
-
-export async function handleTicketAssistantMessage(message: Message): Promise<void> {
-    const previous = aiChannelQueues.get(message.channelId) || Promise.resolve();
-    const queued = previous.catch(() => undefined).then(() => processTicketAssistantMessage(message));
-    aiChannelQueues.set(message.channelId, queued);
-    try {
-        await queued;
-    } finally {
-        if (aiChannelQueues.get(message.channelId) === queued) aiChannelQueues.delete(message.channelId);
-    }
-}

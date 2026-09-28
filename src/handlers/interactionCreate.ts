@@ -17,8 +17,9 @@ import { handleCommunityButton, handleCommunityModal } from '../commands/communi
 import { logSlashCommand, takeSlashCommandFailure } from '../utils/commandAudit';
 import { logger } from '../utils/logger';
 import { TICKET_CATEGORY_IDS } from '../config/constants';
-import { handlePanelSelectMenu } from '../commands/panels';
-import { handleConfigButton, handleConfigModal, handleConfigSelect } from '../commands/config';
+import { handlePanelButton, handlePanelModal, handlePanelSelectMenu } from '../commands/panels';
+import { handleConfigButton, handleConfigChannelSelect, handleConfigModal, handleConfigRoleSelect, handleConfigSelect } from '../commands/config';
+import { getGuildBotConfig } from '../services/panelConfig';
 
 const TICKET_COMMAND_NAMES = new Set([
     'ticket-panel', 'ticket-message', 'ticket', 'ticket-add', 'ticket-close',
@@ -28,6 +29,7 @@ const TICKET_COMMAND_NAMES = new Set([
 ]);
 
 const MANAGEMENT_COMMANDS = new Set(['infraction', 'promotion', 'training-results', 'training-result', 'request-training', 'teamswitch', 'punishment']);
+const PANEL_COMMANDS = new Set(['ticket-panel', 'ticket-message', 'dashboard', 'regulations', 'session-panel', 'application-panel']);
 const MODERATION_PERMISSIONS = new Map<string, bigint>([
     ['punish', PermissionFlagsBits.ModerateMembers],
     ['warn', PermissionFlagsBits.ModerateMembers],
@@ -47,11 +49,13 @@ function interactionRoleIds(interaction: ChatInputCommandInteraction): string[] 
     return member.roles;
 }
 
-function hasManagementCommandPermission(interaction: ChatInputCommandInteraction): boolean {
+async function hasManagementCommandPermission(interaction: ChatInputCommandInteraction): Promise<boolean> {
     if (!interaction.guildId) return false;
     if (interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)
         || interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) return true;
+    const saved = await getGuildBotConfig(interaction.guild);
     const configuredRoles = [
+        saved.roles.bot_permissions, saved.roles.staff, saved.roles.management, saved.roles.high_rank,
         process.env.BOT_PERMISSIONS_ROLE_ID,
         process.env.ADMIN_ROLE_ID,
         process.env.HIGH_RANK_ROLE_ID,
@@ -61,19 +65,20 @@ function hasManagementCommandPermission(interaction: ChatInputCommandInteraction
     return configuredRoles.some(roleId => roles.has(roleId));
 }
 
-function hasSayCommandPermission(interaction: ChatInputCommandInteraction): boolean {
+async function hasSayCommandPermission(interaction: ChatInputCommandInteraction): Promise<boolean> {
     if (!interaction.guildId) return false;
     if (interaction.guild?.ownerId === interaction.user.id
         || interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return true;
-    const roleId = process.env.BOT_PERMISSIONS_ROLE_ID;
+    const roleId = (await getGuildBotConfig(interaction.guild)).roles.bot_permissions || process.env.BOT_PERMISSIONS_ROLE_ID;
     return Boolean(roleId && interactionRoleIds(interaction).includes(roleId));
 }
 
-function hasModerationCommandPermission(interaction: ChatInputCommandInteraction, permission: bigint): boolean {
+async function hasModerationCommandPermission(interaction: ChatInputCommandInteraction, permission: bigint): Promise<boolean> {
     if (!interaction.guildId) return false;
     if (interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)
         || interaction.memberPermissions?.has(permission)) return true;
-    const configuredRoles = [process.env.BOT_PERMISSIONS_ROLE_ID, process.env.ADMIN_ROLE_ID]
+    const saved = await getGuildBotConfig(interaction.guild);
+    const configuredRoles = [saved.roles.bot_permissions, saved.roles.staff, process.env.BOT_PERMISSIONS_ROLE_ID, process.env.ADMIN_ROLE_ID]
         .filter((roleId): roleId is string => Boolean(roleId));
     const roles = new Set(interactionRoleIds(interaction));
     return configuredRoles.some(roleId => roles.has(roleId));
@@ -103,19 +108,19 @@ async function handleChatCommand(interaction: ChatInputCommandInteraction): Prom
             await interaction.reply({ content: 'That command is not currently available.', ephemeral: true });
             return;
         }
-        if (interaction.commandName === 'say' && !hasSayCommandPermission(interaction)) {
+        if ((interaction.commandName === 'say' || PANEL_COMMANDS.has(interaction.commandName)) && !await hasSayCommandPermission(interaction)) {
             await interaction.reply({
                 content: 'You must be a server administrator or have the configured bot-permissions role to use this command.',
                 flags: MessageFlags.Ephemeral,
             });
             return;
         }
-        if (MANAGEMENT_COMMANDS.has(interaction.commandName) && !hasManagementCommandPermission(interaction)) {
+        if (MANAGEMENT_COMMANDS.has(interaction.commandName) && !await hasManagementCommandPermission(interaction)) {
             await interaction.reply({ content: 'You must be authorized management or a server administrator to use this command.', ephemeral: true });
             return;
         }
         const moderationPermission = MODERATION_PERMISSIONS.get(interaction.commandName);
-        if (moderationPermission && !hasModerationCommandPermission(interaction, moderationPermission)) {
+        if (moderationPermission && !await hasModerationCommandPermission(interaction, moderationPermission)) {
             await interaction.reply({ content: 'You do not have permission to use this moderation command.', ephemeral: true });
             return;
         }
@@ -152,6 +157,7 @@ export const interactionCreate = async (interaction: Interaction): Promise<void>
     try {
         if (interaction.isButton()) {
             if (await handleConfigButton(interaction)) return;
+            if (await handlePanelButton(interaction)) return;
             if (await handleCommunityButton(interaction)) return;
             if (await handleTicketButton(interaction)) return;
             if (await handleStaffManagementButton(interaction)) return;
@@ -160,6 +166,7 @@ export const interactionCreate = async (interaction: Interaction): Promise<void>
 
         if (interaction.isModalSubmit()) {
             if (await handleConfigModal(interaction)) return;
+            if (await handlePanelModal(interaction)) return;
             if (await handleCommunityModal(interaction)) return;
             if (await handleTicketModal(interaction)) return;
             if (await handleStaffManagementModal(interaction)) return;
@@ -177,6 +184,14 @@ export const interactionCreate = async (interaction: Interaction): Promise<void>
                 else await interaction.reply({ content: 'That ticket category is unavailable.', ephemeral: true });
                 return;
             }
+        }
+
+        if (interaction.isChannelSelectMenu()) {
+            if (await handleConfigChannelSelect(interaction)) return;
+        }
+
+        if (interaction.isRoleSelectMenu()) {
+            if (await handleConfigRoleSelect(interaction)) return;
         }
 
         if (interaction.isChatInputCommand()) await handleChatCommand(interaction);

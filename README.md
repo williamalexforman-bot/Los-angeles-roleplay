@@ -7,7 +7,7 @@ A Discord.js v14 management bot for California State Roleplay, with professional
 1. Install Node.js 20 or newer.
 2. Run `npm install`.
 3. Copy `.env.example` to `.env`, set the current Discord token as `BOT_TOKEN`, and configure the remaining credentials. Never commit `.env`.
-4. Keep the temporary LARP logo at `assets/larp-logo.png` until the new server artwork is installed.
+4. Keep the temporary CSRP logo at `assets/larp-logo.png` until the new server artwork is installed.
 5. Enable **Server Members Intent** and **Message Content Intent** in the Discord Developer Portal, then set `ENABLE_PRIVILEGED_INTENTS=true`.
 6. Run `npm run check`, then `npm start`.
 
@@ -57,7 +57,6 @@ Legacy ticket commands remain registered as compatibility aliases. Existing appl
 ## Optional integrations
 
 - **Bloxlink:** set `BLOXLINK_API_KEY`. A missing or unverified account never blocks ticket creation.
-- **OpenAI:** set `OPENAI_API_KEY`; `OPENAI_MODEL` defaults to `gpt-5.6-sol`. The assistant uses the Responses API with `store: false`, strict non-staff guardrails, and official-domain web search for ER:LC questions. Paid-partner and rules-channel routing remains available without an OpenAI key.
 - **Partnership role:** set `PARTNERSHIP_ROLE_ID` so approving a partnership automatically assigns the role. Configure `PARTNERSHIP_REQUEST_CHANNEL_ID` and `STAFF_COMPLAINT_CHANNEL_ID` with IDs from the new server.
 - **ER:LC:** set `ERLC_API` (or the supported alias `ERLC_SERVER_KEY`). The monitor uses `GET https://api.erlc.gg/v2/server` with Players, CommandLogs, and JoinLogs enabled, honors rate-limit reset/retry data, and persists processed state in MongoDB.
 - **Official ER:LC webhooks:** point the configured event webhook to the public HTTPS route `/erlc-event`. Signed Ed25519 payloads are verified before processing. `/roblox-event` remains available only when `WEBHOOK_SECRET` is configured for backward compatibility.
@@ -66,7 +65,7 @@ Legacy ticket commands remain registered as compatibility aliases. Existing appl
 ## Validation
 
 - `npm run build` — strict TypeScript check.
-- `npm test` — offline integration coverage for the panel, all four ticket channel/permission workflows, controls-first ordering, close-notice/transcript archival, complete modal answers, duplicate and stale-reservation handling, atomic claim/AI state, profanity/raid payloads and dedupe, slash-command auditing/redaction, movie feedback, Pass/Fail training output, public infraction evidence threads/controls, Bloxlink fallback, deterministic support routing, OpenAI serialization, and ER:LC command/team/punishment comparisons.
+- `npm test` — validates the TypeScript project, Components V2 panels, ticket workflows, moderation tools, application flow, command definitions, and ER:LC integrations.
 - `npm run check` — runs both.
 
 Live Discord channel/thread creation and external API calls should be exercised in the configured test guild before production rollout.

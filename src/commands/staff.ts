@@ -1,11 +1,13 @@
 import { SlashCommandBuilder } from '@discordjs/builders';
-import { ChatInputCommandInteraction, EmbedBuilder } from 'discord.js';
+import { ChatInputCommandInteraction, ContainerBuilder, EmbedBuilder, MediaGalleryBuilder, MediaGalleryItemBuilder, MessageFlags, TextDisplayBuilder } from 'discord.js';
 import { logAction } from '../utils/logger';
 import { sendToChannel } from '../utils/notify';
 import env from '../config/env';
 import { BRAND } from '../config/constants';
 import { createLogoAttachment } from '../utils/embeds';
 import { bannerFiles, bannerUrl, underbannerEmbed } from '../utils/bannerAssets';
+import { getPanelBannerUrl, getPanelConfig, parseEmojiMap } from '../services/panelConfig';
+import { embedsToV2 } from '../utils/componentsV2';
 
 const LOGO = BRAND.logoUrl;
 
@@ -49,7 +51,7 @@ export const staffCommands = [
 
                 const embed = new EmbedBuilder()
                     .setTitle('Staff Infraction')
-                    .setDescription('The High Ranking Team at Los Angeles Roleplay has noticed that you\'ve violated our policies. We will be taking actions upon your account. Arguing about your recent infraction will result in another strike.')
+                    .setDescription('The High Ranking Team at California State Roleplay has noticed that you\'ve violated our policies. We will be taking actions upon your account. Arguing about your recent infraction will result in another strike.')
                     .setColor(BRAND.color)
                     .setThumbnail(LOGO)
                     .addFields(
@@ -70,7 +72,7 @@ export const staffCommands = [
 
                 const initialMessage = await infractionChannel.send({ content: `<@${user?.id}> A new infraction has been recorded.` });
                 const thread = await initialMessage.startThread({ name: `Infraction - ${user?.username ?? user?.id ?? 'Member'}`, autoArchiveDuration: 1440, reason: 'Infraction thread' });
-                await thread.send({ embeds: [embed] });
+                await thread.send({ components: embedsToV2([embed]), flags: MessageFlags.IsComponentsV2 });
 
                 await interaction.reply({ content: `Infraction recorded for ${user?.username}. Thread created: ${thread.url}`, ephemeral: true });
                 return;
@@ -119,7 +121,7 @@ export const staffCommands = [
 
             const initialMessage = await promotionChannel.send({ content: `<@${user?.id}> A promotion request has been created.` });
             const thread = await initialMessage.startThread({ name: `Promotion - ${user?.username ?? user?.id ?? 'Member'}`, autoArchiveDuration: 1440, reason: 'Promotion thread' });
-            await thread.send({ embeds: [embed] });
+            await thread.send({ components: embedsToV2([embed]), flags: MessageFlags.IsComponentsV2 });
 
             await interaction.reply({ content: `Promotion request created for ${user?.username}. Thread created: ${thread.url}`, ephemeral: true });
         },
@@ -142,24 +144,29 @@ export const staffCommands = [
                 await interaction.editReply('The application channel is not configured yet.');
                 return;
             }
-            const embed = new EmbedBuilder()
-                .setColor(BRAND.color)
-                .setTitle('Staff Application')
-                .setDescription('A new application has been submitted for staff review.')
-                .setThumbnail(LOGO)
-                .setImage(bannerUrl('applications'))
-                .addFields(
-                    { name: 'Applicant', value: user ? `<@${user.id}>` : 'Unknown', inline: true },
-                    { name: 'Application Type', value: type, inline: true },
-                    { name: 'Submitted By', value: `<@${interaction.user.id}>`, inline: true },
-                    { name: 'Notes', value: notes },
-                )
-                .setFooter({ text: BRAND.footer })
-                .setTimestamp();
+            const configured = await getPanelConfig(interaction.guild, 'application');
+            const customBannerUrl = await getPanelBannerUrl(interaction.guild, configured);
+            const emojis = parseEmojiMap(configured.emojiText);
+            const panel = new ContainerBuilder().setAccentColor(BRAND.color)
+                .addMediaGalleryComponents(new MediaGalleryBuilder().addItems(
+                    new MediaGalleryItemBuilder().setURL(customBannerUrl || bannerUrl('applications')),
+                ))
+                .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+                    `# ${emojis.title || '📋'} Staff Application`,
+                    'A new application has been submitted for staff review.',
+                    '',
+                    `**Applicant:** ${user ? `<@${user.id}>` : 'Unknown'}`,
+                    `**Application Type:** ${type}`,
+                    `**Submitted By:** <@${interaction.user.id}>`,
+                    `**Notes:** ${notes}`,
+                ].join('\n')))
+                .addMediaGalleryComponents(new MediaGalleryBuilder().addItems(
+                    new MediaGalleryItemBuilder().setURL(bannerUrl('underbanner')),
+                ));
             await destination.send({
-                content: user ? `<@${user.id}>` : undefined,
-                embeds: [embed, underbannerEmbed()],
+                components: [panel],
                 files: [createLogoAttachment(), ...bannerFiles('applications')],
+                flags: MessageFlags.IsComponentsV2,
                 allowedMentions: user ? { users: [user.id], parse: [] } : { parse: [] },
             });
             await interaction.editReply(`Application request posted for ${user?.username ?? 'the user'} (${type}).`);
