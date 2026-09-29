@@ -87,13 +87,23 @@ export async function installEmojiPack(
         return panel([], ['The bot needs **Manage Expressions** permission.'], [], 'No emojis were changed.');
     }
 
-    await onProgress('Installing the emoji artwork…');
+    await onProgress('Checking the current server emojis…');
     const installed: Array<{ slot: Slot; emojiText: string }> = [];
     const failed: string[] = [];
-    const existingEmojis = await guild.emojis.fetch().catch(() => guild.emojis.cache);
+    let existingEmojis;
+    try {
+        existingEmojis = await Promise.race([
+            guild.emojis.fetch(),
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Discord did not answer the emoji list request within 20 seconds.')), 20_000)),
+        ]);
+    } catch (error) {
+        const reason = error instanceof Error ? error.message : 'Discord could not return the server emoji list.';
+        return panel([], [`Could not read server emojis: ${reason}`], [], 'No emojis were changed.');
+    }
 
-    for (const slot of slots) {
+    for (const [index, slot] of slots.entries()) {
         const name = `csrp_${slot}`;
+        await onProgress(`Adding **${name}** (${index + 1}/${slots.length})…`);
         try {
             const assetPath = path.resolve(process.cwd(), 'assets', 'emojis', `${slot}.png`);
             if (!fs.existsSync(assetPath)) throw new Error('emoji artwork is missing from the deployment');
@@ -112,9 +122,6 @@ export async function installEmojiPack(
             const reason = error instanceof Error ? error.message : 'Unknown error';
             failed.push(`\`${name}\`: ${reason.slice(0, 120)}`);
             console.warn(`[Emoji Pack] Could not install ${name}:`, reason);
-        }
-        if ((slots.indexOf(slot) + 1) % 5 === 0) {
-            await onProgress(`Installing emojis… ${slots.indexOf(slot) + 1}/${slots.length}`);
         }
     }
 
