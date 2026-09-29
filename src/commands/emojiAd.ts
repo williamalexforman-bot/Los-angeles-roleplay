@@ -82,16 +82,18 @@ export async function handleEmojiAd(message: Message): Promise<void> {
     for (const slot of slots) {
         const name = `csrp_${slot}`;
         try {
-            let emoji = existingEmojis.find(candidate => candidate.name === name);
-            if (!emoji) {
-                const assetPath = path.resolve(process.cwd(), 'assets', 'emojis', `${slot}.png`);
-                if (!fs.existsSync(assetPath)) throw new Error('emoji artwork is missing from the deployment');
-                emoji = await guild.emojis.create({
-                    attachment: fs.readFileSync(assetPath),
-                    name,
-                    reason: `California State Roleplay emoji pack installed by ${message.author.tag}`,
-                });
-            }
+            const assetPath = path.resolve(process.cwd(), 'assets', 'emojis', `${slot}.png`);
+            if (!fs.existsSync(assetPath)) throw new Error('emoji artwork is missing from the deployment');
+            const image = fs.readFileSync(assetPath);
+            const oldEmoji = existingEmojis.find(candidate => candidate.name === name);
+            // Discord does not allow changing an emoji's image in place. Replace only our
+            // reserved csrp_* pack entries so rerunning this command applies artwork updates.
+            if (oldEmoji) await oldEmoji.delete(`Replace with the current CSRP artwork, requested by ${message.author.tag}`);
+            const emoji = await guild.emojis.create({
+                attachment: image,
+                name,
+                reason: `California State Roleplay emoji pack installed by ${message.author.tag}`,
+            });
             await assignEmoji(guild, slot, emoji.toString());
             installed.push(emoji.toString());
         } catch (error) {
