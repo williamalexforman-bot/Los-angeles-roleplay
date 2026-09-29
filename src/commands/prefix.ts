@@ -64,7 +64,7 @@ export async function handlePrefixCommand(message: Message): Promise<boolean> {
         return true;
     }
     if (['emojiad', 'emoji-ad', 'emojiadd', 'emoji-add'].includes(command)) {
-        await handleEmojiAd(message, parts[0]);
+        await handleEmojiAd(message);
         await message.delete().catch(() => undefined);
         return true;
     }
