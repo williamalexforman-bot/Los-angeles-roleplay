@@ -25,7 +25,7 @@ const icons = {
     players: '<circle cx="51" cy="51" r="10"/><circle cx="77" cy="51" r="10"/><path d="M31 88c2-15 8-23 20-23s18 8 20 23M57 88c2-15 8-23 20-23s18 8 20 23"/>',
     queue: '<circle cx="40" cy="46" r="3" fill="#fff"/><circle cx="40" cy="64" r="3" fill="#fff"/><circle cx="40" cy="82" r="3" fill="#fff"/><path d="M52 46h37M52 64h37M52 82h37"/>',
     online: '<path d="M64 33v33M45 45a27 27 0 1 0 38 0"/>',
-    offline: '<path d="M64 34v31M44 46a27 27 0 0 0 40 37M84 46a27 27 0 0 1-4 38"/><path d="m39 38 50 52" stroke="#FACC15"/>',
+    offline: '<path d="M64 34v31M44 46a27 27 0 0 0 40 37M84 46a27 27 0 0 1-4 38"/><path d="m39 38 50 52"/>',
     vote: '<path d="M40 41h48v47H40V41Z"/><path d="m49 57 5 5 10-12M69 58h11M49 76l5 5 10-12M69 77h11"/>',
     boost: '<path d="m70 29-29 39h20l-3 31 29-42H67l3-28Z"/>',
     welcome: '<path d="M47 55c-8-7-10-16-4-20 5-3 10 1 13 7 0-9 4-14 9-12 5 1 6 7 5 14 4-6 9-8 13-5 4 4 1 10-3 16l-9 12"/><path d="M47 58c-9 6-11 17-7 27 3 7 10 10 20 10h12c9 0 16-8 16-17V66"/>',
@@ -35,9 +35,7 @@ const icons = {
 
 for (const [name, shape] of Object.entries(icons)) {
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
-<circle cx="64" cy="64" r="59" fill="#17324A" stroke="#FACC15" stroke-width="5"/>
-<circle cx="64" cy="64" r="51" fill="none" stroke="#FFFFFF" stroke-opacity=".28" stroke-width="1.5"/>
-<g fill="none" stroke="#FFFFFF" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">${shape}</g>
+<g fill="none" stroke="#FFFFFF" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">${shape}</g>
 </svg>`;
     const svgPath = path.join(output, `${name}.svg`);
     const pngPath = path.join(output, `${name}.png`);
