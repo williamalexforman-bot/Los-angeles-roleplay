@@ -71,28 +71,23 @@ function panel(installed: string[], failed: string[], mappingFailures: string[],
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(body));
 }
 
-/** Installs/reuses the bundled transparent CSRP emoji pack and maps it to panel settings. */
-export async function handleEmojiAd(message: Message): Promise<void> {
-    if (!message.guild || !message.member || !message.channel.isSendable()) return;
-    const guild = message.guild;
-    const config = await getGuildBotConfig(guild);
-    const botPermRole = config.roles.bot_permissions || process.env.BOT_PERMISSIONS_ROLE_ID;
-    const authorized = guild.ownerId === message.author.id
-        || message.member.permissions.has(PermissionFlagsBits.Administrator)
-        || message.member.permissions.has(PermissionFlagsBits.ManageGuildExpressions)
-        || Boolean(botPermRole && message.member.roles.cache.has(botPermRole));
-    if (!authorized) {
-        await message.reply('You need the configured bot-management role or Manage Expressions permission to install the server emoji pack.');
-        return;
-    }
+export function emojiPackProgressPanel(content: string) {
+    return new ContainerBuilder().setAccentColor(BRAND.color)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`# California State Roleplay Emoji Pack\n${content}`));
+}
 
+/** Install the bundled transparent CSRP emoji pack, replacing old artwork and updating panels. */
+export async function installEmojiPack(
+    guild: NonNullable<Message['guild']>,
+    actorTag: string,
+    onProgress: (content: string) => Promise<void>,
+): Promise<ContainerBuilder> {
     const botMember = guild.members.me || await guild.members.fetchMe().catch(() => null);
     if (!botMember?.permissions.has(PermissionFlagsBits.ManageGuildExpressions)) {
-        await message.reply('I need the **Manage Expressions** permission before I can add server emojis.');
-        return;
+        return panel([], ['The bot needs **Manage Expressions** permission.'], [], 'No emojis were changed.');
     }
 
-    const status = await message.channel.send('Installing the California State Roleplay emoji pack…');
+    await onProgress('Installing the emoji artwork…');
     const installed: Array<{ slot: Slot; emojiText: string }> = [];
     const failed: string[] = [];
     const existingEmojis = await guild.emojis.fetch().catch(() => guild.emojis.cache);
@@ -106,11 +101,11 @@ export async function handleEmojiAd(message: Message): Promise<void> {
             const oldEmoji = existingEmojis.find(candidate => candidate.name === name);
             // Discord does not allow changing an emoji's image in place. Replace only our
             // reserved csrp_* pack entries so rerunning this command applies artwork updates.
-            if (oldEmoji) await oldEmoji.delete(`Replace with the current CSRP artwork, requested by ${message.author.tag}`);
+            if (oldEmoji) await oldEmoji.delete(`Replace with the current CSRP artwork, requested by ${actorTag}`);
             const emoji = await guild.emojis.create({
                 attachment: image,
                 name,
-                reason: `California State Roleplay emoji pack installed by ${message.author.tag}`,
+                reason: `California State Roleplay emoji pack installed by ${actorTag}`,
             });
             installed.push({ slot, emojiText: emoji.toString() });
         } catch (error) {
@@ -119,7 +114,7 @@ export async function handleEmojiAd(message: Message): Promise<void> {
             console.warn(`[Emoji Pack] Could not install ${name}:`, reason);
         }
         if ((slots.indexOf(slot) + 1) % 5 === 0) {
-            await status.edit(`Installing CSRP emojis… ${slots.indexOf(slot) + 1}/${slots.length}`);
+            await onProgress(`Installing emojis… ${slots.indexOf(slot) + 1}/${slots.length}`);
         }
     }
 
@@ -141,10 +136,27 @@ export async function handleEmojiAd(message: Message): Promise<void> {
         }
     }
 
-    await status.edit({
-        content: '',
-        components: [panel(installed.map(item => item.emojiText), failed, mappingFailures, panelStatus)],
-        flags: MessageFlags.IsComponentsV2,
-        allowedMentions: { parse: [] },
+    return panel(installed.map(item => item.emojiText), failed, mappingFailures, panelStatus);
+}
+
+/** Prefix flow; the same installer is also available from the /config button. */
+export async function handleEmojiAd(message: Message): Promise<void> {
+    if (!message.guild || !message.member || !message.channel.isSendable()) return;
+    const guild = message.guild;
+    const config = await getGuildBotConfig(guild);
+    const botPermRole = config.roles.bot_permissions || process.env.BOT_PERMISSIONS_ROLE_ID;
+    const authorized = guild.ownerId === message.author.id
+        || message.member.permissions.has(PermissionFlagsBits.Administrator)
+        || message.member.permissions.has(PermissionFlagsBits.ManageGuildExpressions)
+        || Boolean(botPermRole && message.member.roles.cache.has(botPermRole));
+    if (!authorized) {
+        await message.reply('You need the configured bot-management role or Manage Expressions permission to install the server emoji pack.');
+        return;
+    }
+
+    const status = await message.channel.send({ components: [emojiPackProgressPanel('Starting installation…')], flags: MessageFlags.IsComponentsV2 });
+    const result = await installEmojiPack(guild, message.author.tag, async content => {
+        await status.edit({ components: [emojiPackProgressPanel(content)] });
     });
+    await status.edit({ components: [result], allowedMentions: { parse: [] } });
 }

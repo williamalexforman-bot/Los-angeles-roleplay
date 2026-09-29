@@ -12,6 +12,7 @@ import {
     savePanelConfig, type ConfigChannelKey, type ConfigRoleKey, type ConfigurablePanel, type PanelConfig,
 } from '../services/panelConfig';
 import { postAllPanels } from './panels';
+import { emojiPackProgressPanel, installEmojiPack } from './emojiAd';
 
 const panels: ConfigurablePanel[] = ['ticket_panel', 'ticket', 'dashboard', 'regulations', 'application', 'infraction', 'promotion', 'session', 'welcome'];
 const drafts = new Map<string, { panel: ConfigurablePanel; config: PanelConfig }>();
@@ -66,6 +67,7 @@ function homeView() {
         .addActionRowComponents(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select))
         .addActionRowComponents(new ActionRowBuilder<ButtonBuilder>().addComponents(
             new ButtonBuilder().setCustomId('config:post-all').setLabel('Post All Panels').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId('config:install-emojis').setLabel('Install Emoji Pack').setStyle(ButtonStyle.Secondary),
         ));
     return { components: [container] };
 }
@@ -246,6 +248,17 @@ export async function handleConfigSelect(interaction: StringSelectMenuInteractio
 export async function handleConfigButton(interaction: ButtonInteraction): Promise<boolean> {
     if (!interaction.customId.startsWith('config:')) return false;
     if (!interaction.guild || !await authorized(interaction)) { await interaction.reply({ content: 'You are not authorized to use this configuration editor.', flags: MessageFlags.Ephemeral }); return true; }
+    if (interaction.customId === 'config:install-emojis') {
+        await interaction.reply({
+            components: [emojiPackProgressPanel('Starting installation…')],
+            flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
+        });
+        const result = await installEmojiPack(interaction.guild, interaction.user.tag, async content => {
+            await interaction.editReply({ components: [emojiPackProgressPanel(content)] });
+        });
+        await interaction.editReply({ components: [result], allowedMentions: { parse: [] } });
+        return true;
+    }
     if (interaction.customId === 'config:post-all') {
         await interaction.deferUpdate();
         try {
