@@ -9,6 +9,7 @@ import {
 } from 'discord.js';
 import { BRAND } from '../config/constants';
 import { getGuildBotConfig, getPanelConfig, parseEmojiMap, savePanelConfig, type ConfigurablePanel } from '../services/panelConfig';
+import { postAllPanels } from './panels';
 
 const slots = [
     'assistance', 'ticket', 'claim', 'close', 'escalate', 'general', 'management', 'highrank',
@@ -41,13 +42,13 @@ async function assignEmoji(guild: NonNullable<Message['guild']>, slot: Slot, emo
     }
 }
 
-function panel(installed: string[], failed: string[]) {
+function panel(installed: string[], failed: string[], panelStatus: string) {
     const body = [
         `# California State Roleplay Emoji Pack`,
         `Installed or reused **${installed.length} of ${slots.length}** custom emojis. Available icons have been connected to their panel settings.`,
         installed.length ? `\n${installed.join(' ')}` : '',
         failed.length ? `\n**Not added:** ${failed.map(name => `\`${name}\``).join(', ')}\nCheck the server’s emoji capacity and my **Manage Expressions** permission, then run \`-emojiad\` again.` : '',
-        `\nTo refresh the embeds with these icons, open **/config** and choose **Post All Panels**.`,
+        `\n${panelStatus}`,
     ].filter(Boolean).join('\n');
     return new ContainerBuilder().setAccentColor(BRAND.color)
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(body));
@@ -102,9 +103,25 @@ export async function handleEmojiAd(message: Message): Promise<void> {
         }
     }
 
+    let panelStatus = 'No panel messages were refreshed.';
+    if (installed.length) {
+        try {
+            const refreshed = await postAllPanels(guild);
+            const summary = [
+                refreshed.updated.length ? `updated ${refreshed.updated.join(', ')}` : '',
+                refreshed.posted.length ? `posted ${refreshed.posted.join(', ')}` : '',
+                refreshed.unavailable.length ? `set a destination for ${refreshed.unavailable.join(', ')} in /config` : '',
+            ].filter(Boolean).join('; ');
+            panelStatus = summary ? `Panels: ${summary}.` : 'The configured panels are up to date.';
+        } catch (error) {
+            console.warn('[Emoji Pack] Could not refresh panels:', error instanceof Error ? error.message : 'Unknown error');
+            panelStatus = 'Emoji artwork is installed. Open **/config** and choose **Post All Panels** to refresh the panels.';
+        }
+    }
+
     await status.edit({
         content: '',
-        components: [panel(installed, failed)],
+        components: [panel(installed, failed, panelStatus)],
         flags: MessageFlags.IsComponentsV2,
         allowedMentions: { parse: [] },
     });
