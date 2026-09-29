@@ -31,11 +31,12 @@ export async function handlePrefixCommand(message: Message): Promise<boolean> {
     if (!message.channel.isSendable()) return false;
     const [rawCommand, ...parts] = message.content.slice(1).trim().split(/\s+/);
     const command = rawCommand.toLowerCase();
-    const panelCommands: Record<string, 'dashboard' | 'regulations' | 'session' | 'application'> = {
+    const panelCommands: Record<string, 'dashboard' | 'regulations' | 'session' | 'application' | 'staff_guide'> = {
         dashboard: 'dashboard', dashboardpanel: 'dashboard',
         regulations: 'regulations', regulationspanel: 'regulations',
         sessionpanel: 'session', session: 'session',
         applicationpanel: 'application', applications: 'application',
+        staffguide: 'staff_guide', 'staff-guide': 'staff_guide', staffguidepanel: 'staff_guide',
     };
     const sessionCommands: Record<string, SessionLifecycleStatus> = {
         sessionstart: 'online', 'session-start': 'online',

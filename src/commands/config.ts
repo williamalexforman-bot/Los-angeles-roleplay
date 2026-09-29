@@ -14,7 +14,7 @@ import {
 import { postAllPanels } from './panels';
 import { emojiPackProgressPanel, installEmojiPack } from './emojiAd';
 
-const panels: ConfigurablePanel[] = ['ticket_panel', 'ticket', 'dashboard', 'regulations', 'application', 'infraction', 'promotion', 'session', 'welcome'];
+const panels: ConfigurablePanel[] = ['ticket_panel', 'ticket', 'dashboard', 'regulations', 'application', 'infraction', 'promotion', 'session', 'welcome', 'staff_guide'];
 const drafts = new Map<string, { panel: ConfigurablePanel; config: PanelConfig }>();
 
 function draftKey(guildId: string, userId: string): string { return `${guildId}:${userId}`; }
@@ -36,6 +36,7 @@ function panelName(panel: ConfigurablePanel): string {
     if (panel === 'infraction') return 'Staff Infraction';
     if (panel === 'promotion') return 'Staff Promotion';
     if (panel === 'welcome') return 'Welcome Message';
+    if (panel === 'staff_guide') return 'Staff Guide';
     return 'Session Panel';
 }
 
@@ -46,6 +47,7 @@ function placeholders(panel: ConfigurablePanel): string {
     if (panel === 'dashboard') return '`{members}` `{owner}` `{created}`';
     if (panel === 'application') return '`{applicant}` `{submitted}`';
     if (panel === 'welcome') return '`{member}` `{server}` `{member_count}`';
+    if (panel === 'staff_guide') return 'No placeholders required';
     return '`{updated}` `{staff}` `{players}` `{maximum}` `{queue}` `{status}`';
 }
 
@@ -74,7 +76,7 @@ function homeView() {
 
 const channelLabels: Record<ConfigChannelKey, string> = {
     ticket_panel: 'Ticket Panel', ticket_transcripts: 'Ticket Transcripts', regulations: 'Regulations', dashboard: 'Dashboard',
-    sessions: 'Sessions', application_panel: 'Application Panel', application_reviews: 'Application Reviews', infractions: 'Infractions', promotions: 'Promotions', command_logs: 'Command Logs',
+    sessions: 'Sessions', application_panel: 'Application Panel', application_reviews: 'Application Reviews', staff_guide: 'Staff Guide', infractions: 'Infractions', promotions: 'Promotions', command_logs: 'Command Logs',
     welcome: 'Welcome Messages',
     general_ticket_category: 'General Ticket Category', internal_ticket_category: 'Internal Affairs Category',
     management_ticket_category: 'Management Ticket Category', highrank_ticket_category: 'High-Rank Ticket Category',
@@ -149,7 +151,8 @@ function previewValues(panel: ConfigurablePanel, userId: string): Record<string,
     if (panel === 'dashboard') return { members: '1,250', owner: `<@${userId}>`, created: '<t:1700000000:D>' };
     if (panel === 'application') return { applicant: `<@${userId}>`, submitted: '<t:1770000000:R>' };
     if (panel === 'welcome') return { member: `<@${userId}>`, server: 'California State Roleplay', member_count: '1,250' };
-    return { updated: '<t:1770000000:R>', staff: '4', players: '28', maximum: '40', queue: '0', status: 'Online' };
+    if (panel === 'session') return { updated: '<t:1770000000:R>', staff: '4', players: '28', maximum: '40', queue: '0', status: 'Online' };
+    return {};
 }
 
 function editorView(panel: ConfigurablePanel, config: PanelConfig, userId: string, customBannerUrl?: string | null, notice?: string) {

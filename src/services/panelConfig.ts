@@ -7,7 +7,7 @@ import {
 } from 'discord.js';
 import { logger } from '../utils/logger';
 
-export type ConfigurablePanel = 'ticket' | 'ticket_panel' | 'dashboard' | 'regulations' | 'application' | 'infraction' | 'promotion' | 'session' | 'welcome';
+export type ConfigurablePanel = 'ticket' | 'ticket_panel' | 'dashboard' | 'regulations' | 'application' | 'infraction' | 'promotion' | 'session' | 'welcome' | 'staff_guide';
 
 export interface PanelConfig {
     title: string;
@@ -24,7 +24,7 @@ const cache = new Map<string, PanelConfig>();
 const guildConfigCache = new Map<string, GuildBotConfig>();
 
 export const CONFIG_CHANNEL_KEYS = [
-    'ticket_panel', 'ticket_transcripts', 'regulations', 'dashboard', 'sessions', 'application_panel', 'application_reviews',
+    'ticket_panel', 'ticket_transcripts', 'regulations', 'dashboard', 'sessions', 'application_panel', 'application_reviews', 'staff_guide',
     'infractions', 'promotions', 'command_logs', 'welcome', 'general_ticket_category', 'internal_ticket_category',
     'management_ticket_category', 'highrank_ticket_category',
 ] as const;
@@ -113,6 +113,11 @@ export const DEFAULT_PANEL_CONFIGS: Record<ConfigurablePanel, PanelConfig> = {
         title: 'Welcome to {server}!',
         description: 'Welcome {member}! We are glad to have you here. Please review the server information and make yourself at home.\n\nYou are member **#{member_count}**.',
         emojiText: 'title=👋\nmember=👤',
+    },
+    staff_guide: {
+        title: 'Serving on the CSRP Staff Team',
+        description: 'Being part of the California State Roleplay staff team means helping make the server fair, welcoming, and enjoyable for everyone. Staff are expected to lead by example, treat members consistently, protect private information, and use their permissions responsibly.\n\nListen to the community, follow server procedures, and keep moderation decisions calm and factual. If a situation is unclear or outside your role, pause and ask a higher-ranking staff member for guidance. The staff guide below explains the team’s expectations and procedures.',
+        emojiText: 'title=🛡️\nguide=📖',
     },
 };
 

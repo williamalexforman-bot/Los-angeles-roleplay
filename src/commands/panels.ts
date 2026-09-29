@@ -47,6 +47,7 @@ const QUICK_JOIN_URL = 'https://www.roblox.com/games/start?launchData=%7B%22psCo
 const REGULATIONS_MENU_ID = 'regulations:menu';
 const SESSION_TITLE_EMOJI = '<:session:1525234122568765710>';
 const REGULATIONS_TITLE_EMOJI = '<:regulations:1516784266556604528>';
+const STAFF_GUIDE_URL = 'https://docs.google.com/document/d/11Bjkf1bEO7SxECUPtq4aSl2AFC_0zZfjHngHDl5_0GU/edit?usp=drivesdk';
 
 const DISCORD_RULES = `# Discord Rules
 
@@ -80,6 +81,21 @@ function gallery(url: string): MediaGalleryBuilder {
     return new MediaGalleryBuilder().addItems(
         new MediaGalleryItemBuilder().setURL(url),
     );
+}
+
+function staffGuidePanel(config: PanelConfig, customBannerUrl?: string | null): ContainerBuilder {
+    const emojis = parseEmojiMap(config.emojiText);
+    const values = { server: 'California State Roleplay' };
+    const button = new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(STAFF_GUIDE_URL).setLabel('Staff Guide');
+    try { button.setEmoji(emojis.guide || '📖'); } catch { /* an invalid custom emoji should not prevent the panel from posting */ }
+    return new ContainerBuilder().setAccentColor(BRAND.color)
+        .addMediaGalleryComponents(gallery(customBannerUrl || bannerUrl('staffGuide')))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+            `# ${emojis.title || '🛡️'} ${applyTemplate(config.title, values)}`,
+            applyTemplate(config.description, values),
+        ].join('\n\n')))
+        .addActionRowComponents(new ActionRowBuilder<ButtonBuilder>().addComponents(button))
+        .addMediaGalleryComponents(gallery(bannerUrl('underbanner')));
 }
 
 function loadingSessionPanel(): ContainerBuilder {
@@ -639,9 +655,9 @@ export async function runSessionActionFromMessage(message: Message, action: Sess
     }
 }
 
-export async function postPanelFromMessage(message: Message, panel: 'dashboard' | 'regulations' | 'session' | 'application'): Promise<void> {
+export async function postPanelFromMessage(message: Message, panel: 'dashboard' | 'regulations' | 'session' | 'application' | 'staff_guide'): Promise<void> {
     if (!message.guild || !message.channel.isSendable()) return;
-    const destinationKey = panel === 'dashboard' ? 'dashboard' : panel === 'regulations' ? 'regulations' : panel === 'session' ? 'sessions' : 'application_panel';
+    const destinationKey = panel === 'dashboard' ? 'dashboard' : panel === 'regulations' ? 'regulations' : panel === 'session' ? 'sessions' : panel === 'staff_guide' ? 'staff_guide' : 'application_panel';
     const destinationId = await configuredChannelId(message.guild, destinationKey);
     const configuredDestination = destinationId ? await message.client.channels.fetch(destinationId).catch(() => null) : null;
     const destination = configuredDestination?.isSendable() ? configuredDestination : message.channel;
@@ -677,6 +693,17 @@ export async function postPanelFromMessage(message: Message, panel: 'dashboard' 
         await destination.send({ components: [applicationPanel(config, await getPanelBannerUrl(message.guild, config))], files: [bannerAttachment('applications'), bannerAttachment('underbanner')], flags: MessageFlags.IsComponentsV2 });
         return;
     }
+    if (panel === 'staff_guide') {
+        const config = await getPanelConfig(message.guild, 'staff_guide');
+        const customBanner = await getPanelBannerUrl(message.guild, config);
+        await destination.send({
+            components: [staffGuidePanel(config, customBanner)],
+            files: customBanner ? [bannerAttachment('underbanner')] : bannerFiles('staffGuide'),
+            flags: MessageFlags.IsComponentsV2,
+            allowedMentions: { parse: [] },
+        });
+        return;
+    }
     const config = await getPanelConfig(message.guild, 'session');
     const status = await currentSessionDisplay(message.guild);
     const sent = await destination.send({ components: [sessionPanel(status, config, await getPanelBannerUrl(message.guild, config))], files: [bannerAttachment('session'), bannerAttachment('underbanner')], flags: MessageFlags.IsComponentsV2 });
@@ -690,6 +717,7 @@ export async function refreshExistingPanelBanners(client: Client): Promise<numbe
         { panel: 'dashboard' as const, channel: 'dashboard', marker: '**Members:**', banner: 'dashboard' as const },
         { panel: 'regulations' as const, channel: 'regulations', marker: REGULATIONS_MENU_ID, banner: 'regulations' as const },
         { panel: 'application' as const, channel: 'application_panel', marker: 'application:open', banner: 'applications' as const },
+        { panel: 'staff_guide' as const, channel: 'staff_guide', marker: STAFF_GUIDE_URL, banner: 'staffGuide' as const },
     ] as const;
 
     for (const guild of client.guilds.cache.values()) {
@@ -754,6 +782,7 @@ export async function postAllPanels(guild: Guild): Promise<PostAllPanelsResult> 
         { panel: 'dashboard' as const, channel: 'dashboard', marker: '**Members:**', label: 'Dashboard', banner: 'dashboard' as const },
         { panel: 'regulations' as const, channel: 'regulations', marker: REGULATIONS_MENU_ID, label: 'Regulations', banner: 'regulations' as const },
         { panel: 'application' as const, channel: 'application_panel', marker: 'application:open', label: 'Applications', banner: 'applications' as const },
+        { panel: 'staff_guide' as const, channel: 'staff_guide', marker: STAFF_GUIDE_URL, label: 'Staff Guide', banner: 'staffGuide' as const },
     ] as const;
 
     for (const definition of definitions) {
@@ -790,6 +819,8 @@ export async function postAllPanels(guild: Guild): Promise<PostAllPanelsResult> 
             container.addMediaGalleryComponents(gallery(bannerUrl('underbanner')));
         } else if (definition.panel === 'regulations') {
             container = regulationsPanel(config, customBannerUrl);
+        } else if (definition.panel === 'staff_guide') {
+            container = staffGuidePanel(config, customBannerUrl);
         } else {
             container = applicationPanel(config, customBannerUrl);
         }
