@@ -32,22 +32,39 @@ const targets: EmojiAssignments = {
     infraction: [['infraction', ['title']]], promotion: [['promotion', ['title']]],
 };
 
-async function assignEmoji(guild: NonNullable<Message['guild']>, slot: Slot, emojiText: string): Promise<void> {
-    for (const [panel, keys] of targets[slot] || []) {
-        const config = await getPanelConfig(guild, panel);
-        const emojis = parseEmojiMap(config.emojiText);
-        for (const key of keys) emojis[key] = emojiText;
-        config.emojiText = Object.entries(emojis).map(([key, value]) => `${key}=${value}`).join('\n');
-        await savePanelConfig(guild, panel, config);
+async function assignEmojis(guild: NonNullable<Message['guild']>, installed: Array<{ slot: Slot; emojiText: string }>): Promise<string[]> {
+    const changes = new Map<ConfigurablePanel, Record<string, string>>();
+    for (const { slot, emojiText } of installed) {
+        for (const [panelName, keys] of targets[slot] || []) {
+            const panelChanges = changes.get(panelName) || {};
+            for (const key of keys) panelChanges[key] = emojiText;
+            changes.set(panelName, panelChanges);
+        }
     }
+
+    const failed: string[] = [];
+    for (const [panelName, panelChanges] of changes) {
+        try {
+            const config = await getPanelConfig(guild, panelName);
+            const emojis = parseEmojiMap(config.emojiText);
+            Object.assign(emojis, panelChanges);
+            config.emojiText = Object.entries(emojis).map(([key, value]) => `${key}=${value}`).join('\n');
+            await savePanelConfig(guild, panelName, config);
+        } catch (error) {
+            const reason = error instanceof Error ? error.message : 'unknown error';
+            failed.push(`${panelName}: ${reason.slice(0, 100)}`);
+        }
+    }
+    return failed;
 }
 
-function panel(installed: string[], failed: string[], panelStatus: string) {
+function panel(installed: string[], failed: string[], mappingFailures: string[], panelStatus: string) {
     const body = [
         `# California State Roleplay Emoji Pack`,
-        `Installed or reused **${installed.length} of ${slots.length}** custom emojis. Available icons have been connected to their panel settings.`,
+        `Installed **${installed.length} of ${slots.length}** custom emojis.`,
         installed.length ? `\n${installed.join(' ')}` : '',
-        failed.length ? `\n**Not added:** ${failed.map(name => `\`${name}\``).join(', ')}\nCheck the server’s emoji capacity and my **Manage Expressions** permission, then run \`-emojiad\` again.` : '',
+        failed.length ? `\n**Could not add:** ${failed.join('\n')}` : '',
+        mappingFailures.length ? `\n**Panel settings not saved:** ${mappingFailures.join(', ')}` : '',
         `\n${panelStatus}`,
     ].filter(Boolean).join('\n');
     return new ContainerBuilder().setAccentColor(BRAND.color)
@@ -76,7 +93,7 @@ export async function handleEmojiAd(message: Message): Promise<void> {
     }
 
     const status = await message.channel.send('Installing the California State Roleplay emoji pack…');
-    const installed: string[] = [];
+    const installed: Array<{ slot: Slot; emojiText: string }> = [];
     const failed: string[] = [];
     const existingEmojis = await guild.emojis.fetch().catch(() => guild.emojis.cache);
 
@@ -95,16 +112,21 @@ export async function handleEmojiAd(message: Message): Promise<void> {
                 name,
                 reason: `California State Roleplay emoji pack installed by ${message.author.tag}`,
             });
-            await assignEmoji(guild, slot, emoji.toString());
-            installed.push(emoji.toString());
+            installed.push({ slot, emojiText: emoji.toString() });
         } catch (error) {
-            failed.push(name);
-            console.warn(`[Emoji Pack] Could not install ${name}:`, error instanceof Error ? error.message : 'Unknown error');
+            const reason = error instanceof Error ? error.message : 'Unknown error';
+            failed.push(`\`${name}\`: ${reason.slice(0, 120)}`);
+            console.warn(`[Emoji Pack] Could not install ${name}:`, reason);
+        }
+        if ((slots.indexOf(slot) + 1) % 5 === 0) {
+            await status.edit(`Installing CSRP emojis… ${slots.indexOf(slot) + 1}/${slots.length}`);
         }
     }
 
+    const mappingFailures = await assignEmojis(guild, installed);
+
     let panelStatus = 'No panel messages were refreshed.';
-    if (installed.length) {
+    if (installed.length && mappingFailures.length === 0) {
         try {
             const refreshed = await postAllPanels(guild);
             const summary = [
@@ -121,7 +143,7 @@ export async function handleEmojiAd(message: Message): Promise<void> {
 
     await status.edit({
         content: '',
-        components: [panel(installed, failed, panelStatus)],
+        components: [panel(installed.map(item => item.emojiText), failed, mappingFailures, panelStatus)],
         flags: MessageFlags.IsComponentsV2,
         allowedMentions: { parse: [] },
     });
