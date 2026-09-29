@@ -9,6 +9,7 @@ import {
     Client,
     ContainerBuilder,
     EmbedBuilder,
+    Guild,
     GuildMember,
     MediaGalleryBuilder,
     MediaGalleryItemBuilder,
@@ -155,7 +156,7 @@ function isTicketCategory(value: string): value is SupportTicketCategory {
 }
 
 function panelDropdown(config?: PanelConfig): ActionRowBuilder<StringSelectMenuBuilder> {
-    const emojis = { ...parseEmojiMap(config?.emojiText), ...TICKET_PANEL_EMOJIS };
+    const emojis = { ...TICKET_PANEL_EMOJIS, ...parseEmojiMap(config?.emojiText) };
     const options = ticketCategoryKeys.map(key => {
         const definition = ticketCategories[key];
         const configuredEmoji = emojis[key];
@@ -184,7 +185,7 @@ function panelDropdown(config?: PanelConfig): ActionRowBuilder<StringSelectMenuB
 }
 
 function ticketPanelV2(config: PanelConfig, customBannerUrl?: string | null): ContainerBuilder {
-    const emojis = { ...parseEmojiMap(config.emojiText), ...TICKET_PANEL_EMOJIS };
+    const emojis = { ...TICKET_PANEL_EMOJIS, ...parseEmojiMap(config.emojiText) };
     return new ContainerBuilder()
         .setAccentColor(BRAND.color)
         .addMediaGalleryComponents(new MediaGalleryBuilder().addItems(
@@ -205,29 +206,38 @@ function ticketPanelV2(config: PanelConfig, customBannerUrl?: string | null): Co
         ));
 }
 
+/** Update an existing Assistance panel, or create one when the configured channel has none. */
+export async function postOrUpdateTicketPanel(guild: Guild): Promise<'updated' | 'posted' | 'missing-channel'> {
+    const channelId = await configuredChannelId(guild, 'ticket_panel', CHANNEL_IDS.ticketPanel);
+    const channel = channelId ? await guild.channels.fetch(channelId).catch(() => null) : null;
+    if (!(channel instanceof TextChannel)) return 'missing-channel';
+    const config = await getPanelConfig(guild, 'ticket_panel');
+    const customBannerUrl = await getPanelBannerUrl(guild, config);
+    const recentMessages = await channel.messages.fetch({ limit: 100 }).catch(() => null);
+    const existingPanels = recentMessages?.filter(message => message.author.id === guild.client.user?.id
+        && (JSON.stringify(message.components.map(component => component.toJSON())).includes('ticket_select')
+            || message.embeds.some(embed => ['Help & Support', 'Assistance'].includes(embed.title || ''))));
+    const payload = {
+        embeds: [] as never[],
+        components: [ticketPanelV2(config, customBannerUrl)],
+        flags: MessageFlags.IsComponentsV2 as const,
+        files: [createLogoAttachment(), ...bannerFiles('assistance')],
+        allowedMentions: { parse: [] as never[] },
+    };
+    if (existingPanels?.size) {
+        for (const existing of existingPanels.values()) await existing.edit({ ...payload, attachments: [] });
+        return 'updated';
+    }
+    await channel.send(payload);
+    return 'posted';
+}
+
 /** Updates existing bot-authored panels without posting duplicates during restarts. */
 export async function refreshExistingTicketPanels(client: Client): Promise<number> {
-    const panelChannel = await client.channels.fetch(CHANNEL_IDS.ticketPanel).catch(() => null);
-    if (!(panelChannel instanceof TextChannel) || !client.user) return 0;
-
-    const recentMessages = await panelChannel.messages.fetch({ limit: 100 }).catch(() => null);
-    if (!recentMessages) return 0;
-    const existingPanels = recentMessages.filter(message => message.author.id === client.user?.id
-        && (message.embeds.some(embed => embed.title === 'Help & Support') || JSON.stringify(message.components).includes('ticket_select')));
-
-    const config = await getPanelConfig(panelChannel.guild, 'ticket_panel');
-    const customBannerUrl = await getPanelBannerUrl(panelChannel.guild, config);
-
     let updated = 0;
-    for (const message of existingPanels.values()) {
-        await message.edit({
-            embeds: [],
-            components: [ticketPanelV2(config, customBannerUrl)],
-            flags: MessageFlags.IsComponentsV2,
-            attachments: [],
-            files: [createLogoAttachment(), ...bannerFiles('assistance')],
-        });
-        updated += 1;
+    for (const guild of client.guilds.cache.values()) {
+        const result = await postOrUpdateTicketPanel(guild).catch(() => 'missing-channel' as const);
+        if (result === 'updated') updated += 1;
     }
     return updated;
 }
@@ -431,7 +441,7 @@ export function buildOpeningPanel(
             new MediaGalleryItemBuilder().setURL(customBannerUrl || bannerUrl('assistance')),
         ))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent([
-            `# ${TICKET_OPENED_EMOJI} ${applyTemplate(configured.title, values)}`,
+            `# ${parseEmojiMap(configured.emojiText).title || TICKET_OPENED_EMOJI} ${applyTemplate(configured.title, values)}`,
             applyTemplate(configuredDescription, values),
             '',
             `-# ${BRAND.footer} • <t:${Math.floor(ticket.createdAt.getTime() / 1_000)}:f>`,

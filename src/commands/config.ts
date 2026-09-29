@@ -11,6 +11,7 @@ import {
     getPanelBannerUrl, getPanelConfig, parseEmojiMap, parseSessionEmojis, saveGuildBotConfig,
     savePanelConfig, type ConfigChannelKey, type ConfigRoleKey, type ConfigurablePanel, type PanelConfig,
 } from '../services/panelConfig';
+import { postAllPanels } from './panels';
 
 const panels: ConfigurablePanel[] = ['ticket_panel', 'ticket', 'dashboard', 'regulations', 'application', 'infraction', 'promotion', 'session', 'welcome'];
 const drafts = new Map<string, { panel: ConfigurablePanel; config: PanelConfig }>();
@@ -59,10 +60,13 @@ function homeView() {
     const container = new ContainerBuilder().setAccentColor(BRAND.color)
         .addTextDisplayComponents(new TextDisplayBuilder().setContent([
             '# Bot Configuration',
-            'Configure the bot’s Components V2 panels, destinations, staff roles, permissions, application questions, banners, and emojis.',
+            'Configure California State Roleplay’s panels, channels, staff roles, questions, banners, and server emojis. **Post All Panels** updates each panel and fills any gaps.',
             '', '-# Only you can see this configuration menu.',
         ].join('\n')))
-        .addActionRowComponents(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select));
+        .addActionRowComponents(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select))
+        .addActionRowComponents(new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder().setCustomId('config:post-all').setLabel('Post All Panels').setStyle(ButtonStyle.Success),
+        ));
     return { components: [container] };
 }
 
@@ -242,6 +246,21 @@ export async function handleConfigSelect(interaction: StringSelectMenuInteractio
 export async function handleConfigButton(interaction: ButtonInteraction): Promise<boolean> {
     if (!interaction.customId.startsWith('config:')) return false;
     if (!interaction.guild || !await authorized(interaction)) { await interaction.reply({ content: 'You are not authorized to use this configuration editor.', flags: MessageFlags.Ephemeral }); return true; }
+    if (interaction.customId === 'config:post-all') {
+        await interaction.deferUpdate();
+        try {
+            const result = await postAllPanels(interaction.guild);
+            const lines = [
+                result.updated.length ? `**Updated:** ${result.updated.join(', ')}` : '',
+                result.posted.length ? `**Posted because missing:** ${result.posted.join(', ')}` : '',
+                result.unavailable.length ? `**Skipped—configure a destination in Channels:** ${result.unavailable.join(', ')}` : '',
+            ].filter(Boolean);
+            await interaction.followUp({ content: lines.join('\n') || 'All configured panels are up to date.', flags: MessageFlags.Ephemeral });
+        } catch (error) {
+            await interaction.followUp({ content: `Panel update stopped: ${error instanceof Error ? error.message : 'Discord returned an error.'}`, flags: MessageFlags.Ephemeral });
+        }
+        return true;
+    }
     const [, action, rawPanel] = interaction.customId.split(':');
     if (action === 'back' && rawPanel === 'embeds') { await interaction.update(embedLibraryView()); return true; }
     const panel = isPanel(rawPanel) ? rawPanel : 'ticket';

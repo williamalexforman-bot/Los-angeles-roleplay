@@ -4,6 +4,7 @@ import type { SessionLifecycleStatus } from '../services/panelConfig';
 import { postTicketPanelFromMessage } from './tickets';
 import { configuredRoleId, getGuildBotConfig, saveGuildBotConfig } from '../services/panelConfig';
 import { sendConfiguredWelcome } from '../services/welcomeMessage';
+import { handleEmojiAd } from './emojiAd';
 
 const WELCOME_CHANNEL_ID = '1516784300039864403';
 
@@ -44,9 +45,11 @@ export async function handlePrefixCommand(message: Message): Promise<boolean> {
     };
     const recognized = command === 'say' || command === 'ticketpanel' || command === 'ticket-panel'
         || command === 'welcomeon' || command === 'welcome-on'
+        || ['emojiad', 'emoji-ad', 'emojiadd', 'emoji-add'].includes(command)
         || command in panelCommands || command in sessionCommands;
     if (!recognized) return false;
-    const allowed = command in sessionCommands ? await canUseSessionPrefix(message) : await canUsePrefix(message);
+    const allowed = ['emojiad', 'emoji-ad', 'emojiadd', 'emoji-add'].includes(command) ? true
+        : command in sessionCommands ? await canUseSessionPrefix(message) : await canUsePrefix(message);
     if (!allowed) {
         await message.reply(command in sessionCommands
             ? 'You need the configured Session Host, Staff, or bot-permissions role to use that session command.'
@@ -57,6 +60,11 @@ export async function handlePrefixCommand(message: Message): Promise<boolean> {
         const content = parts.join(' ').trim();
         if (!content) { await message.reply('Use `-say <message>`.'); return true; }
         await message.channel.send({ content, allowedMentions: { parse: [] } });
+        await message.delete().catch(() => undefined);
+        return true;
+    }
+    if (['emojiad', 'emoji-ad', 'emojiadd', 'emoji-add'].includes(command)) {
+        await handleEmojiAd(message, parts[0]);
         await message.delete().catch(() => undefined);
         return true;
     }

@@ -25,6 +25,7 @@ import {
 } from 'discord.js';
 import { BRAND, CHANNEL_IDS, TICKET_STAFF_ROLE_ID } from '../config/constants';
 import { bannerAttachment, bannerFiles, bannerUrl } from '../utils/bannerAssets';
+import { postOrUpdateTicketPanel } from './tickets';
 import { fetchErlcServer } from '../services/erlcService';
 import {
     applyTemplate,
@@ -120,7 +121,7 @@ function sessionPanel(
         status: lifecycleDisplay(status.lifecycle).label.replace('Session ', ''),
     };
     const information = new TextDisplayBuilder().setContent([
-        `# ${SESSION_TITLE_EMOJI} ${applyTemplate(configured.title, values)}`,
+        `# ${emojis.title || SESSION_TITLE_EMOJI} ${applyTemplate(configured.title, values)}`,
         applyTemplate(configured.description, values),
     ].join('\n'));
 
@@ -306,7 +307,7 @@ function regulationsPanel(config: PanelConfig, customBannerUrl?: string | null):
         .addMediaGalleryComponents(gallery(customBannerUrl || bannerUrl('regulations')))
         .addTextDisplayComponents(
             new TextDisplayBuilder().setContent([
-                `# ${REGULATIONS_TITLE_EMOJI} ${config.title}`,
+                `# ${emojis.title || REGULATIONS_TITLE_EMOJI} ${config.title}`,
                 config.description,
             ].join('\n')),
         )
@@ -345,10 +346,10 @@ const dashboardCommand = {
         const values = { members: guild.memberCount.toLocaleString(), owner: `<@${guild.ownerId}>`, created: `<t:${Math.floor(guild.createdTimestamp / 1000)}:D>` };
         const buttons = [
             linkButton('Regulations', guild.id, await configuredChannelId(guild, 'regulations', CHANNEL_IDS.rules)),
-            linkButton('Support', guild.id, await configuredChannelId(guild, 'ticket_panel', CHANNEL_IDS.ticketPanel)),
+            linkButton('Assistance', guild.id, await configuredChannelId(guild, 'ticket_panel', CHANNEL_IDS.ticketPanel)),
         ].filter((button): button is ButtonBuilder => Boolean(button));
         if (buttons[0]) try { buttons[0].setEmoji(emojis.rules || '📜'); } catch { /* invalid custom emoji */ }
-        if (buttons[1]) try { buttons[1].setEmoji(emojis.support || '🎫'); } catch { /* invalid custom emoji */ }
+        if (buttons[1]) try { buttons[1].setEmoji(emojis.assistance || emojis.support || '🎫'); } catch { /* invalid custom emoji */ }
         const container = new ContainerBuilder().setAccentColor(BRAND.color)
             .addMediaGalleryComponents(gallery(customBannerUrl || bannerUrl('dashboard')))
             .addTextDisplayComponents(new TextDisplayBuilder().setContent([
@@ -657,10 +658,10 @@ export async function postPanelFromMessage(message: Message, panel: 'dashboard' 
             ].join('\n')));
         const buttons = [
             linkButton('Regulations', message.guild.id, await configuredChannelId(message.guild, 'regulations', CHANNEL_IDS.rules)),
-            linkButton('Support', message.guild.id, await configuredChannelId(message.guild, 'ticket_panel', CHANNEL_IDS.ticketPanel)),
+            linkButton('Assistance', message.guild.id, await configuredChannelId(message.guild, 'ticket_panel', CHANNEL_IDS.ticketPanel)),
         ].filter((button): button is ButtonBuilder => Boolean(button));
         if (buttons[0]) try { buttons[0].setEmoji(emojis.rules || '📜'); } catch { /* invalid custom emoji */ }
-        if (buttons[1]) try { buttons[1].setEmoji(emojis.support || '🎫'); } catch { /* invalid custom emoji */ }
+        if (buttons[1]) try { buttons[1].setEmoji(emojis.assistance || emojis.support || '🎫'); } catch { /* invalid custom emoji */ }
         if (buttons.length) container.addActionRowComponents(new ActionRowBuilder<ButtonBuilder>().addComponents(buttons));
         container.addMediaGalleryComponents(gallery(bannerUrl('underbanner')));
         await destination.send({ components: [container], files: bannerFiles('dashboard'), flags: MessageFlags.IsComponentsV2 });
@@ -733,4 +734,101 @@ export async function refreshExistingPanelBanners(client: Client): Promise<numbe
         }
     }
     return refreshed;
+}
+
+export interface PostAllPanelsResult {
+    updated: string[];
+    posted: string[];
+    unavailable: string[];
+}
+
+/** Bring the configured core panels up to date; create any that cannot be found. */
+export async function postAllPanels(guild: Guild): Promise<PostAllPanelsResult> {
+    const result: PostAllPanelsResult = { updated: [], posted: [], unavailable: [] };
+    const ticketResult = await postOrUpdateTicketPanel(guild);
+    if (ticketResult === 'missing-channel') result.unavailable.push('Assistance');
+    else if (ticketResult === 'updated') result.updated.push('Assistance');
+    else result.posted.push('Assistance');
+
+    const definitions = [
+        { panel: 'dashboard' as const, channel: 'dashboard', marker: '**Members:**', label: 'Dashboard', banner: 'dashboard' as const },
+        { panel: 'regulations' as const, channel: 'regulations', marker: REGULATIONS_MENU_ID, label: 'Regulations', banner: 'regulations' as const },
+        { panel: 'application' as const, channel: 'application_panel', marker: 'application:open', label: 'Applications', banner: 'applications' as const },
+    ] as const;
+
+    for (const definition of definitions) {
+        const channelId = await configuredChannelId(guild, definition.channel);
+        const destination = channelId ? await guild.channels.fetch(channelId).catch(() => null) : null;
+        if (!destination?.isSendable() || !('messages' in destination)) {
+            result.unavailable.push(definition.label);
+            continue;
+        }
+        const config = await getPanelConfig(guild, definition.panel);
+        const customBannerUrl = await getPanelBannerUrl(guild, config);
+        const recentMessages = await destination.messages.fetch({ limit: 100 }).catch(() => null);
+        const existingPanels = recentMessages?.filter(message => message.author.id === guild.client.user?.id
+            && JSON.stringify(message.components.map(component => component.toJSON())).includes(definition.marker));
+
+        let container: ContainerBuilder;
+        if (definition.panel === 'dashboard') {
+            const emojis = parseEmojiMap(config.emojiText);
+            const values = { members: guild.memberCount.toLocaleString(), owner: `<@${guild.ownerId}>`, created: `<t:${Math.floor(guild.createdTimestamp / 1000)}:D>` };
+            const buttons = [
+                linkButton('Regulations', guild.id, await configuredChannelId(guild, 'regulations', CHANNEL_IDS.rules)),
+                linkButton('Assistance', guild.id, await configuredChannelId(guild, 'ticket_panel', CHANNEL_IDS.ticketPanel)),
+            ].filter((button): button is ButtonBuilder => Boolean(button));
+            if (buttons[0]) try { buttons[0].setEmoji(emojis.rules || '📜'); } catch { /* an invalid optional emoji should not block panel setup */ }
+            if (buttons[1]) try { buttons[1].setEmoji(emojis.assistance || emojis.support || '🎫'); } catch { /* an invalid optional emoji should not block panel setup */ }
+            container = new ContainerBuilder().setAccentColor(BRAND.color)
+                .addMediaGalleryComponents(gallery(customBannerUrl || bannerUrl('dashboard')))
+                .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+                    `# ${emojis.title || '📊'} ${applyTemplate(config.title, values)}`,
+                    applyTemplate(config.description, values), '',
+                    `**Members:** ${values.members}`, `**Owner:** ${values.owner}`, `**Created:** ${values.created}`,
+                ].join('\n')));
+            if (buttons.length) container.addActionRowComponents(new ActionRowBuilder<ButtonBuilder>().addComponents(buttons));
+            container.addMediaGalleryComponents(gallery(bannerUrl('underbanner')));
+        } else if (definition.panel === 'regulations') {
+            container = regulationsPanel(config, customBannerUrl);
+        } else {
+            container = applicationPanel(config, customBannerUrl);
+        }
+        const files = customBannerUrl ? [bannerAttachment('underbanner')] : bannerFiles(definition.banner);
+        if (existingPanels?.size) {
+            for (const existing of existingPanels.values()) {
+                await existing.edit({ components: [container], attachments: [], files, flags: MessageFlags.IsComponentsV2 });
+            }
+            result.updated.push(definition.label);
+        } else {
+            await destination.send({ components: [container], files, flags: MessageFlags.IsComponentsV2, allowedMentions: { parse: [] } });
+            result.posted.push(definition.label);
+        }
+    }
+
+    const configured = await getPanelConfig(guild, 'session');
+    const customBannerUrl = await getPanelBannerUrl(guild, configured);
+    const sessionChannelId = await configuredChannelId(guild, 'sessions');
+    const sessionChannel = sessionChannelId ? await guild.channels.fetch(sessionChannelId).catch(() => null) : null;
+    if (!sessionChannel?.isSendable() || !('messages' in sessionChannel)) {
+        result.unavailable.push('Sessions');
+    } else {
+        const updatedCount = await refreshSavedSessionPanels(guild);
+        const recentMessages = await sessionChannel.messages.fetch({ limit: 100 }).catch(() => null);
+        const existing = recentMessages?.find(message => message.author.id === guild.client.user?.id
+            && JSON.stringify(message.components.map(component => component.toJSON())).includes('session:status'));
+        if (existing || updatedCount > 0) {
+            result.updated.push('Sessions');
+        } else {
+            const status = await currentSessionDisplay(guild);
+            const sent = await sessionChannel.send({
+                components: [sessionPanel(status, configured, customBannerUrl)],
+                files: customBannerUrl ? [bannerAttachment('underbanner')] : bannerFiles('session'),
+                flags: MessageFlags.IsComponentsV2,
+                allowedMentions: { parse: [] },
+            });
+            await registerSessionPanel(guild, sent.channelId, sent.id);
+            result.posted.push('Sessions');
+        }
+    }
+    return result;
 }

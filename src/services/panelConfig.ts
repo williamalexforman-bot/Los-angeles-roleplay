@@ -74,12 +74,12 @@ export const DEFAULT_PANEL_CONFIGS: Record<ConfigurablePanel, PanelConfig> = {
     },
     ticket_panel: {
         title: 'Assistance',
-        description: 'Welcome to the **California State Roleplay Assistance Center**. Select the department that best matches your request. Please provide complete and truthful information so our staff can assist you efficiently.',
+        description: 'Choose the department that best fits your request. Add the details staff need to review it, and they will follow up in your private ticket.',
         emojiText: 'title=<:support:1525234150045519982>\ngeneral=<:general:1516784296340230194>\nmanagement=<:management:1553956417273340045>\nhighrank=<:highrank:1553956417273340045>',
     },
     dashboard: {
         title: 'California State Roleplay Dashboard',
-        description: 'Use this dashboard to access important community resources, live server information, regulations, applications, and support.',
+        description: 'Quick links to California State Roleplay information, regulations, applications, and Assistance.',
         emojiText: 'title=📊\nrules=📜\nsupport=🎫\napplications=📋\nsession=🌐',
     },
     regulations: {
@@ -106,7 +106,7 @@ export const DEFAULT_PANEL_CONFIGS: Record<ConfigurablePanel, PanelConfig> = {
     },
     session: {
         title: 'Session Information',
-        description: '> Ready to join one of our amazing sessions? Use the panel below to view live session information, including the player count, staff online, and queue status.\n\n**Last Updated:** {updated}',
+        description: '> Check the player count, staff on duty, and queue here. When the session is open, use **Quick Join** to enter.\n\n**Last Updated:** {updated}',
         emojiText: 'title=<:session:1525234122568765710>\nstaff=👥\nplayers=👤\nonline=✅\noffline=📡\nvote=🗳️\nboost=🚀',
     },
     welcome: {
