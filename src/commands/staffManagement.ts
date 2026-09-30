@@ -14,6 +14,7 @@ import {
     ModalBuilder,
     ModalSubmitInteraction,
     PermissionFlagsBits,
+    Role,
     SlashCommandBuilder,
     TextChannel,
     TextInputBuilder,
@@ -59,8 +60,55 @@ const INFRACTION_ROLE_KEYS: Record<InfractionAction, ConfigRoleKey> = {
     Blacklist: 'infraction_blacklist',
 };
 
+const DEFAULT_INFRACTION_ROLE_IDS: Partial<Record<ConfigRoleKey, string>> = {
+    infraction_warning_1: '1546571033455108228',
+    infraction_warning_2: '1546571034369720440',
+    infraction_strike_1: '1546571039126065152',
+    infraction_strike_2: '1546571039956533258',
+    infraction_terminated: '1546571047367606333',
+    infraction_blacklisted: '1546571046004719667',
+};
+
+const INFRACTION_ROLE_NAMES: Record<InfractionAction, string[]> = {
+    Warning: ['warning', 'warning 1', 'warning i', 'warning 2', 'warning ii'],
+    Strike: ['strike', 'strike 1', 'strike i', 'strike 2', 'strike ii'],
+    Suspension: ['suspension', 'suspended'],
+    Demotion: ['demotion', 'demoted'],
+    Termination: ['termination', 'terminated'],
+    Blacklist: ['blacklist', 'blacklisted'],
+};
+
 function normalizedRoleName(value: string): string {
     return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function promotionCompanionRoles(guild: NonNullable<ChatInputCommandInteraction['guild']>, rankRole: Role): Role[] {
+    const rankName = normalizedRoleName(rankRole.name);
+    const byName = (name: string) => guild.roles.cache.find(role => normalizedRoleName(role.name) === normalizedRoleName(name));
+    if (rankName === 'director' || rankName.endsWith(' director')) {
+        return ['Senior High Rank', 'Directive Team'].map(byName).filter((role): role is Role => Boolean(role));
+    }
+
+    const candidates = new Set<string>([`${rankName} team`]);
+    const taggedTeam = rankRole.name.match(/(?:\||[-–])\s*(.+)$/);
+    if (taggedTeam?.[1]) {
+        const teamName = normalizedRoleName(taggedTeam[1]);
+        candidates.add(teamName);
+        candidates.add(`${teamName} team`);
+    }
+    const baseRank = rankName.replace(/^(senior|junior|head|lead|trial|assistant|deputy)\s+/, '');
+    candidates.add(`${baseRank} team`);
+
+    const companion = guild.roles.cache.find(role => candidates.has(normalizedRoleName(role.name)));
+    return companion ? [companion] : [];
+}
+
+function directorCompanionRolesMissing(guild: NonNullable<ChatInputCommandInteraction['guild']>, rankRole: Role): string[] {
+    const rankName = normalizedRoleName(rankRole.name);
+    if (rankName !== 'director' && !rankName.endsWith(' director')) return [];
+    return ['Senior High Rank', 'Directive Team'].filter(name =>
+        !guild.roles.cache.some(role => normalizedRoleName(role.name) === normalizedRoleName(name)),
+    );
 }
 
 async function applyInfractionRole(
@@ -72,27 +120,66 @@ async function applyInfractionRole(
     if (!member) return 'The member could not be found, so no infraction role was applied.';
     await guild.roles.fetch().catch(() => null);
     const config = await getGuildBotConfig(guild);
-    const roleKey = INFRACTION_ROLE_KEYS[action];
-    let role = config.roles[roleKey]
-        ? await guild.roles.fetch(config.roles[roleKey]!).catch(() => null)
-        : null;
-    if (!role) {
-        const expected = normalizedRoleName(action);
-        role = guild.roles.cache.find(candidate => {
+    const roleNames = INFRACTION_ROLE_NAMES[action];
+    const findRole = async (keys: ConfigRoleKey[], names: string[]): Promise<Role | null> => {
+        for (const key of keys) {
+            const id = config.roles[key] || DEFAULT_INFRACTION_ROLE_IDS[key];
+            if (!id) continue;
+            const found = await guild.roles.fetch(id).catch(() => null);
+            if (found) return found;
+        }
+        const normalizedNames = new Set(names.map(normalizedRoleName));
+        return guild.roles.cache.find(candidate => {
             const name = normalizedRoleName(candidate.name);
-            return name === expected || name === `staff ${expected}` || name === `${expected} staff`;
+            return normalizedNames.has(name) || normalizedNames.has(name.replace(/^(staff|csrp) /, ''));
         }) || null;
-    }
-    if (!role) {
-        role = await guild.roles.create({ name: action, reason: `Created automatically for ${action} infractions` }).catch(() => null);
+    };
+
+    let role: Role | null = null;
+    let selectedRoleKey = INFRACTION_ROLE_KEYS[action];
+    if (action === 'Warning' || action === 'Strike') {
+        const prefix = action === 'Warning' ? 'infraction_warning' : 'infraction_strike';
+        const tierOneKey = `${prefix}_1` as ConfigRoleKey;
+        const tierTwoKey = `${prefix}_2` as ConfigRoleKey;
+        const firstRole = await findRole([tierOneKey, INFRACTION_ROLE_KEYS[action]], [`${action} 1`, `${action} I`, `${action} 1 Staff`, action]);
+        const secondRole = await findRole([tierTwoKey], [`${action} 2`, `${action} II`, `${action} 2 Staff`]);
+        const hasTierOne = Boolean(firstRole && member.roles.cache.has(firstRole.id));
+        const hasTierTwo = Boolean(secondRole && member.roles.cache.has(secondRole.id));
+        const tier = hasTierTwo || hasTierOne ? 2 : 1;
+        selectedRoleKey = tier === 2 ? tierTwoKey : tierOneKey;
+        role = tier === 2 ? secondRole : firstRole;
+        if (!role) {
+            const name = `${action} ${tier}`;
+            role = await guild.roles.create({ name, reason: `Created automatically for ${name} infractions` }).catch(() => null);
+        }
+    } else {
+        const roleKeys: ConfigRoleKey[] = action === 'Termination'
+            ? ['infraction_terminated', 'infraction_termination']
+            : action === 'Blacklist'
+                ? ['infraction_blacklisted', 'infraction_blacklist']
+                : [INFRACTION_ROLE_KEYS[action]];
+        role = await findRole(roleKeys, roleNames);
+        if (!role) {
+            const fallbackName = action === 'Termination' ? 'Terminated' : action === 'Blacklist' ? 'Blacklisted' : action;
+            role = await guild.roles.create({ name: fallbackName, reason: `Created automatically for ${action} infractions` }).catch(() => null);
+        }
+        if (action === 'Termination') selectedRoleKey = 'infraction_terminated';
+        if (action === 'Blacklist') selectedRoleKey = 'infraction_blacklisted';
     }
     if (!role) return `The **${action}** role could not be found or created.`;
 
-    config.roles[roleKey] = role.id;
+    config.roles[selectedRoleKey] = role.id;
     await saveGuildBotConfig(guild, config);
-    const otherRoleIds = Object.values(INFRACTION_ROLE_KEYS)
-        .map(key => config.roles[key])
-        .filter((id): id is string => Boolean(id) && id !== role!.id);
+    const configuredInfractionRoleIds = Object.entries(config.roles)
+        .filter(([key]) => key.startsWith('infraction_'))
+        .map(([, id]) => id)
+        .filter((id): id is string => Boolean(id));
+    const defaultRoleIds = Object.values(DEFAULT_INFRACTION_ROLE_IDS).filter((id): id is string => Boolean(id));
+    const namedRoleIds = guild.roles.cache
+        .filter(candidate => Object.values(INFRACTION_ROLE_NAMES).flat().some(name => normalizedRoleName(name) === normalizedRoleName(candidate.name)))
+        .map(candidate => candidate.id);
+    const otherRoleIds = [...new Set([...configuredInfractionRoleIds, ...defaultRoleIds, ...namedRoleIds])]
+        .filter(id => id !== role!.id && member.roles.cache.has(id));
     if (otherRoleIds.length) await member.roles.remove(otherRoleIds, `Replaced by ${action} infraction`).catch(() => undefined);
     const added = await member.roles.add(role, `${action} infraction issued`).then(() => true).catch(() => false);
     return added ? `<@&${role.id}> was applied automatically.` : `I found <@&${role.id}>, but could not apply it. Move the bot role above it.`;
@@ -456,8 +543,21 @@ function promotionCommand() {
             try {
                 interaction.options.getSubcommand(true);
                 const member = interaction.options.getUser('member', true);
-                const oldRankRole = interaction.options.getRole('old-rank');
-                const newRole = interaction.options.getRole('new-role', true);
+                const guild = interaction.guild;
+                if (!guild) {
+                    await interaction.editReply('Promotions can only be issued inside a server.');
+                    return;
+                }
+                const selectedOldRank = interaction.options.getRole('old-rank');
+                const selectedNewRole = interaction.options.getRole('new-role', true);
+                const [oldRankRole, newRole] = await Promise.all([
+                    selectedOldRank ? guild.roles.fetch(selectedOldRank.id).catch(() => null) : Promise.resolve(null),
+                    guild.roles.fetch(selectedNewRole.id).catch(() => null),
+                ]);
+                if (!newRole) {
+                    await interaction.editReply('I could not find the selected rank role in this server.');
+                    return;
+                }
                 const reason = interaction.options.getString('reason', true);
                 const approvedBy = interaction.options.getUser('approved-by', true);
                 const effectiveDate = interaction.options.getString('effective-date', true);
@@ -466,6 +566,40 @@ function promotionCommand() {
                 if (!destination) {
                     await interaction.editReply('The promotions channel is unavailable. Please contact an administrator.');
                     return;
+                }
+
+                const promotedMember = await guild.members.fetch(member.id).catch(() => null);
+                if (!promotedMember) {
+                    await interaction.editReply('I could not find that member in this server, so no promotion roles were changed.');
+                    return;
+                }
+                const companionRoles = promotionCompanionRoles(guild, newRole);
+                const missingDirectorRoles = directorCompanionRolesMissing(guild, newRole);
+                if (missingDirectorRoles.length) {
+                    await interaction.editReply(`I could not complete the Director role bundle because these server roles were not found: ${missingDirectorRoles.map(name => `**${name}**`).join(', ')}. Create those roles with those names, then retry.`);
+                    return;
+                }
+                const rolesToAdd = [newRole, ...companionRoles].filter((role, index, roles) =>
+                    roles.findIndex(candidate => candidate.id === role.id) === index,
+                );
+                const botMember = guild.members.me || await guild.members.fetchMe().catch(() => null);
+                if (!botMember?.permissions.has(PermissionFlagsBits.ManageRoles)
+                    || rolesToAdd.some(role => role.managed || botMember.roles.highest.comparePositionTo(role) <= 0)
+                    || (oldRankRole && oldRankRole.id !== newRole.id && botMember.roles.highest.comparePositionTo(oldRankRole) <= 0)) {
+                    await interaction.editReply('I could not assign this promotion. Give the bot **Manage Roles** and move its role above the promoted rank, team roles, and old rank.');
+                    return;
+                }
+                try {
+                    await promotedMember.roles.add(rolesToAdd, `Promotion issued by ${interaction.user.tag}`);
+                } catch (error) {
+                    console.error('[Staff Management] Promotion role assignment failed.', error);
+                    await interaction.editReply('The promotion was not posted because I could not assign the new rank and team roles. Check the bot’s Manage Roles permission and role position.');
+                    return;
+                }
+                let oldRankRemoved = true;
+                const oldRankIsRetained = oldRankRole && rolesToAdd.some(role => role.id === oldRankRole.id);
+                if (oldRankRole && !oldRankIsRetained && oldRankRole.id !== newRole.id && promotedMember.roles.cache.has(oldRankRole.id)) {
+                    oldRankRemoved = await promotedMember.roles.remove(oldRankRole, `Replaced by promotion to ${newRole.name}`).then(() => true).catch(() => false);
                 }
 
                 const configured = await getPanelConfig(interaction.guild, 'promotion');
@@ -491,6 +625,7 @@ function promotionCommand() {
                             applyTemplate(configured.description, values),
                             '',
                             `🎉 Congratulations <@${member.id}>! You have been promoted to <@&${newRole.id}>.`,
+                            companionRoles.length ? `**Team role:** ${companionRoles.map(role => `<@&${role.id}>`).join(', ')}` : '',
                             '',
                             `-# ${BRAND_FOOTER}`,
                         ].join('\n')))
@@ -501,7 +636,8 @@ function promotionCommand() {
                     flags: MessageFlags.IsComponentsV2,
                     allowedMentions: { parse: [], users: [member.id] },
                 });
-                await interaction.editReply(`The promotion for ${member.username} has been published successfully.`);
+                await interaction.editReply(`The promotion for ${member.username} has been published and ${rolesToAdd.map(role => `<@&${role.id}>`).join(', ')} assigned automatically.`
+                    + `${oldRankRemoved ? '' : '\nThe new rank and team role were assigned, but I could not remove the previous rank. Check the bot’s role position.'}`);
             } catch (error) {
                 console.error('[Staff Management] Promotion submission failed.', error);
                 markSlashCommandFailed(interaction, error);
