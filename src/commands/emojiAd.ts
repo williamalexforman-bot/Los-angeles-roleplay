@@ -15,6 +15,8 @@ const slots = [
     'assistance', 'ticket', 'claim', 'close', 'escalate', 'general', 'management', 'highrank',
     'dashboard', 'rules', 'discord', 'game', 'application', 'apply', 'session', 'staff', 'players',
     'queue', 'online', 'offline', 'vote', 'boost', 'welcome', 'infraction', 'promotion',
+    'warning', 'strike', 'suspension', 'demotion', 'termination', 'blacklist', 'appeal',
+    'approved', 'denied', 'training', 'dispatch', 'vehicle', 'guide',
 ] as const;
 type Slot = typeof slots[number];
 type EmojiAssignments = Partial<Record<Slot, Array<[ConfigurablePanel, string[]]>>>;
@@ -30,7 +32,19 @@ const targets: EmojiAssignments = {
     queue: [['session', ['queue']]], online: [['session', ['online']]], offline: [['session', ['offline']]],
     vote: [['session', ['vote']]], boost: [['session', ['boost']]], welcome: [['welcome', ['title']]],
     infraction: [['infraction', ['title']]], promotion: [['promotion', ['title']]],
+    warning: [['infraction', ['warning']]], strike: [['infraction', ['strike']]],
+    suspension: [['infraction', ['suspension']]], demotion: [['infraction', ['demotion']]],
+    termination: [['infraction', ['termination']]], blacklist: [['infraction', ['blacklist']]],
+    appeal: [['infraction', ['appeal']]], approved: [['application', ['approved']]],
+    denied: [['application', ['denied']]], training: [['dashboard', ['training']]],
+    dispatch: [['session', ['dispatch']]], vehicle: [['session', ['vehicle']]],
+    guide: [['staff_guide', ['guide']]],
 };
+
+const configurablePanels: ConfigurablePanel[] = [
+    'ticket', 'ticket_panel', 'dashboard', 'regulations', 'application', 'infraction',
+    'promotion', 'session', 'welcome', 'staff_guide',
+];
 
 async function assignEmojis(guild: NonNullable<Message['guild']>, installed: Array<{ slot: Slot; emojiText: string }>): Promise<string[]> {
     const changes = new Map<ConfigurablePanel, Record<string, string>>();
@@ -166,4 +180,93 @@ export async function handleEmojiAd(message: Message): Promise<void> {
         await status.edit({ components: [emojiPackProgressPanel(content)] });
     });
     await status.edit({ components: [result], allowedMentions: { parse: [] } });
+}
+
+/** Deletes only emojis in this bot's reserved csrp_ namespace and removes saved references to them. */
+export async function handleRemoveEmoji(message: Message): Promise<void> {
+    if (!message.guild || !message.member || !message.channel.isSendable()) return;
+    const guild = message.guild;
+    const config = await getGuildBotConfig(guild);
+    const botPermRole = config.roles.bot_permissions || process.env.BOT_PERMISSIONS_ROLE_ID;
+    const authorized = guild.ownerId === message.author.id
+        || message.member.permissions.has(PermissionFlagsBits.Administrator)
+        || message.member.permissions.has(PermissionFlagsBits.ManageGuildExpressions)
+        || Boolean(botPermRole && message.member.roles.cache.has(botPermRole));
+    if (!authorized) {
+        await message.reply('You need the configured bot-management role, Administrator permission, or Manage Expressions permission to remove the bot’s emoji pack.');
+        return;
+    }
+    const botMember = guild.members.me || await guild.members.fetchMe().catch(() => null);
+    if (!botMember?.permissions.has(PermissionFlagsBits.ManageGuildExpressions)) {
+        await message.reply('I need **Manage Expressions** permission to remove the CSRP emoji pack.');
+        return;
+    }
+
+    const status = await message.channel.send({
+        components: [emojiPackProgressPanel('Checking for emojis created by the CSRP bot…')],
+        flags: MessageFlags.IsComponentsV2,
+    });
+    let emojis;
+    try {
+        emojis = await guild.emojis.fetch();
+    } catch (error) {
+        const reason = error instanceof Error ? error.message : 'Discord did not return the server emoji list.';
+        await status.edit({ components: [emojiPackProgressPanel(`I could not read the server emoji list, so nothing was removed.\n\n**Details:** ${reason.slice(0, 180)}`)] });
+        return;
+    }
+
+    const botEmojis = [...emojis.values()].filter(emoji => {
+        const name = emoji.name?.startsWith('csrp_') ? emoji.name.slice('csrp_'.length) : '';
+        return slots.some(slot => slot === name);
+    });
+    if (!botEmojis.length) {
+        await status.edit({ components: [emojiPackProgressPanel('No `csrp_` emojis were found. No emojis were removed.')] });
+        return;
+    }
+
+    const removedIds = new Set<string>();
+    const failed: string[] = [];
+    for (const [index, emoji] of botEmojis.entries()) {
+        if (index === 0 || (index + 1) % 5 === 0) {
+            await status.edit({ components: [emojiPackProgressPanel(`Removing the CSRP emoji pack… **${index + 1}/${botEmojis.length}**`)] });
+        }
+        try {
+            await emoji.delete(`Remove the CSRP emoji pack, requested by ${message.author.tag}`);
+            removedIds.add(emoji.id);
+        } catch (error) {
+            const reason = error instanceof Error ? error.message : 'Unknown error';
+            failed.push(`\`${emoji.name || emoji.id}\`: ${reason.slice(0, 100)}`);
+        }
+    }
+
+    const mappingFailures: string[] = [];
+    if (removedIds.size) {
+        for (const panelName of configurablePanels) {
+            try {
+                const panelConfig = await getPanelConfig(guild, panelName);
+                const emojiMap = parseEmojiMap(panelConfig.emojiText);
+                let changed = false;
+                for (const [key, value] of Object.entries(emojiMap)) {
+                    if ([...removedIds].some(id => value.includes(id))) {
+                        delete emojiMap[key];
+                        changed = true;
+                    }
+                }
+                if (!changed) continue;
+                panelConfig.emojiText = Object.entries(emojiMap).map(([key, value]) => `${key}=${value}`).join('\n');
+                await savePanelConfig(guild, panelName, panelConfig);
+            } catch (error) {
+                mappingFailures.push(panelName);
+                console.warn(`[Emoji Pack] Could not clear ${panelName} emoji references:`, error instanceof Error ? error.message : 'Unknown error');
+            }
+        }
+    }
+
+    const summary = [
+        `Removed **${removedIds.size} of ${botEmojis.length}** bot-created CSRP emojis.`,
+        failed.length ? `\n**Could not remove:**\n${failed.join('\n')}` : '',
+        mappingFailures.length ? `\n**Panel settings not updated:** ${mappingFailures.join(', ')}` : '',
+        '\nUse `-emojiad` or the **Install Emoji Pack** button in `/config` to add them again.',
+    ].filter(Boolean).join('\n');
+    await status.edit({ components: [emojiPackProgressPanel(summary)], allowedMentions: { parse: [] } });
 }

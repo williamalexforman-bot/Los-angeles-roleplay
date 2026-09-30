@@ -31,6 +31,19 @@ const icons = {
     welcome: '<path d="M47 55c-8-7-10-16-4-20 5-3 10 1 13 7 0-9 4-14 9-12 5 1 6 7 5 14 4-6 9-8 13-5 4 4 1 10-3 16l-9 12"/><path d="M47 58c-9 6-11 17-7 27 3 7 10 10 20 10h12c9 0 16-8 16-17V66"/>',
     infraction: '<path d="m64 31 34 61H30l34-61Z"/><path d="M64 52v18M64 81h1"/>',
     promotion: '<path d="M38 88V69h16v19M56 88V52h16v36M74 88V39h16v49M34 94h58"/><path d="m42 54 16-15 12 8 20-22"/>',
+    warning: '<path d="m64 24 39 72H25l39-72Z"/><path d="M64 48v23M64 83h1"/>',
+    strike: '<path d="m70 24-38 47h25l-5 34 44-53H68l2-28Z"/>',
+    suspension: '<path d="M42 34v60M86 34v60"/><path d="M31 64h66"/>',
+    demotion: '<path d="M40 37v53h48M63 69l25 23 25-23" transform="translate(-12 -3)"/>',
+    termination: '<path d="M42 29h45v70H42V29Z"/><path d="M63 64h37M87 50l14 14-14 14"/>',
+    blacklist: '<circle cx="64" cy="47" r="14"/><path d="M35 96c2-19 12-29 29-29s27 10 29 29M42 39l44 48M86 39 42 87"/>',
+    appeal: '<path d="M38 47V28L18 48l20 20V49c33-6 56 11 56 39"/><path d="M48 91h44"/>',
+    approved: '<path d="m33 66 20 20 43-48"/>',
+    denied: '<path d="m41 41 46 46M87 41 41 87"/>',
+    training: '<path d="m20 48 44-22 44 22-44 22-44-22Z"/><path d="M39 59v20c15 12 35 12 50 0V59M108 49v28"/>',
+    dispatch: '<path d="M41 27h46v74H41V27Z"/><path d="M53 44h22M53 57h22M53 70h13M53 83h22M35 36h6M87 36h6"/>',
+    vehicle: '<path d="M27 72h74v20H27V72ZM36 72l9-26h37l10 26M45 85h1M82 85h1"/><path d="M51 56h25"/>',
+    guide: '<path d="M64 40c-13-10-27-11-40-5v55c14-6 27-5 40 5 13-10 26-11 40-5V35c-13-6-27-5-40 5Z"/><path d="M64 40v55M39 51c7-2 13-1 18 2M39 66c7-2 13-1 18 2M72 53c6-3 12-4 18-2M72 68c6-3 12-4 18-2"/>',
 };
 
 for (const [name, shape] of Object.entries(icons)) {
