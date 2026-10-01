@@ -97,14 +97,14 @@ export const DEFAULT_PANEL_CONFIGS: Record<ConfigurablePanel, PanelConfig> = {
         questions: 'What is your Roblox username?\nHow old are you?\nWhy do you want to join the CSRP staff team?\nWhat experience do you have?\nHow would you handle a disruptive member?',
     },
     infraction: {
-        title: 'Staff Infraction Issued',
-        description: '> Hello **{member}**, a **{action}** has been placed on your staff record.\n\n› **Reason:** {reason}\n\n› **Infraction type:** {action}\n\n› **Issued by:** **{issuer}**\n\n› **Appeal status:** {appeal_status}',
-        emojiText: 'title=⚠️',
+        title: 'Staff Infraction',
+        description: '> Hello {member}, you have been issued a {action} towards your account. Please review the infraction.',
+        emojiText: 'title=<:Warn:1525234084194943148>\narrow=<:arrow2:1517010011258228786>',
     },
     promotion: {
         title: 'Staff Promotion',
-        description: '*Authorized by **{promoter}***\n\n› **Promoted staff:** **{member}**\n\n› **Previous role:** {old_role}\n\n› **New role:** **{new_role}**\n\n› **Additional notes:** {notes}',
-        emojiText: 'title=📈',
+        description: '<:Giveaway:1516784210642341959> Congratulations {member}! The High Ranking team here at **California State Roleplay** has decided to recognize your recent hard work with a promotion.\n\nPromoted by {promoter}',
+        emojiText: 'title=<:Giveaway:1516784210642341959>\narrow=<:arrow2:1517010011258228786>',
     },
     session: {
         title: 'Session Information',

@@ -15,6 +15,7 @@ import {
     ModalSubmitInteraction,
     PermissionFlagsBits,
     Role,
+    SeparatorBuilder,
     SlashCommandBuilder,
     TextChannel,
     TextInputBuilder,
@@ -37,6 +38,12 @@ const BRAND_COLOR = 0xfacc15;
 const PASS_COLOR = 0x22c55e;
 const FAIL_COLOR = 0xef4444;
 const BRAND_FOOTER = 'California State Roleplay | Realism at its Finest';
+const INFRACTION_TOP_BANNER = 'https://cdn.phototourl.com/member/2026-10-01-60ce2bbe-ee05-4f4e-99fc-aaa8486c2df4.webp';
+const PROMOTION_TOP_BANNER = 'https://cdn.phototourl.com/member/2026-10-01-06f689fa-5eb8-451a-a0a0-3731a60719e1.webp';
+const STAFF_RECORD_UNDERBANNER = 'https://cdn.phototourl.com/member/2026-10-01-bff4de21-36e5-4cb3-9500-7f3ecb2862e2.webp';
+const WARN_EMOJI = '<:Warn:1525234084194943148>';
+const ARROW_EMOJI = '<:arrow2:1517010011258228786>';
+const PROMOTION_EMOJI = '<:Giveaway:1516784210642341959>';
 const LOGO_NAME = 'larp-logo.png';
 const LOGO_PATH = resolve(__dirname, '..', '..', 'assets', LOGO_NAME);
 
@@ -115,9 +122,9 @@ async function applyInfractionRole(
     guild: NonNullable<ChatInputCommandInteraction['guild']>,
     memberId: string,
     action: InfractionAction,
-): Promise<string> {
+): Promise<{ message: string; displayType: string }> {
     const member = await guild.members.fetch(memberId).catch(() => null);
-    if (!member) return 'The member could not be found, so no infraction role was applied.';
+    if (!member) return { message: 'The member could not be found, so no infraction role was applied.', displayType: action };
     await guild.roles.fetch().catch(() => null);
     const config = await getGuildBotConfig(guild);
     const roleNames = INFRACTION_ROLE_NAMES[action];
@@ -137,6 +144,7 @@ async function applyInfractionRole(
 
     let role: Role | null = null;
     let selectedRoleKey = INFRACTION_ROLE_KEYS[action];
+    let displayType: string = action;
     if (action === 'Warning' || action === 'Strike') {
         const prefix = action === 'Warning' ? 'infraction_warning' : 'infraction_strike';
         const tierOneKey = `${prefix}_1` as ConfigRoleKey;
@@ -146,6 +154,7 @@ async function applyInfractionRole(
         const hasTierOne = Boolean(firstRole && member.roles.cache.has(firstRole.id));
         const hasTierTwo = Boolean(secondRole && member.roles.cache.has(secondRole.id));
         const tier = hasTierTwo || hasTierOne ? 2 : 1;
+        displayType = `${action} ${tier === 1 ? 'I' : 'II'}`;
         selectedRoleKey = tier === 2 ? tierTwoKey : tierOneKey;
         role = tier === 2 ? secondRole : firstRole;
         if (!role) {
@@ -166,7 +175,7 @@ async function applyInfractionRole(
         if (action === 'Termination') selectedRoleKey = 'infraction_terminated';
         if (action === 'Blacklist') selectedRoleKey = 'infraction_blacklisted';
     }
-    if (!role) return `The **${action}** role could not be found or created.`;
+    if (!role) return { message: `The **${action}** role could not be found or created.`, displayType };
 
     config.roles[selectedRoleKey] = role.id;
     await saveGuildBotConfig(guild, config);
@@ -182,7 +191,10 @@ async function applyInfractionRole(
         .filter(id => id !== role!.id && member.roles.cache.has(id));
     if (otherRoleIds.length) await member.roles.remove(otherRoleIds, `Replaced by ${action} infraction`).catch(() => undefined);
     const added = await member.roles.add(role, `${action} infraction issued`).then(() => true).catch(() => false);
-    return added ? `<@&${role.id}> was applied automatically.` : `I found <@&${role.id}>, but could not apply it. Move the bot role above it.`;
+    return {
+        message: added ? `<@&${role.id}> was applied automatically.` : `I found <@&${role.id}>, but could not apply it. Move the bot role above it.`,
+        displayType,
+    };
 }
 export type InfractionStatus = 'Active' | 'Voided' | 'Closed';
 
@@ -200,6 +212,7 @@ export interface InfractionRecord {
     memberUsername: string;
     issuedById: string;
     action: InfractionAction;
+    displayAction?: string;
     reason: string;
     ruleBroken: string;
     evidence: string;
@@ -338,12 +351,13 @@ function buildInfractionPanel(
     controls: ActionRowBuilder<ButtonBuilder>[] = [],
 ): ContainerBuilder {
     const config = configured || {
-        title: 'Staff Infraction Issued',
-        description: '> Hello **{member}**, a **{action}** has been placed on your staff record.\n\n› **Reason:** {reason}\n\n› **Infraction type:** {action}\n\n› **Issued by:** **{issuer}**\n\n› **Appeal status:** {appeal_status}',
+        title: 'Staff Infraction',
+        description: '> Hello {member}, you have been issued a {action} towards your account. Please review the infraction.',
     };
+    const legacyDefault = '> Hello **{member}**, a **{action}** has been placed on your staff record.\n\n› **Reason:** {reason}\n\n› **Infraction type:** {action}\n\n› **Issued by:** **{issuer}**\n\n› **Appeal status:** {appeal_status}';
     const values = {
         member: `<@${record.memberId}>`,
-        action: record.action,
+        action: record.displayAction || record.action,
         reason: record.reason,
         issuer: `<@${record.issuedById}>`,
         appeal_status: record.appealStatus || 'Appealable',
@@ -351,20 +365,31 @@ function buildInfractionPanel(
         notes: record.ruleBroken,
     };
     const emojis = parseEmojiMap(config.emojiText);
+    const intro = config.description === legacyDefault
+        ? `> Hello ${values.member}, you have been issued a ${values.action} towards your account. Please review the infraction.`
+        : applyTemplate(config.description, values);
+    const appeal = (record.appealStatus || 'Appealable') === 'Appealable' ? 'Yes' : 'No';
     const container = new ContainerBuilder()
         .setAccentColor(BRAND_COLOR)
         .addMediaGalleryComponents(new MediaGalleryBuilder().addItems(
-            new MediaGalleryItemBuilder().setURL(customBannerUrl || bannerUrl('infraction')),
+            new MediaGalleryItemBuilder().setURL(INFRACTION_TOP_BANNER),
         ))
+        .addSeparatorComponents(new SeparatorBuilder())
         .addTextDisplayComponents(new TextDisplayBuilder().setContent([
-            `# ${emojis.title || '⚠️'} ${applyTemplate(config.title, values)}`,
-            applyTemplate(config.description, values),
-            '',
-            `-# ${BRAND_FOOTER} • ${record.caseNumber}`,
+            `${WARN_EMOJI} **Staff Infraction**`,
+            intro,
+        ].join('\n')))
+        .addSeparatorComponents(new SeparatorBuilder())
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+            `${ARROW_EMOJI} **User** - <@${record.memberId}>`,
+            `${ARROW_EMOJI} **Type** - ${values.action}`,
+            `${ARROW_EMOJI} **Reason** - ${record.reason}`,
+            `${ARROW_EMOJI} **Issued by** - <@${record.issuedById}>`,
+            `${ARROW_EMOJI} **Appealable** - ${appeal}`,
         ].join('\n')));
     if (controls.length) container.addActionRowComponents(...controls);
     return container.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(
-        new MediaGalleryItemBuilder().setURL(bannerUrl('underbanner')),
+        new MediaGalleryItemBuilder().setURL(STAFF_RECORD_UNDERBANNER),
     ));
 }
 
@@ -421,7 +446,7 @@ async function updateInfractionDetailMessage(thread: ThreadChannel, record: Infr
     const customBannerUrl = await getPanelBannerUrl(thread.guild, configured);
     await message.edit({
         embeds: [],
-        components: [buildInfractionPanel(record, configured, customBannerUrl, infractionControls(record.status, record.threadId, thread.url))],
+        components: [buildInfractionPanel(record, configured, customBannerUrl)],
         flags: MessageFlags.IsComponentsV2,
     });
 }
@@ -603,9 +628,8 @@ function promotionCommand() {
                 }
 
                 const configured = await getPanelConfig(interaction.guild, 'promotion');
-                const customBannerUrl = await getPanelBannerUrl(interaction.guild, configured);
                 const values = {
-                    promoter: `<@${approvedBy.id}>`,
+                    promoter: `<@${interaction.user.id}>`,
                     member: `<@${member.id}>`,
                     old_role: oldRankRole ? `<@&${oldRankRole.id}>` : 'None',
                     new_role: `<@&${newRole.id}>`,
@@ -613,26 +637,32 @@ function promotionCommand() {
                     effective_date: effectiveDate,
                     issuer: `<@${interaction.user.id}>`,
                 };
-                const promotionEmojis = parseEmojiMap(configured.emojiText);
+                const legacyPromotionDescription = '*Authorized by **{promoter}***\n\n› **Promoted staff:** **{member}**\n\n› **Previous role:** {old_role}\n\n› **New role:** **{new_role}**\n\n› **Additional notes:** {notes}';
+                const promotionIntro = configured.description === legacyPromotionDescription
+                    ? `${PROMOTION_EMOJI} Congratulations ${values.member}! The High Ranking team here at **California State Roleplay** has decided to recognize your recent hard work with a promotion.\n\nPromoted by ${values.promoter}`
+                    : applyTemplate(configured.description, values);
                 await destination.send({
                     components: [new ContainerBuilder()
                         .setAccentColor(BRAND_COLOR)
                         .addMediaGalleryComponents(new MediaGalleryBuilder().addItems(
-                            new MediaGalleryItemBuilder().setURL(customBannerUrl || bannerUrl('promotion')),
+                            new MediaGalleryItemBuilder().setURL(PROMOTION_TOP_BANNER),
                         ))
+                        .addSeparatorComponents(new SeparatorBuilder().setSpacing(1))
                         .addTextDisplayComponents(new TextDisplayBuilder().setContent([
-                            `# ${promotionEmojis.title || '📈'} ${applyTemplate(configured.title, values)}`,
-                            applyTemplate(configured.description, values),
-                            '',
-                            `🎉 Congratulations <@${member.id}>! You have been promoted to <@&${newRole.id}>.`,
-                            companionRoles.length ? `**Team role:** ${companionRoles.map(role => `<@&${role.id}>`).join(', ')}` : '',
-                            '',
-                            `-# ${BRAND_FOOTER}`,
+                            promotionIntro,
                         ].join('\n')))
+                        .addSeparatorComponents(new SeparatorBuilder())
+                        .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+                            `${ARROW_EMOJI} **User** - ${values.member}`,
+                            `${ARROW_EMOJI} **Old Rank** - ${values.old_role}`,
+                            `${ARROW_EMOJI} **New Rank** - ${values.new_role}`,
+                            `${ARROW_EMOJI} **Reason** - ${reason}`,
+                            companionRoles.length ? `${ARROW_EMOJI} **Team Role** - ${companionRoles.map(role => `<@&${role.id}>`).join(', ')}` : '',
+                        ].filter(Boolean).join('\n')))
+                        .addSeparatorComponents(new SeparatorBuilder())
                         .addMediaGalleryComponents(new MediaGalleryBuilder().addItems(
-                            new MediaGalleryItemBuilder().setURL(bannerUrl('underbanner')),
+                            new MediaGalleryItemBuilder().setURL(STAFF_RECORD_UNDERBANNER),
                         ))],
-                    files: [logoAttachment(), ...bannerFiles('promotion')],
                     flags: MessageFlags.IsComponentsV2,
                     allowedMentions: { parse: [], users: [member.id] },
                 });
@@ -739,7 +769,6 @@ function infractionCommand() {
                 try {
                     detailMessage = await fetchedParent.send({
                         components: [buildInfractionPanel(record, configured, customBannerUrl)],
-                        files: [logoAttachment(), ...bannerFiles('infraction')],
                         flags: MessageFlags.IsComponentsV2,
                         allowedMentions: { parse: [], users: [member.id] },
                     });
@@ -749,14 +778,20 @@ function infractionCommand() {
                 // No evidence thread or management buttons are created. The infraction is a clean V2 record.
                 record.threadId = detailMessage.id;
                 const roleResult = await applyInfractionRole(interaction.guild, member.id, action);
+                record.displayAction = roleResult.displayType;
+                await detailMessage.edit({
+                    components: [buildInfractionPanel(record, configured)],
+                    flags: MessageFlags.IsComponentsV2,
+                    allowedMentions: { parse: [], users: [member.id] },
+                });
 
                 let memberNotified = !notifyMember;
                 if (notifyMember) {
                     memberNotified = await member
                         .send({
                             components: [buildInfractionPanel(record, configured, customBannerUrl)],
-                            files: [logoAttachment(), ...bannerFiles('infraction')],
                             flags: MessageFlags.IsComponentsV2,
+                            allowedMentions: { parse: [], users: [member.id] },
                         })
                         .then(() => true)
                         .catch(() => false);
@@ -771,7 +806,7 @@ function infractionCommand() {
                 const persisted = await persistRecord(record);
 
                 await interaction.editReply(
-                    `${caseNumber} was created successfully: ${detailMessage.url}\n${roleResult}`
+                    `${caseNumber} was created successfully: ${detailMessage.url}\n${roleResult.message}`
                     + `${memberNotified ? '' : '\nThe member could not be notified by direct message.'}`
                     + `${persisted ? '' : '\nWarning: database persistence is unavailable.'}`,
                 );
