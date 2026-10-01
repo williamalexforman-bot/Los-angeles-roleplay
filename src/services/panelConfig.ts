@@ -76,24 +76,24 @@ export const DEFAULT_PANEL_CONFIGS: Record<ConfigurablePanel, PanelConfig> = {
     },
     ticket_panel: {
         title: 'Assistance',
-        description: 'Choose the department that best fits your request. Add the details staff need to review it, and they will follow up in your private ticket.',
+        description: 'Welcome to the California State Roleplay Assistance Center. Choose the department that best matches your concern, provide the requested details, and our team will assist you in a private ticket.',
         emojiText: 'title=<:support:1525234150045519982>\ngeneral=<:general:1516784296340230194>\nmanagement=<:management:1553956417273340045>\nhighrank=<:highrank:1553956417273340045>',
     },
     dashboard: {
-        title: 'California State Roleplay Dashboard',
-        description: 'Quick links to California State Roleplay information, regulations, applications, and Assistance.',
-        emojiText: 'title=📊\nrules=📜\nsupport=🎫\napplications=📋\nsession=🌐',
+        title: 'California State Roleplay',
+        description: '> 👋 Hello! Welcome to **California State Roleplay**, a community built to provide the most realistic roleplay experience possible. Our goal is to make sure you enjoy the server and receive professional support from our Staff Team. If you ever have a concern about a staff member, please open a ticket in the assistance channel and explain what happened. Use the menu below to find important server information and regulations. Thank you for being part of the California State Roleplay family—we hope you enjoy your time here!',
+        emojiText: 'information=<:Info:1546624828654620672>\nrules=<:game_rules:1516784266556604528>',
     },
     regulations: {
-        title: 'Community Regulations',
-        description: 'Select a category below to review the rules. Your selection will be shown privately.',
+        title: 'Regulations',
+        description: 'Review the complete California State Roleplay regulations below. These rules apply across our Discord community, voice channels, and in-game sessions.',
         emojiText: 'title=<:regulations:1516784266556604528>\ndiscord=💬\ngame=🎮',
-        questions: '# Discord Rules\n\n1. Swearing may not be directed at another person, and slurs are never allowed.\n2. Treat staff and community members with respect.\n3. Advertising, self-promotion, and spam are prohibited.\n4. Use every channel for its intended purpose.\n5. Follow Discord Terms of Service.\n6. Staff may enforce serious unlisted violations when necessary.\n---GAME---\n# In-Game Rules\n\n1. If you vote for a session, you are expected to join.\n2. RDM, VDM, NLR, and similar roleplay violations will result in punishment.\n3. Do not disrespect staff while they are on duty.\n4. Proper and realistic roleplay is expected at all times.\n5. Follow Roblox Terms of Service.\n6. Staff may enforce serious unlisted violations when necessary.',
+        questions: '## Discord Regulations\nWelcome to our server. To keep the community enjoyable, you must follow these regulations and Discord’s Terms of Service at all times.\n\n- Do not advertise through direct messages. Violations will result in a ban.\n- Do not ask to purchase the server; server buying and selling violates Discord’s Terms of Service.\n- Follow staff directions and all posted server rules.\n- Do not send NSFW content, unsafe files, or suspicious links. Serious violations will be reported and result in a ban.\n- Respect every member, even when you disagree with them.\n- Keep swearing to a minimum and never direct it at another member.\n\n## Voice Channel Regulations\nVoice channels are provided to improve the roleplay experience. If an incident occurs, report it with evidence so staff can review it properly.\n\n- Be respectful to everyone in the channel.\n- Do not insult or verbally attack other members.\n- Do not blast music or disruptive audio.\n- Do not spam soundboards.\n\n## Roblox Regulations\nYou must follow Roblox’s Terms of Service and all CSRP in-game rules.\n\n- **No RDM** — Randomly attacking or killing players without a valid roleplay reason.\n- **No VDM** — Using a vehicle to attack players without a valid roleplay reason.\n- **No SRDM** — Attacking or killing an on-duty staff member.\n- **No SVDM** — Intentionally attacking an on-duty staff vehicle.\n- Do not rob or attack players without proper roleplay interaction.\n- Follow Roblox voice-chat rules at all times.\n- Roleplay realistically and follow staff directions.\n\nThank you for following these regulations and helping California State Roleplay provide a fair, realistic, and enjoyable experience.',
     },
     application: {
         title: 'Staff Applications',
-        description: 'Interested in joining the California State Roleplay staff team? Press **Apply** below and answer every question carefully. Incomplete or dishonest applications may be denied.',
-        emojiText: 'title=📋\napply=📝',
+        description: 'Ready to help lead the California State Roleplay community? Begin an application below and give the review team a clear, honest picture of your experience and judgment.',
+        emojiText: 'title=📋\napply=📝\nstatus=🟢',
         questions: 'What is your Roblox username?\nHow old are you?\nWhy do you want to join the CSRP staff team?\nWhat experience do you have?\nHow would you handle a disruptive member?',
     },
     infraction: {
@@ -108,12 +108,12 @@ export const DEFAULT_PANEL_CONFIGS: Record<ConfigurablePanel, PanelConfig> = {
     },
     session: {
         title: 'Session Information',
-        description: '> Check the player count, staff on duty, and queue here. When the session is open, use **Quick Join** to enter.\n\n**Last Updated:** {updated}',
-        emojiText: 'title=<:session:1525234122568765710>\nstaff=👥\nplayers=👤\nonline=✅\noffline=📡\nvote=🗳️\nboost=🚀',
+        description: 'Follow the live CSRP session status, player count, staffing, and queue below. When the server is online, use **Quick Join** to enter.',
+        emojiText: 'title=<:session:1525234122568765710>\nstaff=👥\nplayers=👤\nqueue=🕒\nonline=✅\noffline=📡\nvote=🗳️\nboost=🚀',
     },
     welcome: {
         title: 'Welcome to {server}!',
-        description: 'Welcome {member}! We are glad to have you here. Please review the server information and make yourself at home.\n\nYou are member **#{member_count}**.',
+        description: 'Welcome {member}! You have joined a community focused on realistic, organized, and enjoyable roleplay. Review the resources below before getting started.\n\nYou are member **#{member_count}**.',
         emojiText: 'title=👋\nmember=👤',
     },
     staff_guide: {

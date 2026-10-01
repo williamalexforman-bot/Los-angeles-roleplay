@@ -2,12 +2,10 @@ import 'dotenv/config';
 import {
     AuditLogEvent,
     Client,
-    EmbedBuilder,
     Events,
     GatewayIntentBits,
     GuildMember,
     PermissionFlagsBits,
-    MessageFlags,
 } from 'discord.js';
 import type { Server } from 'http';
 import { interactionCreate } from './handlers/interactionCreate';
@@ -18,15 +16,12 @@ import { configureInfractionDatabaseAdapter } from './database/infractionAdapter
 import { handleMessageModeration } from './events/messageModeration';
 import { startErlcMonitor, type ErlcMonitor } from './monitors/erlcMonitor';
 import { MongoErlcMonitorStateStore } from './database/erlcStateStore';
-import { BRAND, CHANNEL_IDS } from './config/constants';
-import { createLogoAttachment } from './utils/embeds';
 import { logger } from './utils/logger';
 import { configureInfractionAuthorization } from './commands/staffManagement';
 import { cleanupStaleTicketReservations } from './services/ticketRepository';
 import { getBloxlinkApiKey, getDiscordBotToken } from './config/env';
 import { setDiscordClientForDm } from './commands/punishment';
 import { handlePrefixCommand } from './commands/prefix';
-import { embedsToV2 } from './utils/componentsV2';
 import { configuredChannelId } from './services/panelConfig';
 import { sendConfiguredWelcome } from './services/welcomeMessage';
 
@@ -42,10 +37,8 @@ process.on('uncaughtException', (error: Error) => {
 setInterval(() => {}, 60_000).unref();
 
 const enablePrivileged = (process.env.ENABLE_PRIVILEGED_INTENTS || 'true').toLowerCase() !== 'false';
-let activePrivilegedIntents = enablePrivileged;
 let erlcMonitor: ErlcMonitor | null = null;
 let webhookServer: Server | null = null;
-const rapidJoinStates = new Map<string, { joins: number[]; lastAlertAt: number }>();
 
 function createConfiguredClient(privilegedIntents: boolean): Client {
     const intents = [GatewayIntentBits.Guilds];
@@ -65,9 +58,6 @@ function createConfiguredClient(privilegedIntents: boolean): Client {
         }
         if (!process.env.BOT_PERMISSIONS_ROLE_ID) {
             logger.info('No bot-permissions role was found; administrative setup commands remain administrator-only.');
-        }
-        if (!process.env.EMERGENCY_STAFF_ROLE_ID) {
-            logger.info('No emergency staff role was found; raid alerts will be logged without a role ping.');
         }
         if (!process.env.ERLC_SERVER_KEY && !process.env.ERLC_API) {
             logger.info('ER:LC monitoring is disabled because ERLC_API is not configured; Quick Join still works.');
@@ -103,34 +93,6 @@ function createConfiguredClient(privilegedIntents: boolean): Client {
                 await sendConfiguredWelcome(member.guild, member.user, joinChannel).catch(() => undefined);
             }
 
-            const now = Date.now();
-            const state = rapidJoinStates.get(member.guild.id) || { joins: [], lastAlertAt: 0 };
-            state.joins.push(now);
-            while (state.joins.length && now - state.joins[0] > 10_000) state.joins.shift();
-            rapidJoinStates.set(member.guild.id, state);
-            if (state.joins.length < 5 || now - state.lastAlertAt < 60_000) return;
-            state.lastAlertAt = now;
-
-            const raidChannel = await member.client.channels.fetch(CHANNEL_IDS.raidThreatLog).catch(() => null);
-            if (!raidChannel?.isSendable()) return;
-            const emergencyRoleId = process.env.EMERGENCY_STAFF_ROLE_ID;
-            const embed = new EmbedBuilder()
-                .setColor(BRAND.color)
-                .setTitle('Rapid Join Alert')
-                .setDescription(`${emergencyRoleId ? `<@&${emergencyRoleId}>\n\n` : ''}A burst of new members may require staff review. No automatic moderation action was taken.`)
-                .setThumbnail(BRAND.logoUrl)
-                .addFields(
-                    { name: 'Joins Detected', value: `${state.joins.length} within 10 seconds`, inline: true },
-                    { name: 'Confidence', value: 'High', inline: true },
-                )
-                .setFooter({ text: BRAND.footer })
-                .setTimestamp();
-            await raidChannel.send({
-                components: embedsToV2([embed]),
-                files: [createLogoAttachment()],
-                flags: MessageFlags.IsComponentsV2,
-                allowedMentions: emergencyRoleId ? { roles: [emergencyRoleId] } : { parse: [] },
-            }).catch(() => undefined);
         });
 
         bot.on('guildMemberRemove', async member => {
@@ -222,7 +184,6 @@ async function bootstrap(): Promise<void> {
         }
         logger.warn('Discord rejected privileged intents. Retrying with slash-command-only intents so the bot can remain online.');
         client.destroy();
-        activePrivilegedIntents = false;
         client = createConfiguredClient(false);
         try {
             await client.login(token);
@@ -234,14 +195,6 @@ async function bootstrap(): Promise<void> {
 
     // Enable /punish and /punishment commands to send DMs
     setDiscordClientForDm(client);
-
-    // Log raid-threat monitoring configuration status so you can confirm it at a glance
-    logger.info(
-        `[Raid Threat Monitor] ${activePrivilegedIntents ? 'Active' : 'Disabled (privileged intents unavailable)'}` +
-        ` | EMERGENCY_STAFF_ROLE_ID: ${process.env.EMERGENCY_STAFF_ROLE_ID || 'NOT SET (High confidence alerts will not ping)'}` +
-        ` | RAID_THREAT_LOG_CHANNEL_ID: ${process.env.RAID_THREAT_LOG_CHANNEL_ID || CHANNEL_IDS.raidThreatLog}` +
-        ` | Rapid join threshold: 5 joins in 10 seconds, 60s cooldown`
-    );
 
     // Start webhook server — if port is taken, just log and continue
     try {

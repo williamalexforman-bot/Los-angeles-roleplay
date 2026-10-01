@@ -7,12 +7,13 @@ import {
     MediaGalleryBuilder,
     MediaGalleryItemBuilder,
     MessageFlags,
+    SeparatorBuilder,
     TextDisplayBuilder,
     User,
     type SendableChannels,
 } from 'discord.js';
 import { BRAND } from '../config/constants';
-import { applyTemplate, getPanelBannerUrl, getPanelConfig, parseEmojiMap } from './panelConfig';
+import { applyTemplate, configuredChannelId, getPanelBannerUrl, getPanelConfig, parseEmojiMap } from './panelConfig';
 
 export async function sendConfiguredWelcome(
     guild: Guild,
@@ -26,8 +27,11 @@ export async function sendConfiguredWelcome(
         server: guild.name,
         member_count: guild.memberCount.toLocaleString(),
     };
-    const dashboardUrl = process.env.DASHBOARD_URL?.trim()
-        || `https://discord.com/channels/${guild.id}/${destination.id}`;
+    const [dashboardChannelId, regulationsChannelId, assistanceChannelId] = await Promise.all([
+        configuredChannelId(guild, 'dashboard'),
+        configuredChannelId(guild, 'regulations'),
+        configuredChannelId(guild, 'ticket_panel'),
+    ]);
     const container = new ContainerBuilder().setAccentColor(BRAND.color);
     const customBannerUrl = await getPanelBannerUrl(guild, config);
     if (customBannerUrl) {
@@ -38,17 +42,26 @@ export async function sendConfiguredWelcome(
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent([
         `# ${emojis.title || '👋'} ${applyTemplate(config.title, values)}`,
         applyTemplate(config.description, values),
-    ].join('\n')));
+    ].join('\n')))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+            '## Start Here',
+            '• Read the community and in-game regulations.',
+            '• Check the dashboard for important server resources.',
+            '• Open an Assistance ticket if you need help from staff.',
+        ].join('\n')));
     const countButton = new ButtonBuilder()
         .setCustomId('welcome:member-count')
         .setLabel(values.member_count)
         .setStyle(ButtonStyle.Secondary)
         .setDisabled(true);
     try { countButton.setEmoji(emojis.member || '👤'); } catch { /* invalid configured emoji */ }
-    container.addActionRowComponents(new ActionRowBuilder<ButtonBuilder>().addComponents(
-        countButton,
-        new ButtonBuilder().setLabel('Dashboard').setStyle(ButtonStyle.Link).setURL(dashboardUrl),
-    ));
+    const buttons: ButtonBuilder[] = [countButton];
+    if (dashboardChannelId) buttons.push(new ButtonBuilder().setLabel('Dashboard').setStyle(ButtonStyle.Link).setURL(`https://discord.com/channels/${guild.id}/${dashboardChannelId}`));
+    if (regulationsChannelId) buttons.push(new ButtonBuilder().setLabel('Regulations').setStyle(ButtonStyle.Link).setURL(`https://discord.com/channels/${guild.id}/${regulationsChannelId}`));
+    if (assistanceChannelId) buttons.push(new ButtonBuilder().setLabel('Assistance').setStyle(ButtonStyle.Link).setURL(`https://discord.com/channels/${guild.id}/${assistanceChannelId}`));
+    container.addActionRowComponents(new ActionRowBuilder<ButtonBuilder>().addComponents(buttons))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent('-# California State Roleplay • Welcome Center • Realism at its Finest'));
     await destination.send({
         components: [container],
         flags: MessageFlags.IsComponentsV2,

@@ -14,52 +14,7 @@ const EMBED_FOOTER = 'California State Roleplay | Realism at its Finest';
 const DEDUPE_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_DEDUPE_ENTRIES = 10_000;
 
-export type RaidThreatConfidence = 'Low' | 'Medium' | 'High';
-
-export interface RaidThreatDetection {
-    confidence: RaidThreatConfidence;
-    triggerPhrase: string;
-}
-
-interface RaidThreatRule {
-    confidence: RaidThreatConfidence;
-    patterns: readonly RegExp[];
-}
-
-const RAID_THREAT_RULES: readonly RaidThreatRule[] = [
-    {
-        confidence: 'High',
-        patterns: [
-            /\b(?:let'?s|we(?:'re|\s+are|\s+will|\s+are\s+going\s+to|\s+plan(?:ning)?\s+to)|i(?:'m|\s+am)\s+going\s+to|everyone\s+(?:should|needs?\s+to|go))\s+raid\s+(?:this|the|your)\s+(?:discord\s+)?server\b/iu,
-            /\braid\s+(?:this|the|your)\s+(?:discord\s+)?server\s+(?:right\s+now|now|tonight|today|at\s+\d{1,2}(?::\d{2})?)/iu,
-            /\b(?:the\s+)?raid\s+(?:is\s+)?(?:underway|happening|starting|started)(?:\s+now)?\b/iu,
-            /\b(?:everyone|all\s+of\s+you)\s+(?:join|spam|flood|mass[ -]?ping)\b[^\n]{0,80}\b(?:server|channels?)\b/iu,
-            /\b(?:mass[ -]?(?:spam|ping)|spam\s+(?:every|all)\s+channels?|flood\s+(?:every|all)\s+channels?)\s+(?:this|the|your)?\s*(?:discord\s+)?server\b/iu,
-        ],
-    },
-    {
-        confidence: 'Medium',
-        patterns: [
-            /\b(?:plan(?:ning)?|organ(?:ize|izing)|coordinate|prepare|getting\s+people)\b[^\n]{0,80}\b(?:a\s+)?raid\b/iu,
-            /\b(?:raid|attack)\s+(?:this|the|your)\s+(?:discord\s+)?server\b/iu,
-            /\b(?:i(?:'ll|\s+will)|we(?:'ll|\s+will)|gonna|going\s+to)\s+raid\b/iu,
-            /\b(?:join|bring|get)\b[^\n]{0,60}\b(?:people|everyone|members?)\b[^\n]{0,60}\b(?:spam|flood|raid|disrupt)\b/iu,
-            /\bcoordinated\s+(?:mass\s+)?(?:disruption|attack|spam|harassment)\b/iu,
-        ],
-    },
-    {
-        confidence: 'Low',
-        patterns: [
-            /\b(?:raid\s+incoming|incoming\s+raid)\b/iu,
-            /\b(?:we(?:'re|\s+are)|server\s+is|you(?:'re|\s+are))\s+(?:being\s+)?raided\b/iu,
-            /\b(?:someone|they)\s+(?:is|are|said\s+they(?:'re|\s+are|\s+will)|threatened\s+to)\s+raid(?:ing)?\b/iu,
-            /\b(?:server\s+raid|raid\s+threat)\b/iu,
-        ],
-    },
-];
-
 const profanityLogDedupe = new Map<string, number>();
-const raidLogDedupe = new Map<string, number>();
 
 function escapeRegExp(value: string): string {
     return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -105,31 +60,6 @@ export function detectProhibitedWords(
 }
 
 export const findProhibitedWords = detectProhibitedWords;
-
-/**
- * Detects language that credibly describes a Discord raid or coordinated mass
- * disruption. Generic uses of "raid" are intentionally insufficient.
- */
-export function detectRaidThreat(content: string): RaidThreatDetection | null {
-    if (!content.trim()) return null;
-
-    // This is a common harmless idiom and must never be the reason for an alert.
-    const contentWithoutBenignPhrase = content.replace(/\braid\s+the\s+fridge\b/giu, ' ');
-
-    for (const rule of RAID_THREAT_RULES) {
-        for (const pattern of rule.patterns) {
-            const match = pattern.exec(contentWithoutBenignPhrase);
-            if (match?.[0]) {
-                return {
-                    confidence: rule.confidence,
-                    triggerPhrase: match[0].trim(),
-                };
-            }
-        }
-    }
-
-    return null;
-}
 
 function pruneDedupe(cache: Map<string, number>, now: number): void {
     if (cache.size < MAX_DEDUPE_ENTRIES) return;
@@ -224,40 +154,7 @@ function buildProfanityEmbed(message: Message, detectedWords: readonly string[])
         .setTimestamp(message.createdAt);
 }
 
-function buildRaidThreatEmbed(message: Message, detection: RaidThreatDetection): EmbedBuilder {
-    const embed = new EmbedBuilder()
-        .setColor(EMBED_COLOR)
-        .setAuthor({
-            name: 'CSRP Safety Monitoring',
-            iconURL: message.author.displayAvatarURL(),
-        })
-        .setTitle('Potential Raid Threat Detected')
-        .setThumbnail(BRAND.logoUrl)
-        .setDescription('A message may indicate a planned raid or coordinated disruption. Staff review is required; no automatic action has been taken.')
-        .addFields(
-            { name: 'Author', value: `<@${message.author.id}>`, inline: true },
-            { name: 'Discord ID', value: message.author.id, inline: true },
-            { name: 'Channel', value: `<#${message.channelId}>`, inline: true },
-            { name: 'Confidence', value: detection.confidence, inline: true },
-            { name: 'Trigger Phrase', value: detection.triggerPhrase, inline: true },
-        );
-
-    addFullMessageFields(embed, message.content);
-
-    return embed
-        .addFields(
-            { name: 'Message Link', value: `[View message](${messageLink(message)})`, inline: true },
-            {
-                name: 'Date',
-                value: `<t:${Math.floor(message.createdTimestamp / 1_000)}:F>`,
-                inline: true,
-            },
-        )
-        .setFooter({ text: EMBED_FOOTER })
-        .setTimestamp(message.createdAt);
-}
-
-/** Handles profanity and raid-threat logging for one Discord message. */
+/** Handles prohibited-language logging for one Discord message. */
 export async function handleMessageModeration(message: Message): Promise<void> {
     if (!message.guild || message.author.bot || message.webhookId) return;
 
@@ -271,26 +168,6 @@ export async function handleMessageModeration(message: Message): Promise<void> {
         });
 
         if (!sent) profanityLogDedupe.delete(message.id);
-    }
-
-    const raidThreat = detectRaidThreat(message.content);
-    if (raidThreat && reserveMessage(raidLogDedupe, message.id)) {
-        const emergencyRoleId = process.env.EMERGENCY_STAFF_ROLE_ID?.trim();
-        const shouldPingEmergencyStaff = raidThreat.confidence === 'High'
-            && Boolean(emergencyRoleId?.match(/^\d{17,20}$/u));
-
-        const raidEmbed = buildRaidThreatEmbed(message, raidThreat);
-        if (shouldPingEmergencyStaff && emergencyRoleId) raidEmbed.setDescription(`<@&${emergencyRoleId}>\n\n${raidEmbed.data.description || ''}`);
-        const sent = await sendToLogChannel(message, CHANNEL_IDS.raidThreatLog, {
-            components: embedsToV2([raidEmbed]),
-            files: [createLogoAttachment()],
-            flags: MessageFlags.IsComponentsV2,
-            allowedMentions: shouldPingEmergencyStaff && emergencyRoleId
-                ? { roles: [emergencyRoleId] }
-                : { parse: [] },
-        });
-
-        if (!sent) raidLogDedupe.delete(message.id);
     }
 }
 

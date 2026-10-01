@@ -18,6 +18,7 @@ import {
     ModalBuilder,
     ModalSubmitInteraction,
     PermissionFlagsBits,
+    SeparatorBuilder,
     SlashCommandBuilder,
     StringSelectMenuBuilder,
     StringSelectMenuOptionBuilder,
@@ -186,6 +187,11 @@ function panelDropdown(config?: PanelConfig): ActionRowBuilder<StringSelectMenuB
 
 function ticketPanelV2(config: PanelConfig, customBannerUrl?: string | null): ContainerBuilder {
     const emojis = { ...TICKET_PANEL_EMOJIS, ...parseEmojiMap(config.emojiText) };
+    const status = new ButtonBuilder()
+        .setCustomId('ticket:panel:status')
+        .setLabel('Support Open')
+        .setStyle(ButtonStyle.Success)
+        .setDisabled(true);
     return new ContainerBuilder()
         .setAccentColor(BRAND.color)
         .addMediaGalleryComponents(new MediaGalleryBuilder().addItems(
@@ -194,13 +200,19 @@ function ticketPanelV2(config: PanelConfig, customBannerUrl?: string | null): Co
         .addTextDisplayComponents(new TextDisplayBuilder().setContent([
             `# ${emojis.title || '🎫'} ${config.title}`,
             config.description || PANEL_DESCRIPTION,
-            '',
-            '**Available Departments**',
+        ].join('\n')))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+            '## Available Departments',
             `${emojis.general || '🎫'} **General Support** — Questions and server information`,
             `${emojis.management || '🏛️'} **Management Support** — Claims, transfers, and management concerns`,
             `${emojis.highrank || '⭐'} **High-Rank Support** — Payments and ownership questions`,
+            '',
+            '> Select the department that best matches your request. A private channel will be created for you and authorized staff.',
         ].join('\n')))
+        .addActionRowComponents(new ActionRowBuilder<ButtonBuilder>().addComponents(status))
         .addActionRowComponents(panelDropdown(config))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent('-# California State Roleplay • Assistance Center • Please do not open duplicate tickets'))
         .addMediaGalleryComponents(new MediaGalleryBuilder().addItems(
             new MediaGalleryItemBuilder().setURL(bannerUrl('underbanner')),
         ));
@@ -443,10 +455,17 @@ export function buildOpeningPanel(
         .addTextDisplayComponents(new TextDisplayBuilder().setContent([
             `# ${parseEmojiMap(configured.emojiText).title || TICKET_OPENED_EMOJI} ${applyTemplate(configured.title, values)}`,
             applyTemplate(configuredDescription, values),
+        ].join('\n')))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+            '**Ticket Status:** Waiting for staff',
+            `**Department:** ${category.label}`,
+            `**Opened:** <t:${Math.floor(ticket.createdAt.getTime() / 1_000)}:R>`,
             '',
-            `-# ${BRAND.footer} • <t:${Math.floor(ticket.createdAt.getTime() / 1_000)}:f>`,
+            '> Use the controls below to claim, close, or escalate this ticket. Only authorized staff can perform staff actions.',
         ].join('\n')))
         .addActionRowComponents(...ticketControlRows(ticket, controlsDisabled, configured))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# ${BRAND.footer} • Ticket #${ticket.number}`))
         .addMediaGalleryComponents(new MediaGalleryBuilder().addItems(
             new MediaGalleryItemBuilder().setURL(bannerUrl('underbanner')),
         ));

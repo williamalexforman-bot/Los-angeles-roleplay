@@ -17,7 +17,6 @@ export const CHANNEL_IDS = {
     paidPartner: process.env.PAID_PARTNER_CHANNEL_ID || '',
     profanityLog: process.env.PROFANITY_LOG_CHANNEL_ID || '',
     erlcCommandLog: process.env.ERLC_COMMAND_LOG_CHANNEL_ID || '',
-    raidThreatLog: process.env.RAID_THREAT_LOG_CHANNEL_ID || '',
     discordCommandLog: process.env.DISCORD_COMMAND_LOG_CHANNEL_ID || '',
     erlcTeamChangeLog: process.env.ERLC_TEAM_CHANGE_LOG_CHANNEL_ID || '',
     erlcPunishmentLog: process.env.ERLC_PUNISHMENT_LOG_CHANNEL_ID || '',
@@ -70,7 +69,6 @@ export function applyRuntimeConfiguration(): void {
     CHANNEL_IDS.paidPartner = process.env.PAID_PARTNER_CHANNEL_ID || CHANNEL_IDS.paidPartner;
     CHANNEL_IDS.profanityLog = process.env.PROFANITY_LOG_CHANNEL_ID || CHANNEL_IDS.profanityLog;
     CHANNEL_IDS.erlcCommandLog = process.env.ERLC_COMMAND_LOG_CHANNEL_ID || CHANNEL_IDS.erlcCommandLog;
-    CHANNEL_IDS.raidThreatLog = process.env.RAID_THREAT_LOG_CHANNEL_ID || CHANNEL_IDS.raidThreatLog;
     CHANNEL_IDS.discordCommandLog = process.env.DISCORD_COMMAND_LOG_CHANNEL_ID || CHANNEL_IDS.discordCommandLog;
     CHANNEL_IDS.erlcTeamChangeLog = process.env.ERLC_TEAM_CHANGE_LOG_CHANNEL_ID || CHANNEL_IDS.erlcTeamChangeLog;
     CHANNEL_IDS.erlcPunishmentLog = process.env.ERLC_PUNISHMENT_LOG_CHANNEL_ID || CHANNEL_IDS.erlcPunishmentLog;

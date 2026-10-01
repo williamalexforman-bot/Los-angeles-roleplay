@@ -19,9 +19,11 @@ import {
     SlashCommandBuilder,
     StringSelectMenuBuilder,
     StringSelectMenuInteraction,
+    StringSelectMenuOptionBuilder,
     TextDisplayBuilder,
     TextInputBuilder,
     TextInputStyle,
+    parseEmoji,
 } from 'discord.js';
 import { BRAND, CHANNEL_IDS, TICKET_STAFF_ROLE_ID } from '../config/constants';
 import { bannerAttachment, bannerFiles, bannerUrl } from '../utils/bannerAssets';
@@ -30,6 +32,7 @@ import { fetchErlcServer } from '../services/erlcService';
 import {
     applyTemplate,
     configuredChannelId,
+    DEFAULT_PANEL_CONFIGS,
     getPanelBannerUrl,
     getPanelConfig,
     getGuildBotConfig,
@@ -44,10 +47,15 @@ import {
 } from '../services/panelConfig';
 
 const QUICK_JOIN_URL = 'https://www.roblox.com/games/start?launchData=%7B%22psCode%22%3A%22califorp%22%7D&placeId=2534724415';
+const DASHBOARD_MENU_ID = 'dashboard:menu';
 const REGULATIONS_MENU_ID = 'regulations:menu';
 const SESSION_TITLE_EMOJI = '<:session:1525234122568765710>';
 const REGULATIONS_TITLE_EMOJI = '<:regulations:1516784266556604528>';
 const STAFF_GUIDE_URL = 'https://docs.google.com/document/d/11Bjkf1bEO7SxECUPtq4aSl2AFC_0zZfjHngHDl5_0GU/edit?usp=drivesdk';
+const DASHBOARD_BANNER_URL = 'https://cdn.phototourl.com/member/2026-09-30-8c447076-7d6b-4eee-8399-ba3d4b1552b3.webp';
+const INFORMATION_BANNER_URL = 'https://cdn.phototourl.com/member/2026-09-30-328a9e05-2d30-4a75-affc-fc78bdf2b8cb.png';
+const REGULATIONS_BANNER_URL = 'https://cdn.phototourl.com/member/2026-09-30-19c5f496-ed7f-4403-b258-139fd3808761.webp';
+const PANEL_UNDERBANNER_URL = 'https://cdn.phototourl.com/member/2026-09-30-85572d76-a26b-477a-860a-21d51aa8f6f2.webp';
 
 const DISCORD_RULES = `# Discord Rules
 
@@ -83,18 +91,48 @@ function gallery(url: string): MediaGalleryBuilder {
     );
 }
 
+function safeEmoji(value: string | undefined, fallback: string): string {
+    const emoji = value?.trim();
+    if (!emoji) return fallback;
+    if (/^<a?:[A-Za-z0-9_]{2,32}:\d{17,20}>$/.test(emoji)) return emoji;
+    // Reject plain words and malformed custom emoji before Discord validates the payload.
+    if (/^[A-Za-z0-9_-]+$/.test(emoji)) return fallback;
+    return emoji;
+}
+
+function addButtonEmoji(button: ButtonBuilder, value: string | undefined, fallback: string): ButtonBuilder {
+    try { return button.setEmoji(safeEmoji(value, fallback)); } catch { return button; }
+}
+
+function panelFooter(label: string): TextDisplayBuilder {
+    return new TextDisplayBuilder().setContent(`-# California State Roleplay • ${label} • Realism at its Finest`);
+}
+
 function staffGuidePanel(config: PanelConfig, customBannerUrl?: string | null): ContainerBuilder {
     const emojis = parseEmojiMap(config.emojiText);
     const values = { server: 'California State Roleplay' };
-    const button = new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(STAFF_GUIDE_URL).setLabel('Staff Guide');
-    try { button.setEmoji(emojis.guide || '📖'); } catch { /* an invalid custom emoji should not prevent the panel from posting */ }
+    const button = addButtonEmoji(
+        new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(STAFF_GUIDE_URL).setLabel('Open Staff Guide'),
+        emojis.guide,
+        '📖',
+    );
     return new ContainerBuilder().setAccentColor(BRAND.color)
         .addMediaGalleryComponents(gallery(customBannerUrl || bannerUrl('staffGuide')))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent([
-            `# ${emojis.title || '🛡️'} ${applyTemplate(config.title, values)}`,
+            `# ${safeEmoji(emojis.title, '🛡️')} ${applyTemplate(config.title, values)}`,
             applyTemplate(config.description, values),
         ].join('\n\n')))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+            '## The CSRP Standard',
+            '**Professionalism** — Stay calm, fair, and respectful in every situation.',
+            '**Responsibility** — Use staff tools only for their intended purpose and document important actions.',
+            '**Teamwork** — Ask a higher-ranking staff member for guidance whenever a situation is unclear.',
+            '',
+            '> Staff members represent CSRP at all times. Read the complete guide before beginning staff duties.',
+        ].join('\n')))
         .addActionRowComponents(new ActionRowBuilder<ButtonBuilder>().addComponents(button))
+        .addTextDisplayComponents(panelFooter('Staff Resources'))
         .addMediaGalleryComponents(gallery(bannerUrl('underbanner')));
 }
 
@@ -137,39 +175,38 @@ function sessionPanel(
         status: lifecycleDisplay(status.lifecycle).label.replace('Session ', ''),
     };
     const information = new TextDisplayBuilder().setContent([
-        `# ${emojis.title || SESSION_TITLE_EMOJI} ${applyTemplate(configured.title, values)}`,
+        `# ${safeEmoji(emojis.title, SESSION_TITLE_EMOJI)} ${applyTemplate(configured.title, values)}`,
         applyTemplate(configured.description, values),
+        '',
+        `> **Current Status:** ${lifecycleDisplay(status.lifecycle).label}`,
+        `> **Last Updated:** <t:${Math.floor(status.updatedAt / 1_000)}:R>`,
     ].join('\n'));
 
-    const setEmoji = (button: ButtonBuilder, emoji: string): ButtonBuilder => {
-        try { return button.setEmoji(emoji); } catch { return button; }
-    };
-
     const counters = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        setEmoji(new ButtonBuilder()
+        addButtonEmoji(new ButtonBuilder()
             .setCustomId('session:staff-count')
             .setLabel(`Staff Online: ${status.staff}`)
             .setStyle(ButtonStyle.Secondary)
-            .setDisabled(true), emojis.staff),
-        setEmoji(new ButtonBuilder()
+            .setDisabled(true), emojis.staff, '👥'),
+        addButtonEmoji(new ButtonBuilder()
             .setCustomId('session:player-count')
             .setLabel(`Players In-Game: ${status.players}/${status.maximum}`)
             .setStyle(ButtonStyle.Secondary)
-            .setDisabled(true), emojis.players),
-        new ButtonBuilder()
+            .setDisabled(true), emojis.players, '👤'),
+        addButtonEmoji(new ButtonBuilder()
             .setCustomId('session:queue-count')
             .setLabel(`In Queue: ${status.queue}`)
             .setStyle(ButtonStyle.Secondary)
-            .setDisabled(true),
+            .setDisabled(true), emojis.queue, '🕒'),
     );
 
     const display = lifecycleDisplay(status.lifecycle);
     const controls = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        setEmoji(new ButtonBuilder()
+        addButtonEmoji(new ButtonBuilder()
             .setCustomId('session:status')
             .setLabel(display.label)
             .setStyle(display.style)
-            .setDisabled(true), emojis[display.emoji]),
+            .setDisabled(true), emojis[display.emoji], display.emoji === 'offline' ? '🔴' : '🟢'),
         new ButtonBuilder()
             .setLabel('Quick Join')
             .setStyle(ButtonStyle.Link)
@@ -182,6 +219,7 @@ function sessionPanel(
         .addTextDisplayComponents(information)
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
         .addActionRowComponents(counters, controls)
+        .addTextDisplayComponents(panelFooter('Live Session Center'))
         .addMediaGalleryComponents(gallery(bannerUrl('underbanner')));
 }
 
@@ -300,49 +338,107 @@ async function runSessionAction(interaction: ChatInputCommandInteraction, action
 
 function regulationsPanel(config: PanelConfig, customBannerUrl?: string | null): ContainerBuilder {
     const emojis = parseEmojiMap(config.emojiText);
+    const title = config.title === 'Community Regulations' ? DEFAULT_PANEL_CONFIGS.regulations.title : config.title;
+    const description = config.description.startsWith('Our regulations keep every CSRP experience')
+        ? DEFAULT_PANEL_CONFIGS.regulations.description
+        : config.description;
+    return new ContainerBuilder()
+        .setAccentColor(BRAND.color)
+        .addMediaGalleryComponents(gallery(customBannerUrl || REGULATIONS_BANNER_URL))
+        .addSeparatorComponents(new SeparatorBuilder().setSpacing(1))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+            `# ${safeEmoji(emojis.title, REGULATIONS_TITLE_EMOJI)} ${title}`,
+            description,
+            '',
+            regulationsContent(config),
+        ].join('\n')))
+        .addSeparatorComponents(new SeparatorBuilder())
+        .addMediaGalleryComponents(gallery(PANEL_UNDERBANNER_URL));
+}
+
+function regulationsContent(config: PanelConfig): string {
+    const configured = config.questions?.trim();
+    if (!configured) return `${DISCORD_RULES}\n\n${GAME_RULES}`;
+    if (configured.includes('Swearing may not be directed at another person')) {
+        return DEFAULT_PANEL_CONFIGS.regulations.questions || `${DISCORD_RULES}\n\n${GAME_RULES}`;
+    }
+    if (!configured.includes('---GAME---')) return configured;
+    const [discord, game] = configured.split('---GAME---');
+    return `${discord.trim()}\n\n${game.trim()}`;
+}
+
+function privateRulesPanel(config: PanelConfig): ContainerBuilder {
+    return new ContainerBuilder()
+        .setAccentColor(BRAND.color)
+        .addMediaGalleryComponents(gallery(REGULATIONS_BANNER_URL))
+        .addSeparatorComponents(new SeparatorBuilder().setSpacing(1))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(regulationsContent(config)))
+        .addSeparatorComponents(new SeparatorBuilder())
+        .addMediaGalleryComponents(gallery(PANEL_UNDERBANNER_URL));
+}
+
+function channelByName(guild: Guild, terms: string[]): string {
+    const match = guild.channels.cache.find(channel => terms.some(term => channel.name.toLowerCase().includes(term)));
+    return match ? `<#${match.id}>` : `#${terms[0]}`;
+}
+
+async function dashboardInformationPanel(guild: Guild): Promise<ContainerBuilder> {
+    const [regulationsId, assistanceId, applicationsId] = await Promise.all([
+        configuredChannelId(guild, 'regulations', CHANNEL_IDS.rules),
+        configuredChannelId(guild, 'ticket_panel', CHANNEL_IDS.ticketPanel),
+        configuredChannelId(guild, 'application_panel'),
+    ]);
+    const mention = (id: string, fallback: string[]): string => id ? `<#${id}>` : channelByName(guild, fallback);
+    return new ContainerBuilder()
+        .setAccentColor(BRAND.color)
+        .addMediaGalleryComponents(gallery(INFORMATION_BANNER_URL))
+        .addSeparatorComponents(new SeparatorBuilder().setSpacing(1))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+            '## Information',
+            `Thank you for being part of **California State Roleplay**. The server was created by <@${guild.ownerId}> on <t:${Math.floor(guild.createdTimestamp / 1_000)}:D> to provide a realistic and enjoyable roleplay community. If anything in the server concerns you, you can always open a ticket in ${mention(assistanceId, ['support', 'assistance', 'ticket'])}.`,
+        ].join('\n')))
+        .addSeparatorComponents(new SeparatorBuilder())
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+            '## Important Channels',
+            `${mention(regulationsId, ['regulations', 'rules'])} — Discord and in-game regulations.`,
+            `${mention(assistanceId, ['support', 'assistance', 'ticket'])} — Open a private ticket when you need help.`,
+            `${channelByName(guild, ['marketplace', 'market'])} — Browse items and services available from the server.`,
+            `${channelByName(guild, ['departments', 'department'])} — View California’s whitelisted departments.`,
+            `${channelByName(guild, ['verification', 'verify'])} — Verify your account and gain server access.`,
+            `${mention(applicationsId, ['applications', 'apply'])} — Apply to join the California State Roleplay Staff Team.`,
+        ].join('\n')))
+        .addSeparatorComponents(new SeparatorBuilder())
+        .addMediaGalleryComponents(gallery(PANEL_UNDERBANNER_URL));
+}
+
+async function dashboardPanel(guild: Guild, config: PanelConfig, customBannerUrl?: string | null): Promise<ContainerBuilder> {
+    const emojis = parseEmojiMap(config.emojiText);
+    const legacyDescription = 'Welcome to the central information hub for **California State Roleplay**. Review important server details and use the navigation below to reach the resources you need.';
+    const description = config.description === legacyDescription
+        ? '> 👋 Hello! Welcome to **California State Roleplay**, a community built to provide the most realistic roleplay experience possible. Our goal is to make sure you enjoy the server and receive professional support from our Staff Team. If you ever have a concern about a staff member, please open a ticket in the assistance channel and explain what happened. Use the menu below to find important server information and regulations. Thank you for being part of the California State Roleplay family—we hope you enjoy your time here!'
+        : config.description;
     const menu = new StringSelectMenuBuilder()
-        .setCustomId(REGULATIONS_MENU_ID)
-        .setPlaceholder('Select a regulation category')
+        .setCustomId(DASHBOARD_MENU_ID)
+        .setPlaceholder('Select a server resource')
         .addOptions(
-            {
-                label: 'Discord Regulations',
-                description: 'View the community and Discord rules',
-                value: 'discord',
-                emoji: emojis.discord || '💬',
-            },
-            {
-                label: 'Game Regulations',
-                description: 'View the in-game and roleplay rules',
-                value: 'game',
-                emoji: emojis.game || '🎮',
-            },
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Information')
+                .setValue('information')
+                .setDescription('Information about our server')
+                .setEmoji(parseEmoji(safeEmoji(emojis.information, '<:Info:1546624828654620672>')) || { id: '1546624828654620672', name: 'Info' }),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Regulations')
+                .setValue('regulations')
+                .setDescription("Our server's rules")
+                .setEmoji(parseEmoji(safeEmoji(emojis.rules, '<:game_rules:1516784266556604528>')) || { id: '1516784266556604528', name: 'game_rules' }),
         );
-
-    return new ContainerBuilder()
-        .setAccentColor(BRAND.color)
-        .addMediaGalleryComponents(gallery(customBannerUrl || bannerUrl('regulations')))
-        .addTextDisplayComponents(
-            new TextDisplayBuilder().setContent([
-                `# ${emojis.title || REGULATIONS_TITLE_EMOJI} ${config.title}`,
-                config.description,
-            ].join('\n')),
-        )
+    return new ContainerBuilder().setAccentColor(BRAND.color)
+        .addMediaGalleryComponents(gallery(customBannerUrl || DASHBOARD_BANNER_URL))
+        .addSeparatorComponents(new SeparatorBuilder().setSpacing(1))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(description))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
         .addActionRowComponents(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu))
-        .addMediaGalleryComponents(gallery(bannerUrl('underbanner')));
-}
-
-function privateRulesPanel(content: string): ContainerBuilder {
-    return new ContainerBuilder()
-        .setAccentColor(BRAND.color)
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(content));
-}
-
-function linkButton(label: string, guildId: string, channelId: string): ButtonBuilder | null {
-    if (!channelId) return null;
-    return new ButtonBuilder()
-        .setLabel(label)
-        .setStyle(ButtonStyle.Link)
-        .setURL(`https://discord.com/channels/${guildId}/${channelId}`);
+        .addMediaGalleryComponents(gallery(PANEL_UNDERBANNER_URL));
 }
 
 const dashboardCommand = {
@@ -358,29 +454,9 @@ const dashboardCommand = {
         const guild = interaction.guild;
         const config = await getPanelConfig(guild, 'dashboard');
         const customBannerUrl = await getPanelBannerUrl(guild, config);
-        const emojis = parseEmojiMap(config.emojiText);
-        const values = { members: guild.memberCount.toLocaleString(), owner: `<@${guild.ownerId}>`, created: `<t:${Math.floor(guild.createdTimestamp / 1000)}:D>` };
-        const buttons = [
-            linkButton('Regulations', guild.id, await configuredChannelId(guild, 'regulations', CHANNEL_IDS.rules)),
-            linkButton('Assistance', guild.id, await configuredChannelId(guild, 'ticket_panel', CHANNEL_IDS.ticketPanel)),
-        ].filter((button): button is ButtonBuilder => Boolean(button));
-        if (buttons[0]) try { buttons[0].setEmoji(emojis.rules || '📜'); } catch { /* invalid custom emoji */ }
-        if (buttons[1]) try { buttons[1].setEmoji(emojis.assistance || emojis.support || '🎫'); } catch { /* invalid custom emoji */ }
-        const container = new ContainerBuilder().setAccentColor(BRAND.color)
-            .addMediaGalleryComponents(gallery(customBannerUrl || bannerUrl('dashboard')))
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent([
-                `# ${emojis.title || '📊'} ${applyTemplate(config.title, values)}`,
-                applyTemplate(config.description, values),
-                '',
-                `**Members:** ${values.members}`,
-                `**Owner:** ${values.owner}`,
-                `**Created:** ${values.created}`,
-            ].join('\n')));
-        if (buttons.length) container.addActionRowComponents(new ActionRowBuilder<ButtonBuilder>().addComponents(buttons));
-        container.addMediaGalleryComponents(gallery(bannerUrl('underbanner')));
+        const container = await dashboardPanel(guild, config, customBannerUrl);
         const payload = {
             components: [container],
-            files: bannerFiles('dashboard'),
             flags: MessageFlags.IsComponentsV2 as const,
             allowedMentions: { parse: [] as never[] },
         };
@@ -403,7 +479,6 @@ const regulationsCommand = {
         const customBannerUrl = await getPanelBannerUrl(interaction.guild, config);
         const payload = {
             components: [regulationsPanel(config, customBannerUrl)],
-            files: [bannerAttachment('regulations'), bannerAttachment('underbanner')],
             flags: MessageFlags.IsComponentsV2 as const,
             allowedMentions: { parse: [] as never[] },
         };
@@ -418,15 +493,33 @@ const regulationsCommand = {
 
 function applicationPanel(config: PanelConfig, customBannerUrl?: string | null): ContainerBuilder {
     const emojis = parseEmojiMap(config.emojiText);
-    const apply = new ButtonBuilder().setCustomId('application:open').setLabel('Apply').setStyle(ButtonStyle.Success);
-    try { apply.setEmoji(emojis.apply || '📝'); } catch { /* invalid custom emoji */ }
+    const apply = addButtonEmoji(
+        new ButtonBuilder().setCustomId('application:open').setLabel('Begin Application').setStyle(ButtonStyle.Success),
+        emojis.apply,
+        '📝',
+    );
+    const status = addButtonEmoji(
+        new ButtonBuilder().setCustomId('application:status').setLabel('Applications Open').setStyle(ButtonStyle.Secondary).setDisabled(true),
+        emojis.status,
+        '🟢',
+    );
     return new ContainerBuilder().setAccentColor(BRAND.color)
         .addMediaGalleryComponents(gallery(customBannerUrl || bannerUrl('applications')))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent([
-            `# ${emojis.title || '📋'} ${config.title}`,
+            `# ${safeEmoji(emojis.title, '📋')} ${config.title}`,
             config.description,
         ].join('\n')))
-        .addActionRowComponents(new ActionRowBuilder<ButtonBuilder>().addComponents(apply))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+            '## Before You Apply',
+            '• Answer every question honestly and with enough detail for the review team.',
+            '• Submit one application at a time and wait patiently for a decision.',
+            '• Low-effort, copied, or misleading responses may be denied.',
+            '',
+            '> Your application is sent to a private staff review area.',
+        ].join('\n')))
+        .addActionRowComponents(new ActionRowBuilder<ButtonBuilder>().addComponents(status, apply))
+        .addTextDisplayComponents(panelFooter('Staff Recruitment'))
         .addMediaGalleryComponents(gallery(bannerUrl('underbanner')));
 }
 
@@ -615,12 +708,25 @@ const sessionVoteCommand = sessionActionCommand('session-vote', 'Open a session 
 const sessionBoostCommand = sessionActionCommand('session-boost', 'Boost the active session and update every session panel', 'boosted');
 
 export async function handlePanelSelectMenu(interaction: StringSelectMenuInteraction): Promise<boolean> {
+    if (interaction.customId === DASHBOARD_MENU_ID) {
+        if (!interaction.guild) return false;
+        const config = await getPanelConfig(interaction.guild, 'regulations');
+        const container = interaction.values[0] === 'regulations'
+            ? privateRulesPanel(config)
+            : await dashboardInformationPanel(interaction.guild);
+        await interaction.reply({
+            components: [container],
+            flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
+            allowedMentions: { parse: [] },
+        });
+        return true;
+    }
     if (interaction.customId !== REGULATIONS_MENU_ID) return false;
     const config = await getPanelConfig(interaction.guild, 'regulations');
     const [configuredDiscord, configuredGame] = (config.questions || '').split('---GAME---');
     const content = interaction.values[0] === 'game' ? (configuredGame?.trim() || GAME_RULES) : (configuredDiscord?.trim() || DISCORD_RULES);
     await interaction.reply({
-        components: [privateRulesPanel(content)],
+        components: [privateRulesPanel({ ...config, questions: content })],
         flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
         allowedMentions: { parse: [] },
     });
@@ -664,28 +770,13 @@ export async function postPanelFromMessage(message: Message, panel: 'dashboard' 
     if (panel === 'dashboard') {
         const config = await getPanelConfig(message.guild, 'dashboard');
         const customBannerUrl = await getPanelBannerUrl(message.guild, config);
-        const emojis = parseEmojiMap(config.emojiText);
-        const values = { members: message.guild.memberCount.toLocaleString(), owner: `<@${message.guild.ownerId}>`, created: `<t:${Math.floor(message.guild.createdTimestamp / 1000)}:D>` };
-        const container = new ContainerBuilder().setAccentColor(BRAND.color)
-            .addMediaGalleryComponents(gallery(customBannerUrl || bannerUrl('dashboard')))
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent([
-                `# ${emojis.title || '📊'} ${applyTemplate(config.title, values)}`, applyTemplate(config.description, values), '',
-                `**Members:** ${values.members}`, `**Owner:** ${values.owner}`, `**Created:** ${values.created}`,
-            ].join('\n')));
-        const buttons = [
-            linkButton('Regulations', message.guild.id, await configuredChannelId(message.guild, 'regulations', CHANNEL_IDS.rules)),
-            linkButton('Assistance', message.guild.id, await configuredChannelId(message.guild, 'ticket_panel', CHANNEL_IDS.ticketPanel)),
-        ].filter((button): button is ButtonBuilder => Boolean(button));
-        if (buttons[0]) try { buttons[0].setEmoji(emojis.rules || '📜'); } catch { /* invalid custom emoji */ }
-        if (buttons[1]) try { buttons[1].setEmoji(emojis.assistance || emojis.support || '🎫'); } catch { /* invalid custom emoji */ }
-        if (buttons.length) container.addActionRowComponents(new ActionRowBuilder<ButtonBuilder>().addComponents(buttons));
-        container.addMediaGalleryComponents(gallery(bannerUrl('underbanner')));
-        await destination.send({ components: [container], files: bannerFiles('dashboard'), flags: MessageFlags.IsComponentsV2 });
+        const container = await dashboardPanel(message.guild, config, customBannerUrl);
+        await destination.send({ components: [container], flags: MessageFlags.IsComponentsV2 });
         return;
     }
     if (panel === 'regulations') {
         const config = await getPanelConfig(message.guild, 'regulations');
-        await destination.send({ components: [regulationsPanel(config, await getPanelBannerUrl(message.guild, config))], files: [bannerAttachment('regulations'), bannerAttachment('underbanner')], flags: MessageFlags.IsComponentsV2 });
+        await destination.send({ components: [regulationsPanel(config, await getPanelBannerUrl(message.guild, config))], flags: MessageFlags.IsComponentsV2 });
         return;
     }
     if (panel === 'application') {
@@ -714,8 +805,8 @@ export async function postPanelFromMessage(message: Message, panel: 'dashboard' 
 export async function refreshExistingPanelBanners(client: Client): Promise<number> {
     let refreshed = 0;
     const panels = [
-        { panel: 'dashboard' as const, channel: 'dashboard', marker: '**Members:**', banner: 'dashboard' as const },
-        { panel: 'regulations' as const, channel: 'regulations', marker: REGULATIONS_MENU_ID, banner: 'regulations' as const },
+        { panel: 'dashboard' as const, channel: 'dashboard', marker: DASHBOARD_MENU_ID, banner: 'dashboard' as const },
+        { panel: 'regulations' as const, channel: 'regulations', marker: 'Discord Regulations', banner: 'regulations' as const },
         { panel: 'application' as const, channel: 'application_panel', marker: 'application:open', banner: 'applications' as const },
         { panel: 'staff_guide' as const, channel: 'staff_guide', marker: STAFF_GUIDE_URL, banner: 'staffGuide' as const },
     ] as const;
@@ -733,26 +824,21 @@ export async function refreshExistingPanelBanners(client: Client): Promise<numbe
             for (const message of messages?.values() || []) {
                 if (message.author.id !== client.user?.id) continue;
                 const serialized = message.components.map(component => component.toJSON());
-                if (!JSON.stringify(serialized).includes(definition.marker)) continue;
-                const media: Array<Record<string, unknown>> = [];
-                const visit = (value: unknown): void => {
-                    if (!value || typeof value !== 'object') return;
-                    const record = value as Record<string, unknown>;
-                    if (record.media && typeof record.media === 'object') media.push(record.media as Record<string, unknown>);
-                    for (const child of Object.values(record)) {
-                        if (Array.isArray(child)) child.forEach(visit);
-                        else if (child && typeof child === 'object') visit(child);
-                    }
-                };
-                serialized.forEach(visit);
-                if (!media.length) continue;
-                media[0].url = customBannerUrl || bannerUrl(definition.banner);
-                if (media.length > 1) media[media.length - 1].url = bannerUrl('underbanner');
-                const files = customBannerUrl
-                    ? [bannerAttachment('underbanner')]
-                    : [bannerAttachment(definition.banner), bannerAttachment('underbanner')];
+                const componentText = JSON.stringify(serialized);
+                const legacyMatch = definition.panel === 'dashboard'
+                    ? componentText.includes('**Members:**')
+                    : definition.panel === 'regulations' ? componentText.includes(REGULATIONS_MENU_ID) : false;
+                if (!componentText.includes(definition.marker) && !legacyMatch) continue;
+                let container: ContainerBuilder;
+                if (definition.panel === 'dashboard') container = await dashboardPanel(guild, config, customBannerUrl);
+                else if (definition.panel === 'regulations') container = regulationsPanel(config, customBannerUrl);
+                else if (definition.panel === 'staff_guide') container = staffGuidePanel(config, customBannerUrl);
+                else container = applicationPanel(config, customBannerUrl);
+                const files = definition.panel === 'dashboard' || definition.panel === 'regulations'
+                    ? []
+                    : customBannerUrl ? [bannerAttachment('underbanner')] : bannerFiles(definition.banner);
                 const edited = await message.edit({
-                    components: serialized as never,
+                    components: [container],
                     attachments: [],
                     files,
                     flags: MessageFlags.IsComponentsV2,
@@ -779,8 +865,8 @@ export async function postAllPanels(guild: Guild): Promise<PostAllPanelsResult> 
     else result.posted.push('Assistance');
 
     const definitions = [
-        { panel: 'dashboard' as const, channel: 'dashboard', marker: '**Members:**', label: 'Dashboard', banner: 'dashboard' as const },
-        { panel: 'regulations' as const, channel: 'regulations', marker: REGULATIONS_MENU_ID, label: 'Regulations', banner: 'regulations' as const },
+        { panel: 'dashboard' as const, channel: 'dashboard', marker: DASHBOARD_MENU_ID, label: 'Dashboard', banner: 'dashboard' as const },
+        { panel: 'regulations' as const, channel: 'regulations', marker: 'Discord Regulations', label: 'Regulations', banner: 'regulations' as const },
         { panel: 'application' as const, channel: 'application_panel', marker: 'application:open', label: 'Applications', banner: 'applications' as const },
         { panel: 'staff_guide' as const, channel: 'staff_guide', marker: STAFF_GUIDE_URL, label: 'Staff Guide', banner: 'staffGuide' as const },
     ] as const;
@@ -795,28 +881,18 @@ export async function postAllPanels(guild: Guild): Promise<PostAllPanelsResult> 
         const config = await getPanelConfig(guild, definition.panel);
         const customBannerUrl = await getPanelBannerUrl(guild, config);
         const recentMessages = await destination.messages.fetch({ limit: 100 }).catch(() => null);
-        const existingPanels = recentMessages?.filter(message => message.author.id === guild.client.user?.id
-            && JSON.stringify(message.components.map(component => component.toJSON())).includes(definition.marker));
+        const existingPanels = recentMessages?.filter(message => {
+            if (message.author.id !== guild.client.user?.id) return false;
+            const componentText = JSON.stringify(message.components.map(component => component.toJSON()));
+            const legacyMatch = definition.panel === 'dashboard'
+                ? componentText.includes('**Members:**')
+                : definition.panel === 'regulations' ? componentText.includes(REGULATIONS_MENU_ID) : false;
+            return componentText.includes(definition.marker) || legacyMatch;
+        });
 
         let container: ContainerBuilder;
         if (definition.panel === 'dashboard') {
-            const emojis = parseEmojiMap(config.emojiText);
-            const values = { members: guild.memberCount.toLocaleString(), owner: `<@${guild.ownerId}>`, created: `<t:${Math.floor(guild.createdTimestamp / 1000)}:D>` };
-            const buttons = [
-                linkButton('Regulations', guild.id, await configuredChannelId(guild, 'regulations', CHANNEL_IDS.rules)),
-                linkButton('Assistance', guild.id, await configuredChannelId(guild, 'ticket_panel', CHANNEL_IDS.ticketPanel)),
-            ].filter((button): button is ButtonBuilder => Boolean(button));
-            if (buttons[0]) try { buttons[0].setEmoji(emojis.rules || '📜'); } catch { /* an invalid optional emoji should not block panel setup */ }
-            if (buttons[1]) try { buttons[1].setEmoji(emojis.assistance || emojis.support || '🎫'); } catch { /* an invalid optional emoji should not block panel setup */ }
-            container = new ContainerBuilder().setAccentColor(BRAND.color)
-                .addMediaGalleryComponents(gallery(customBannerUrl || bannerUrl('dashboard')))
-                .addTextDisplayComponents(new TextDisplayBuilder().setContent([
-                    `# ${emojis.title || '📊'} ${applyTemplate(config.title, values)}`,
-                    applyTemplate(config.description, values), '',
-                    `**Members:** ${values.members}`, `**Owner:** ${values.owner}`, `**Created:** ${values.created}`,
-                ].join('\n')));
-            if (buttons.length) container.addActionRowComponents(new ActionRowBuilder<ButtonBuilder>().addComponents(buttons));
-            container.addMediaGalleryComponents(gallery(bannerUrl('underbanner')));
+            container = await dashboardPanel(guild, config, customBannerUrl);
         } else if (definition.panel === 'regulations') {
             container = regulationsPanel(config, customBannerUrl);
         } else if (definition.panel === 'staff_guide') {
@@ -824,7 +900,9 @@ export async function postAllPanels(guild: Guild): Promise<PostAllPanelsResult> 
         } else {
             container = applicationPanel(config, customBannerUrl);
         }
-        const files = customBannerUrl ? [bannerAttachment('underbanner')] : bannerFiles(definition.banner);
+        const files = definition.panel === 'dashboard' || definition.panel === 'regulations'
+            ? []
+            : customBannerUrl ? [bannerAttachment('underbanner')] : bannerFiles(definition.banner);
         if (existingPanels?.size) {
             for (const existing of existingPanels.values()) {
                 await existing.edit({ components: [container], attachments: [], files, flags: MessageFlags.IsComponentsV2 });

@@ -27,8 +27,9 @@ async function canUseSessionPrefix(message: Message): Promise<boolean> {
 }
 
 export async function handlePrefixCommand(message: Message): Promise<boolean> {
-    if (!message.guild || message.author.bot || !message.content.startsWith('-')) return false;
+    if (!message.guild || message.author.bot) return false;
     if (!message.channel.isSendable()) return false;
+    if (!message.content.startsWith('-')) return false;
     const [rawCommand, ...parts] = message.content.slice(1).trim().split(/\s+/);
     const command = rawCommand.toLowerCase();
     const panelCommands: Record<string, 'dashboard' | 'regulations' | 'session' | 'application' | 'staff_guide'> = {

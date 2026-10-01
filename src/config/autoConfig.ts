@@ -11,7 +11,6 @@ const CHANNEL_ALIASES: Record<string, string[]> = {
     PAID_PARTNER_CHANNEL_ID: ['paid-partner', 'paid-partnerships'],
     PROFANITY_LOG_CHANNEL_ID: ['profanity-logs', 'automod-logs', 'moderation-logs'],
     ERLC_COMMAND_LOG_CHANNEL_ID: ['erlc-command-logs', 'command-logs'],
-    RAID_THREAT_LOG_CHANNEL_ID: ['raid-threat-logs', 'raid-logs', 'security-logs'],
     DISCORD_COMMAND_LOG_CHANNEL_ID: ['discord-command-logs', 'bot-logs', 'command-logs', 'logs'],
     ERLC_TEAM_CHANGE_LOG_CHANNEL_ID: ['team-change-logs', 'team-changes'],
     ERLC_PUNISHMENT_LOG_CHANNEL_ID: ['erlc-punishment-logs', 'punishment-logs'],
@@ -41,7 +40,6 @@ const ROLE_ALIASES: Record<string, string[]> = {
     MANAGEMENT_ROLE_ID: ['management', 'server-management'],
     INTERNAL_AFFAIRS_ROLE_ID: ['internal-affairs'],
     SUPPORT_ROLE_ID: ['support', 'staff'],
-    EMERGENCY_STAFF_ROLE_ID: ['high-command', 'management', 'administrator'],
     PARTNERSHIP_ROLE_ID: ['partner', 'partners'],
 };
 
@@ -105,7 +103,6 @@ export async function autoConfigureGuild(guild: Guild): Promise<void> {
     if (generalLog) {
         for (const key of [
             'PROFANITY_LOG_CHANNEL_ID',
-            'RAID_THREAT_LOG_CHANNEL_ID',
             'DISCORD_KICK_LOG_CHANNEL_ID',
             'DISCORD_BAN_LOG_CHANNEL_ID',
             'PRIVATE_AUDIT_LOG_CHANNEL_ID',
