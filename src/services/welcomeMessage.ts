@@ -28,8 +28,9 @@ export async function sendConfiguredWelcome(
     const memberCount = guild.memberCount;
     const countButton = new ButtonBuilder()
         .setCustomId('welcome:member-count')
-        .setLabel(memberCount.toLocaleString('en-US'))
+        .setLabel(`Member Count: ${memberCount.toLocaleString('en-US')}`)
         .setStyle(ButtonStyle.Secondary)
+        .setEmoji({ id: '1517568885925085237', name: 'Member' })
         .setDisabled(true);
     await destination.send({
         content: `${WELCOME_EMOJI} Welcome <@${user.id}> to **California State Roleplay**! You are our **${ordinal(memberCount)} member**.`,
