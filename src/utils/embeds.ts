@@ -4,7 +4,6 @@ import { embedsToV2 } from './componentsV2';
 
 export const createEmbed = (title: string, description: string, color: ColorResolvable = BRAND.color) => {
     return new EmbedBuilder()
-        .setColor(color)
         .setTitle(title)
         .setDescription(description)
         .setThumbnail(BRAND.logoUrl)
@@ -14,7 +13,6 @@ export const createEmbed = (title: string, description: string, color: ColorReso
 
 export const createBrandedEmbed = (title?: string, description?: string, color = BRAND.color) => {
     const embed = new EmbedBuilder()
-        .setColor(color)
         .setFooter({ text: BRAND.footer })
         .setTimestamp();
     if (title) embed.setTitle(title);

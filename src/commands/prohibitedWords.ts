@@ -28,7 +28,6 @@ export const prohibitedWordCommand = {
         const subcommand = interaction.options.getSubcommand();
         if (subcommand === 'list') {
             const embed = new EmbedBuilder()
-                .setColor(BRAND.color)
                 .setTitle('Configured Prohibited Words')
                 .setThumbnail(BRAND.logoUrl)
                 .setDescription(prohibitedWords.length ? prohibitedWords.map(word => `• ${word}`).join('\n').slice(0, 4000) : 'No prohibited words are configured.')

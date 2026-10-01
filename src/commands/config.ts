@@ -60,7 +60,7 @@ function homeView() {
             { label: 'Roles & Permissions', value: 'roles', description: 'Assign staff, support, and command roles', emoji: '🛡️' },
             { label: 'Create Managed Role', value: 'managed_role', description: 'Create a role with a purpose and permissions', emoji: '➕' },
         );
-    const container = new ContainerBuilder().setAccentColor(BRAND.color)
+    const container = new ContainerBuilder()
         .addTextDisplayComponents(new TextDisplayBuilder().setContent([
             '# Bot Configuration',
             'Configure California State Roleplay’s panels, channels, staff roles, questions, banners, and server emojis. **Post All Panels** updates each panel and fills any gaps.',
@@ -96,7 +96,7 @@ const roleLabels: Record<ConfigRoleKey, string> = {
 function channelConfigView() {
     const select = new StringSelectMenuBuilder().setCustomId('config:channel-purpose').setPlaceholder('Choose what channel to configure')
         .addOptions(CONFIG_CHANNEL_KEYS.map(value => ({ label: channelLabels[value], value })));
-    return { components: [new ContainerBuilder().setAccentColor(BRAND.color)
+    return { components: [new ContainerBuilder()
         .addTextDisplayComponents(new TextDisplayBuilder().setContent('# Channel Configuration\nChoose a destination or ticket category, then select it on the next page.'))
         .addActionRowComponents(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select))] };
 }
@@ -104,21 +104,21 @@ function channelConfigView() {
 function roleConfigView() {
     const select = new StringSelectMenuBuilder().setCustomId('config:role-purpose').setPlaceholder('Choose what role to configure')
         .addOptions(CONFIG_ROLE_KEYS.map(value => ({ label: roleLabels[value], value })));
-    return { components: [new ContainerBuilder().setAccentColor(BRAND.color)
+    return { components: [new ContainerBuilder()
         .addTextDisplayComponents(new TextDisplayBuilder().setContent('# Role & Permission Configuration\nChoose a role purpose, then select the Discord role on the next page.'))
         .addActionRowComponents(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select))] };
 }
 
 function channelPickerView(key: ConfigChannelKey) {
     const select = new ChannelSelectMenuBuilder().setCustomId(`config:channel:${key}`).setPlaceholder(`Select ${channelLabels[key]}`).setMinValues(1).setMaxValues(1);
-    return { components: [new ContainerBuilder().setAccentColor(BRAND.color)
+    return { components: [new ContainerBuilder()
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(`# ${channelLabels[key]}\nSelect the channel or category the bot should use.`))
         .addActionRowComponents(new ActionRowBuilder<ChannelSelectMenuBuilder>().addComponents(select))] };
 }
 
 function rolePickerView(key: ConfigRoleKey) {
     const select = new RoleSelectMenuBuilder().setCustomId(`config:role:${key}`).setPlaceholder(`Select ${roleLabels[key]}`).setMinValues(1).setMaxValues(1);
-    return { components: [new ContainerBuilder().setAccentColor(BRAND.color)
+    return { components: [new ContainerBuilder()
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(`# ${roleLabels[key]} Role\nSelect the role the bot should use for this purpose.`))
         .addActionRowComponents(new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(select))] };
 }
@@ -136,7 +136,7 @@ function embedLibraryView() {
     const select = new StringSelectMenuBuilder().setCustomId('config:panel')
         .setPlaceholder('Choose a V2 message to preview')
         .addOptions(panels.map(value => ({ label: panelName(value), value })));
-    const container = new ContainerBuilder().setAccentColor(BRAND.color)
+    const container = new ContainerBuilder()
         .addTextDisplayComponents(new TextDisplayBuilder().setContent([
             '# V2 Message Configuration',
             'Choose a message below. Its real Components V2 layout will appear privately with controls for editing and saving it.',
@@ -177,7 +177,7 @@ function editorView(panel: ConfigurablePanel, config: PanelConfig, userId: strin
         panel === 'session' ? `\n${emojis.staff} **Staff Online:** ${values.staff}  •  ${emojis.players} **Players:** ${values.players}/${values.maximum}  •  ${emojis.queue} **Queue:** ${values.queue}\n${emojis.online} **Online**  •  ${emojis.offline} **Offline**  •  ${emojis.join} **Quick Join**` : '',
         '', `-# ${panelName(panel)} • Private V2 Preview`,
     ].filter(Boolean).join('\n');
-    const container = new ContainerBuilder().setAccentColor(BRAND.color)
+    const container = new ContainerBuilder()
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(instructions));
     if (customBannerUrl) container.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(customBannerUrl)));
     container.addSeparatorComponents(new SeparatorBuilder().setDivider(true))
@@ -359,7 +359,7 @@ export async function handleConfigChannelSelect(interaction: ChannelSelectMenuIn
     const config = await getGuildBotConfig(interaction.guild);
     config.channels[key] = interaction.values[0];
     await saveGuildBotConfig(interaction.guild, config);
-    await interaction.update({ components: [new ContainerBuilder().setAccentColor(BRAND.color)
+    await interaction.update({ components: [new ContainerBuilder()
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(`# Channel Saved\n**${channelLabels[key]}** will now use <#${interaction.values[0]}>.`))] });
     return true;
 }
@@ -372,7 +372,7 @@ export async function handleConfigRoleSelect(interaction: RoleSelectMenuInteract
     const config = await getGuildBotConfig(interaction.guild);
     config.roles[key] = interaction.values[0];
     await saveGuildBotConfig(interaction.guild, config);
-    await interaction.update({ components: [new ContainerBuilder().setAccentColor(BRAND.color)
+    await interaction.update({ components: [new ContainerBuilder()
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(`# Role Saved\n**${roleLabels[key]}** will now use <@&${interaction.values[0]}>.`))] });
     return true;
 }

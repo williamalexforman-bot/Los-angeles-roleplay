@@ -19,7 +19,6 @@ export const gameCommands = [
 
             const embed = new EmbedBuilder()
                 .setTitle('Manual ER:LC Team Change Report')
-                .setColor(BRAND.color)
                 .setThumbnail(BRAND.logoUrl)
                 .setDescription('This entry was submitted manually by authorized management; it was not detected by the ER:LC API.')
                 .addFields(

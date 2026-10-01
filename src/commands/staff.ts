@@ -52,7 +52,6 @@ export const staffCommands = [
                 const embed = new EmbedBuilder()
                     .setTitle('Staff Infraction')
                     .setDescription('The High Ranking Team at California State Roleplay has noticed that you\'ve violated our policies. We will be taking actions upon your account. Arguing about your recent infraction will result in another strike.')
-                    .setColor(BRAND.color)
                     .setThumbnail(LOGO)
                     .addFields(
                         { name: 'User', value: `<@${user?.id}>`, inline: true },
@@ -101,7 +100,6 @@ export const staffCommands = [
             const embed = new EmbedBuilder()
                 .setTitle('Promotion Request')
                 .setDescription('A promotion request has been submitted for review.')
-                .setColor(BRAND.color)
                 .setThumbnail(LOGO)
                 .addFields(
                     { name: 'User', value: `<@${user?.id}>`, inline: true },
@@ -147,7 +145,7 @@ export const staffCommands = [
             const configured = await getPanelConfig(interaction.guild, 'application');
             const customBannerUrl = await getPanelBannerUrl(interaction.guild, configured);
             const emojis = parseEmojiMap(configured.emojiText);
-            const panel = new ContainerBuilder().setAccentColor(BRAND.color)
+            const panel = new ContainerBuilder()
                 .addMediaGalleryComponents(new MediaGalleryBuilder().addItems(
                     new MediaGalleryItemBuilder().setURL(customBannerUrl || bannerUrl('applications')),
                 ))

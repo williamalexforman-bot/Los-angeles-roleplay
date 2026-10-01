@@ -193,7 +193,6 @@ function ticketPanelV2(config: PanelConfig, customBannerUrl?: string | null): Co
         .setStyle(ButtonStyle.Success)
         .setDisabled(true);
     return new ContainerBuilder()
-        .setAccentColor(BRAND.color)
         .addMediaGalleryComponents(new MediaGalleryBuilder().addItems(
             new MediaGalleryItemBuilder().setURL(customBannerUrl || bannerUrl('assistance')),
         ))
@@ -448,7 +447,6 @@ export function buildOpeningPanel(
     void roblox;
     void fallbackAvatarUrl;
     return new ContainerBuilder()
-        .setAccentColor(BRAND.color)
         .addMediaGalleryComponents(new MediaGalleryBuilder().addItems(
             new MediaGalleryItemBuilder().setURL(customBannerUrl || bannerUrl('assistance')),
         ))
@@ -592,7 +590,6 @@ async function sendTicketCreationLog(ticket: TicketRecord, channel: TextChannel)
         const logChannel = await channel.client.channels.fetch(await configuredChannelId(channel.guild, 'command_logs', CHANNEL_IDS.discordCommandLog)).catch(() => null);
         if (!logChannel?.isSendable()) return;
         const embed = new EmbedBuilder()
-            .setColor(BRAND.color)
             .setTitle('Ticket Created')
             .setThumbnail(BRAND.logoUrl)
             .addFields(
@@ -865,7 +862,6 @@ async function archiveTicketTranscript(
         value: chunk,
     }));
     const archiveEmbed = new EmbedBuilder()
-        .setColor(BRAND.color)
         .setTitle(`Ticket #${ticket.number} — Archived Transcript`)
         .setDescription('A complete text transcript was archived automatically before this ticket was closed.')
         .addFields(
@@ -897,7 +893,6 @@ async function closeTicket(interaction: ButtonInteraction | ModalSubmitInteracti
     const normalizedReason = reason.trim() || 'No reason supplied';
     const closeReasonChunks = splitText(normalizedReason);
     const closeEmbed = new EmbedBuilder()
-        .setColor(BRAND.color)
         .setTitle(`Ticket #${ticket.number} — Closure Request`)
         .setDescription(`<@${ticket.creatorId}>, this ticket is being closed and a complete transcript will be preserved for staff records.`)
         .addFields(
@@ -914,7 +909,6 @@ async function closeTicket(interaction: ButtonInteraction | ModalSubmitInteracti
     });
     for (const [index, chunk] of closeReasonChunks.slice(1).entries()) {
         const continuation = new EmbedBuilder()
-            .setColor(BRAND.color)
             .setTitle(`Ticket #${ticket.number} — Closure Reason Continued`)
             .addFields({ name: `Reason (continued ${index + 2})`, value: chunk })
             .setFooter({ text: BRAND.footer })

@@ -36,5 +36,5 @@ export function bannerFiles(key: Exclude<BannerKey, 'underbanner'>): AttachmentB
 }
 
 export function underbannerEmbed(): EmbedBuilder {
-    return new EmbedBuilder().setColor(BRAND.color).setImage(bannerUrl('underbanner'));
+    return new EmbedBuilder().setImage(bannerUrl('underbanner'));
 }

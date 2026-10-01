@@ -61,7 +61,6 @@ async function sendEmbed(client: Client, channelId: string, embed: EmbedBuilder)
 
 function baseEmbed(title: string): EmbedBuilder {
     return new EmbedBuilder()
-        .setColor(BRAND.color)
         .setTitle(title)
         .setThumbnail(BRAND.logoUrl)
         .setFooter({ text: BRAND.footer })

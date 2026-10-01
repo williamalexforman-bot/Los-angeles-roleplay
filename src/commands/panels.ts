@@ -116,7 +116,7 @@ function staffGuidePanel(config: PanelConfig, customBannerUrl?: string | null): 
         emojis.guide,
         '📖',
     );
-    return new ContainerBuilder().setAccentColor(BRAND.color)
+    return new ContainerBuilder()
         .addMediaGalleryComponents(gallery(customBannerUrl || bannerUrl('staffGuide')))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent([
             `# ${safeEmoji(emojis.title, '🛡️')} ${applyTemplate(config.title, values)}`,
@@ -138,7 +138,6 @@ function staffGuidePanel(config: PanelConfig, customBannerUrl?: string | null): 
 
 function loadingSessionPanel(): ContainerBuilder {
     return new ContainerBuilder()
-        .setAccentColor(BRAND.color)
         .addTextDisplayComponents(
             new TextDisplayBuilder().setContent(`# ${SESSION_TITLE_EMOJI} Session Information\n> Loading the latest session information…`),
         );
@@ -214,7 +213,6 @@ function sessionPanel(
     );
 
     return new ContainerBuilder()
-        .setAccentColor(BRAND.color)
         .addMediaGalleryComponents(gallery(customBannerUrl || bannerUrl('session')))
         .addTextDisplayComponents(information)
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
@@ -298,7 +296,7 @@ function sessionAnnouncement(action: SessionLifecycleStatus, userId: string): Co
         voting: { title: '🗳️ Session Vote Open', description: 'A session vote is now open. If you support the session, be ready to join when it begins.' },
         boosted: { title: '🚀 Session Boost', description: 'The current California State Roleplay session has been **boosted** and needs more players. Join us now!' },
     };
-    const container = new ContainerBuilder().setAccentColor(BRAND.color)
+    const container = new ContainerBuilder()
         .addTextDisplayComponents(new TextDisplayBuilder().setContent([
             `# ${copy[action].title}`,
             copy[action].description,
@@ -343,7 +341,6 @@ function regulationsPanel(config: PanelConfig, customBannerUrl?: string | null):
         ? DEFAULT_PANEL_CONFIGS.regulations.description
         : config.description;
     return new ContainerBuilder()
-        .setAccentColor(BRAND.color)
         .addMediaGalleryComponents(gallery(customBannerUrl || REGULATIONS_BANNER_URL))
         .addSeparatorComponents(new SeparatorBuilder().setSpacing(1))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent([
@@ -369,7 +366,6 @@ function regulationsContent(config: PanelConfig): string {
 
 function privateRulesPanel(config: PanelConfig): ContainerBuilder {
     return new ContainerBuilder()
-        .setAccentColor(BRAND.color)
         .addMediaGalleryComponents(gallery(REGULATIONS_BANNER_URL))
         .addSeparatorComponents(new SeparatorBuilder().setSpacing(1))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(regulationsContent(config)))
@@ -390,7 +386,6 @@ async function dashboardInformationPanel(guild: Guild): Promise<ContainerBuilder
     ]);
     const mention = (id: string, fallback: string[]): string => id ? `<#${id}>` : channelByName(guild, fallback);
     return new ContainerBuilder()
-        .setAccentColor(BRAND.color)
         .addMediaGalleryComponents(gallery(INFORMATION_BANNER_URL))
         .addSeparatorComponents(new SeparatorBuilder().setSpacing(1))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent([
@@ -432,7 +427,7 @@ async function dashboardPanel(guild: Guild, config: PanelConfig, customBannerUrl
                 .setDescription("Our server's rules")
                 .setEmoji(parseEmoji(safeEmoji(emojis.rules, '<:game_rules:1516784266556604528>')) || { id: '1516784266556604528', name: 'game_rules' }),
         );
-    return new ContainerBuilder().setAccentColor(BRAND.color)
+    return new ContainerBuilder()
         .addMediaGalleryComponents(gallery(customBannerUrl || DASHBOARD_BANNER_URL))
         .addSeparatorComponents(new SeparatorBuilder().setSpacing(1))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(description))
@@ -503,7 +498,7 @@ function applicationPanel(config: PanelConfig, customBannerUrl?: string | null):
         emojis.status,
         '🟢',
     );
-    return new ContainerBuilder().setAccentColor(BRAND.color)
+    return new ContainerBuilder()
         .addMediaGalleryComponents(gallery(customBannerUrl || bannerUrl('applications')))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent([
             `# ${safeEmoji(emojis.title, '📋')} ${config.title}`,
@@ -574,7 +569,7 @@ export async function handlePanelButton(interaction: ButtonInteraction): Promise
     const accepted = decision === 'accept';
     const applicant = await interaction.client.users.fetch(applicantId).catch(() => null);
     const dmDelivered = applicant ? await applicant.send({
-        components: [new ContainerBuilder().setAccentColor(BRAND.color)
+        components: [new ContainerBuilder()
             .addTextDisplayComponents(new TextDisplayBuilder().setContent([
                 `# Application ${accepted ? 'Accepted' : 'Denied'}`,
                 accepted
@@ -595,7 +590,7 @@ export async function handlePanelButton(interaction: ButtonInteraction): Promise
     await interaction.message.edit({ components: rawComponents as never, flags: MessageFlags.IsComponentsV2 });
     if (interaction.channel?.isSendable()) {
         await interaction.channel.send({
-            components: [new ContainerBuilder().setAccentColor(BRAND.color)
+            components: [new ContainerBuilder()
                 .addTextDisplayComponents(new TextDisplayBuilder().setContent(
                     `# Application ${accepted ? 'Accepted' : 'Denied'}\n<@${applicantId}> was **${accepted ? 'accepted' : 'denied'}** by <@${interaction.user.id}>. ${dmDelivered ? 'The applicant was notified by DM.' : 'The applicant’s DMs are closed, so the DM could not be delivered.'}`,
                 ))],
@@ -642,7 +637,7 @@ export async function handlePanelModal(interaction: ModalSubmitInteraction): Pro
     }).catch(() => null);
     const reviewDestination = reviewChannel?.isSendable() ? reviewChannel : destination;
     await reviewDestination.send({
-        components: [new ContainerBuilder().setAccentColor(BRAND.color)
+        components: [new ContainerBuilder()
             .addTextDisplayComponents(new TextDisplayBuilder().setContent([
                 `# ${emojis.title || '📋'} Staff Application • ${interaction.user.tag}`,
                 `**Applicant:** <@${interaction.user.id}>`,

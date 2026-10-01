@@ -372,7 +372,6 @@ function discordTimestamp(timestampSeconds: number): string {
 
 export function buildCommandLogEmbed(event: ErlcCommandDetectedEvent): EmbedBuilder {
     return new EmbedBuilder()
-        .setColor(CSRP_TEAL)
         .setTitle('ER:LC Command Detected')
         .setThumbnail(BRAND.logoUrl)
         .addFields(
@@ -388,7 +387,6 @@ export function buildCommandLogEmbed(event: ErlcCommandDetectedEvent): EmbedBuil
 
 export function buildTeamChangeEmbed(event: ErlcTeamChangedEvent): EmbedBuilder {
     return new EmbedBuilder()
-        .setColor(CSRP_TEAL)
         .setTitle('ER:LC Team Changed')
         .setThumbnail(BRAND.logoUrl)
         .addFields(
@@ -405,7 +403,6 @@ export function buildTeamChangeEmbed(event: ErlcTeamChangedEvent): EmbedBuilder 
 export function buildPunishmentCommandEmbed(event: ErlcPunishmentCommandEvent): EmbedBuilder {
     const article = event.action === 'Unban' ? 'An' : 'A';
     return new EmbedBuilder()
-        .setColor(CSRP_TEAL)
         .setTitle('ER:LC Punishment Command Detected')
         .setThumbnail(BRAND.logoUrl)
         .setDescription(

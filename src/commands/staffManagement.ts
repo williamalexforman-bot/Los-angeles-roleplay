@@ -263,7 +263,6 @@ function logoAttachment() {
 
 function brandedEmbed(title: string, color = BRAND_COLOR): EmbedBuilder {
     return new EmbedBuilder()
-        .setColor(color)
         .setTitle(title)
         .setThumbnail(`attachment://${LOGO_NAME}`)
         .setFooter({ text: BRAND_FOOTER })
@@ -370,7 +369,6 @@ function buildInfractionPanel(
         : applyTemplate(config.description, values);
     const appeal = (record.appealStatus || 'Appealable') === 'Appealable' ? 'Yes' : 'No';
     const container = new ContainerBuilder()
-        .setAccentColor(BRAND_COLOR)
         .addMediaGalleryComponents(new MediaGalleryBuilder().addItems(
             new MediaGalleryItemBuilder().setURL(INFRACTION_TOP_BANNER),
         ))
@@ -643,7 +641,6 @@ function promotionCommand() {
                     : applyTemplate(configured.description, values);
                 await destination.send({
                     components: [new ContainerBuilder()
-                        .setAccentColor(BRAND_COLOR)
                         .addMediaGalleryComponents(new MediaGalleryBuilder().addItems(
                             new MediaGalleryItemBuilder().setURL(PROMOTION_TOP_BANNER),
                         ))

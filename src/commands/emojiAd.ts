@@ -81,12 +81,12 @@ function panel(installed: string[], failed: string[], mappingFailures: string[],
         mappingFailures.length ? `\n**Panel settings not saved:** ${mappingFailures.join(', ')}` : '',
         `\n${panelStatus}`,
     ].filter(Boolean).join('\n');
-    return new ContainerBuilder().setAccentColor(BRAND.color)
+    return new ContainerBuilder()
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(body));
 }
 
 export function emojiPackProgressPanel(content: string) {
-    return new ContainerBuilder().setAccentColor(BRAND.color)
+    return new ContainerBuilder()
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(`# California State Roleplay Emoji Pack\n${content}`));
 }
 

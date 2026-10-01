@@ -25,7 +25,6 @@ export function setDiscordClientForDm(client: Client): void {
 
 function brandedEmbed(title: string, color: number = BRAND.color): EmbedBuilder {
     return new EmbedBuilder()
-        .setColor(color)
         .setTitle(title)
         .setThumbnail(LOGO_URL)
         .setFooter({ text: BRAND_FOOTER })

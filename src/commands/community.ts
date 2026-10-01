@@ -37,7 +37,6 @@ function privateAuditChannelId(): string {
 
 function brandedEmbed(title?: string, description?: string, color: ColorResolvable = BRAND_COLOR, includeLogo = true): EmbedBuilder {
     const embed = new EmbedBuilder()
-        .setColor(color)
         .setFooter({ text: BRAND_FOOTER })
         .setTimestamp();
     if (includeLogo) embed.setThumbnail(`attachment://${LOGO_NAME}`);
@@ -514,7 +513,7 @@ export async function handleCommunityButton(interaction: ButtonInteraction): Pro
         } else if (!PARTNERSHIP_ROLE_ID) {
             roleMessage = 'The partnership was approved, but PARTNERSHIP_ROLE_ID is not configured yet.';
         }
-        const approvedPanel = new ContainerBuilder().setAccentColor(0x22c55e)
+        const approvedPanel = new ContainerBuilder()
             .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${originalText}\n\n-# ✅ Approved by ${interaction.user.tag} • ${BRAND_FOOTER}`))
             .addActionRowComponents(...partnershipReviewComponents(submitterId, true));
         await sourceMessage.edit({ embeds: [], components: [approvedPanel], flags: MessageFlags.IsComponentsV2 });
@@ -523,7 +522,7 @@ export async function handleCommunityButton(interaction: ButtonInteraction): Pro
         if (approvalChannel) {
             // Send the full partnership embed to the approval channel
             await approvalChannel.send({
-                components: [new ContainerBuilder().setAccentColor(0x22c55e)
+                components: [new ContainerBuilder()
                     .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${originalText}\n\n**Approved By:** <@${interaction.user.id}>\n**Submitted By:** <@${submitterId}>`))],
                 flags: MessageFlags.IsComponentsV2,
                 allowedMentions: { parse: ['users'] },
@@ -534,7 +533,7 @@ export async function handleCommunityButton(interaction: ButtonInteraction): Pro
         return true;
     }
 
-    const deniedPanel = new ContainerBuilder().setAccentColor(0xef4444)
+    const deniedPanel = new ContainerBuilder()
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${originalText}\n\n-# ❌ Denied by ${interaction.user.tag} • ${BRAND_FOOTER}`))
         .addActionRowComponents(...partnershipReviewComponents(submitterId, true));
     await sourceMessage.edit({ embeds: [], components: [deniedPanel], flags: MessageFlags.IsComponentsV2 });

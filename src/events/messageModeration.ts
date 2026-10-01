@@ -125,7 +125,6 @@ async function sendToLogChannel(
 
 function buildProfanityEmbed(message: Message, detectedWords: readonly string[]): EmbedBuilder {
     const embed = new EmbedBuilder()
-        .setColor(EMBED_COLOR)
         .setAuthor({
             name: 'CSRP Message Moderation',
             iconURL: message.author.displayAvatarURL(),

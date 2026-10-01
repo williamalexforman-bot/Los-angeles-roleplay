@@ -22,7 +22,7 @@ export function embedToV2(embed: EmbedLike, rows: ActionRowBuilder<MessageAction
     }
     if (data.footer?.text) lines.push('', `-# ${data.footer.text}`);
     if (data.timestamp) lines.push(`-# <t:${Math.floor(new Date(data.timestamp).getTime() / 1_000)}:f>`);
-    const container = new ContainerBuilder().setAccentColor(data.color || BRAND.color);
+    const container = new ContainerBuilder();
     if (data.image?.url) container.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(data.image.url)));
     if (lines.length) container.addTextDisplayComponents(new TextDisplayBuilder().setContent(lines.join('\n').slice(0, 4000)));
     if (rows.length) container.addActionRowComponents(...rows);

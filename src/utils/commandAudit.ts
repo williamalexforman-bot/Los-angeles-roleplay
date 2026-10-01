@@ -71,7 +71,6 @@ export async function logSlashCommand(
         const safeFailure = sanitizeFailureMessage(failure);
 
         const embed = new EmbedBuilder()
-            .setColor(BRAND.color)
             .setTitle(success ? 'Slash Command Completed' : 'Slash Command Failed')
             .setThumbnail(BRAND.logoUrl)
             .addFields(
