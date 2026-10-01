@@ -86,6 +86,7 @@ export interface InfractionRecord {
     memberUsername: string;
     issuedById: string;
     action: string;
+    displayAction?: string;
     reason: string;
     ruleBroken: string;
     evidence: string;
@@ -111,6 +112,7 @@ const infractionSchema = new Schema<InfractionRecord>({
     memberUsername: { type: String, required: true },
     issuedById: { type: String, required: true },
     action: { type: String, required: true },
+    displayAction: { type: String },
     reason: { type: String, required: true },
     ruleBroken: { type: String, required: true },
     evidence: { type: String, default: 'No evidence supplied.' },

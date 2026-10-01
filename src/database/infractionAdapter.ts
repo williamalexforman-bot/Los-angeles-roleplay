@@ -22,6 +22,7 @@ function fromDatabase(record: Record<string, unknown>): CommandInfractionRecord 
         memberUsername: String(record.memberUsername),
         issuedById: String(record.issuedById),
         action: String(record.action) as CommandInfractionRecord['action'],
+        displayAction: typeof record.displayAction === 'string' ? record.displayAction : undefined,
         reason: String(record.reason),
         ruleBroken: String(record.ruleBroken),
         evidence: String(record.evidence),
