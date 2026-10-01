@@ -1,4 +1,7 @@
 import {
+    ActionRowBuilder,
+    ButtonBuilder,
+    ButtonStyle,
     Guild,
     User,
     type SendableChannels,
@@ -23,14 +26,14 @@ export async function sendConfiguredWelcome(
     destination: SendableChannels,
 ): Promise<void> {
     const memberCount = guild.memberCount;
+    const countButton = new ButtonBuilder()
+        .setCustomId('welcome:member-count')
+        .setLabel(memberCount.toLocaleString('en-US'))
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(true);
     await destination.send({
-        content: [
-            `${WELCOME_EMOJI} Welcome <@${user.id}> to **California State Roleplay**! You are our **${ordinal(memberCount)} member**.`,
-            '',
-            '```',
-            `Member Count: ${memberCount.toLocaleString('en-US')}`,
-            '```',
-        ].join('\n'),
+        content: `${WELCOME_EMOJI} Welcome <@${user.id}> to **California State Roleplay**! You are our **${ordinal(memberCount)} member**.`,
+        components: [new ActionRowBuilder<ButtonBuilder>().addComponents(countButton)],
         allowedMentions: { users: [user.id], parse: [] },
     });
 }
