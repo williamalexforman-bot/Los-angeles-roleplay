@@ -54,7 +54,6 @@ const REGULATIONS_TITLE_EMOJI = '<:regulations:1516784266556604528>';
 const STAFF_GUIDE_URL = 'https://docs.google.com/document/d/11Bjkf1bEO7SxECUPtq4aSl2AFC_0zZfjHngHDl5_0GU/edit?usp=drivesdk';
 const DASHBOARD_BANNER_URL = 'https://cdn.phototourl.com/member/2026-09-30-8c447076-7d6b-4eee-8399-ba3d4b1552b3.webp';
 const INFORMATION_BANNER_URL = 'https://cdn.phototourl.com/member/2026-09-30-328a9e05-2d30-4a75-affc-fc78bdf2b8cb.png';
-const REGULATIONS_BANNER_URL = 'https://cdn.phototourl.com/member/2026-09-30-19c5f496-ed7f-4403-b258-139fd3808761.webp';
 const PANEL_UNDERBANNER_URL = 'https://cdn.phototourl.com/member/2026-09-30-85572d76-a26b-477a-860a-21d51aa8f6f2.webp';
 
 const DISCORD_RULES = `# Discord Rules
@@ -340,37 +339,65 @@ function regulationsPanel(config: PanelConfig, customBannerUrl?: string | null):
     const description = config.description.startsWith('Our regulations keep every CSRP experience')
         ? DEFAULT_PANEL_CONFIGS.regulations.description
         : config.description;
+    const rulesMenu = new StringSelectMenuBuilder()
+        .setCustomId(REGULATIONS_MENU_ID)
+        .setPlaceholder('Choose which regulations to view')
+        .addOptions(
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Discord Regulations')
+                .setValue('discord')
+                .setDescription('Rules for the CSRP Discord server')
+                .setEmoji(parseEmoji(safeEmoji(emojis.discord, '💬')) || '💬'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('In-Game Regulations')
+                .setValue('game')
+                .setDescription('Rules for California State Roleplay in-game sessions')
+                .setEmoji(parseEmoji(safeEmoji(emojis.game, '🎮')) || '🎮'),
+        );
     return new ContainerBuilder()
-        .addMediaGalleryComponents(gallery(customBannerUrl || REGULATIONS_BANNER_URL))
+        .addMediaGalleryComponents(gallery(customBannerUrl || bannerUrl('regulations')))
         .addSeparatorComponents(new SeparatorBuilder().setSpacing(1))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent([
             `# ${safeEmoji(emojis.title, REGULATIONS_TITLE_EMOJI)} ${title}`,
             description,
             '',
-            regulationsContent(config),
+            '## Guidelines Index\nChoose an option below to view the Discord or in-game rules.',
         ].join('\n')))
-        .addSeparatorComponents(new SeparatorBuilder())
-        .addMediaGalleryComponents(gallery(PANEL_UNDERBANNER_URL));
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .addActionRowComponents(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(rulesMenu))
+        .addMediaGalleryComponents(gallery(bannerUrl('underbanner')));
 }
 
-function regulationsContent(config: PanelConfig): string {
+function regulationSections(config: PanelConfig): { discord: string; game: string } {
     const configured = config.questions?.trim();
-    if (!configured) return `${DISCORD_RULES}\n\n${GAME_RULES}`;
-    if (configured.includes('Swearing may not be directed at another person')) {
-        return DEFAULT_PANEL_CONFIGS.regulations.questions || `${DISCORD_RULES}\n\n${GAME_RULES}`;
+    if (!configured || configured === DEFAULT_PANEL_CONFIGS.regulations.questions) {
+        return { discord: DISCORD_RULES, game: GAME_RULES };
     }
-    if (!configured.includes('---GAME---')) return configured;
+    if (configured.includes('Swearing may not be directed at another person')) {
+        return { discord: DISCORD_RULES, game: GAME_RULES };
+    }
+    if (!configured.includes('---GAME---')) {
+        const robloxRulesHeading = '## Roblox Regulations';
+        const gameRulesIndex = configured.indexOf(robloxRulesHeading);
+        if (gameRulesIndex >= 0) {
+            return {
+                discord: configured.slice(0, gameRulesIndex).trim() || DISCORD_RULES,
+                game: `# In-Game Rules\n${configured.slice(gameRulesIndex + robloxRulesHeading.length).trim()}`,
+            };
+        }
+        return { discord: configured, game: GAME_RULES };
+    }
     const [discord, game] = configured.split('---GAME---');
-    return `${discord.trim()}\n\n${game.trim()}`;
+    return { discord: discord.trim() || DISCORD_RULES, game: game.trim() || GAME_RULES };
 }
 
-function privateRulesPanel(config: PanelConfig): ContainerBuilder {
+function privateRulesPanel(content: string): ContainerBuilder {
     return new ContainerBuilder()
-        .addMediaGalleryComponents(gallery(REGULATIONS_BANNER_URL))
+        .addMediaGalleryComponents(gallery(bannerUrl('regulations')))
         .addSeparatorComponents(new SeparatorBuilder().setSpacing(1))
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(regulationsContent(config)))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(content))
         .addSeparatorComponents(new SeparatorBuilder())
-        .addMediaGalleryComponents(gallery(PANEL_UNDERBANNER_URL));
+        .addMediaGalleryComponents(gallery(bannerUrl('underbanner')));
 }
 
 function channelByName(guild: Guild, terms: string[]): string {
@@ -474,6 +501,7 @@ const regulationsCommand = {
         const customBannerUrl = await getPanelBannerUrl(interaction.guild, config);
         const payload = {
             components: [regulationsPanel(config, customBannerUrl)],
+            files: customBannerUrl ? [bannerAttachment('underbanner')] : bannerFiles('regulations'),
             flags: MessageFlags.IsComponentsV2 as const,
             allowedMentions: { parse: [] as never[] },
         };
@@ -707,10 +735,11 @@ export async function handlePanelSelectMenu(interaction: StringSelectMenuInterac
         if (!interaction.guild) return false;
         const config = await getPanelConfig(interaction.guild, 'regulations');
         const container = interaction.values[0] === 'regulations'
-            ? privateRulesPanel(config)
+            ? privateRulesPanel(regulationSections(config).discord)
             : await dashboardInformationPanel(interaction.guild);
         await interaction.reply({
             components: [container],
+            files: interaction.values[0] === 'regulations' ? bannerFiles('regulations') : [],
             flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
             allowedMentions: { parse: [] },
         });
@@ -718,10 +747,11 @@ export async function handlePanelSelectMenu(interaction: StringSelectMenuInterac
     }
     if (interaction.customId !== REGULATIONS_MENU_ID) return false;
     const config = await getPanelConfig(interaction.guild, 'regulations');
-    const [configuredDiscord, configuredGame] = (config.questions || '').split('---GAME---');
-    const content = interaction.values[0] === 'game' ? (configuredGame?.trim() || GAME_RULES) : (configuredDiscord?.trim() || DISCORD_RULES);
+    const sections = regulationSections(config);
+    const content = interaction.values[0] === 'game' ? sections.game : sections.discord;
     await interaction.reply({
-        components: [privateRulesPanel({ ...config, questions: content })],
+        components: [privateRulesPanel(content)],
+        files: bannerFiles('regulations'),
         flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
         allowedMentions: { parse: [] },
     });
@@ -771,7 +801,13 @@ export async function postPanelFromMessage(message: Message, panel: 'dashboard' 
     }
     if (panel === 'regulations') {
         const config = await getPanelConfig(message.guild, 'regulations');
-        await destination.send({ components: [regulationsPanel(config, await getPanelBannerUrl(message.guild, config))], flags: MessageFlags.IsComponentsV2 });
+        const customBannerUrl = await getPanelBannerUrl(message.guild, config);
+        await destination.send({
+            components: [regulationsPanel(config, customBannerUrl)],
+            files: customBannerUrl ? [bannerAttachment('underbanner')] : bannerFiles('regulations'),
+            flags: MessageFlags.IsComponentsV2,
+            allowedMentions: { parse: [] },
+        });
         return;
     }
     if (panel === 'application') {
@@ -829,9 +865,11 @@ export async function refreshExistingPanelBanners(client: Client): Promise<numbe
                 else if (definition.panel === 'regulations') container = regulationsPanel(config, customBannerUrl);
                 else if (definition.panel === 'staff_guide') container = staffGuidePanel(config, customBannerUrl);
                 else container = applicationPanel(config, customBannerUrl);
-                const files = definition.panel === 'dashboard' || definition.panel === 'regulations'
+                const files = definition.panel === 'dashboard'
                     ? []
-                    : customBannerUrl ? [bannerAttachment('underbanner')] : bannerFiles(definition.banner);
+                    : definition.panel === 'regulations'
+                        ? customBannerUrl ? [bannerAttachment('underbanner')] : bannerFiles('regulations')
+                        : customBannerUrl ? [bannerAttachment('underbanner')] : bannerFiles(definition.banner);
                 const edited = await message.edit({
                     components: [container],
                     attachments: [],
@@ -895,9 +933,11 @@ export async function postAllPanels(guild: Guild): Promise<PostAllPanelsResult> 
         } else {
             container = applicationPanel(config, customBannerUrl);
         }
-        const files = definition.panel === 'dashboard' || definition.panel === 'regulations'
+        const files = definition.panel === 'dashboard'
             ? []
-            : customBannerUrl ? [bannerAttachment('underbanner')] : bannerFiles(definition.banner);
+            : definition.panel === 'regulations'
+                ? customBannerUrl ? [bannerAttachment('underbanner')] : bannerFiles('regulations')
+                : customBannerUrl ? [bannerAttachment('underbanner')] : bannerFiles(definition.banner);
         if (existingPanels?.size) {
             for (const existing of existingPanels.values()) {
                 await existing.edit({ components: [container], attachments: [], files, flags: MessageFlags.IsComponentsV2 });
