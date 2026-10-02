@@ -39,6 +39,7 @@ The bot needs View Channels, Manage Channels, Manage Roles/Permissions where app
 
 ## Main commands
 
+- `/verify-message` — posts the Components V2 Roblox verification panel using the CSRP verification banner. Members confirm their DockSys-linked Roblox account, then receive the configured Verified role; optional verification logs use the configured log channel.
 - `/ticket-panel` — posts or refreshes the four-category Help & Support dropdown.
 - `/ticket refresh-user` — refreshes Bloxlink and Roblox data in a ticket.
 - `/movie-feedback` — publishes the branded Movie / When / Where layout with a 1–10 star display, submitter footer, timestamp, and CSRP logo.
@@ -57,6 +58,7 @@ Legacy ticket commands remain registered as compatibility aliases. Existing appl
 ## Optional integrations
 
 - **Bloxlink:** set `BLOXLINK_API_KEY`. A missing or unverified account never blocks ticket creation.
+- **DockSys verification:** set `DOCK_API` to the DockSys API key. In `/config` → **Roles & Permissions**, select the Verified role and, optionally, the Unverified role. Set **Verification Logs** under Channels if you want successful verifications logged. The bot also needs Manage Roles, with its highest role above the roles it assigns or removes.
 - **Partnership role:** set `PARTNERSHIP_ROLE_ID` so approving a partnership automatically assigns the role. Configure `PARTNERSHIP_REQUEST_CHANNEL_ID` and `STAFF_COMPLAINT_CHANNEL_ID` with IDs from the new server.
 - **ER:LC:** set `ERLC_API` (or the supported alias `ERLC_SERVER_KEY`). The monitor uses `GET https://api.erlc.gg/v2/server` with Players, CommandLogs, and JoinLogs enabled, honors rate-limit reset/retry data, and persists processed state in MongoDB.
 - **Official ER:LC webhooks:** point the configured event webhook to the public HTTPS route `/erlc-event`. Signed Ed25519 payloads are verified before processing. `/roblox-event` remains available only when `WEBHOOK_SECRET` is configured for backward compatibility.

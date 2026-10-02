@@ -20,6 +20,7 @@ import { TICKET_CATEGORY_IDS } from '../config/constants';
 import { handlePanelButton, handlePanelModal, handlePanelSelectMenu } from '../commands/panels';
 import { handleConfigButton, handleConfigChannelSelect, handleConfigModal, handleConfigRoleSelect, handleConfigSelect } from '../commands/config';
 import { getGuildBotConfig } from '../services/panelConfig';
+import { handleVerificationButton } from '../commands/verification';
 
 const TICKET_COMMAND_NAMES = new Set([
     'ticket-panel', 'ticket-message', 'ticket', 'ticket-add', 'ticket-close',
@@ -30,7 +31,7 @@ const TICKET_COMMAND_NAMES = new Set([
 
 const MANAGEMENT_COMMANDS = new Set(['infraction', 'promotion', 'training-results', 'training-result', 'request-training', 'teamswitch', 'punishment']);
 const PANEL_COMMANDS = new Set([
-    'ticket-panel', 'ticket-message', 'dashboard', 'regulations', 'session-panel', 'application-panel',
+    'ticket-panel', 'ticket-message', 'dashboard', 'regulations', 'session-panel', 'application-panel', 'verify-message',
 ]);
 const SESSION_COMMANDS = new Set(['session-start', 'session-end', 'session-vote', 'session-boost']);
 const MODERATION_PERMISSIONS = new Map<string, bigint>([
@@ -177,6 +178,7 @@ async function handleChatCommand(interaction: ChatInputCommandInteraction): Prom
 export const interactionCreate = async (interaction: Interaction): Promise<void> => {
     try {
         if (interaction.isButton()) {
+            if (await handleVerificationButton(interaction)) return;
             if (await handleConfigButton(interaction)) return;
             if (await handlePanelButton(interaction)) return;
             if (await handleCommunityButton(interaction)) return;

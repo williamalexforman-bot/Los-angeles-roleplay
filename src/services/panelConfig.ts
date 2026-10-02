@@ -24,7 +24,7 @@ const cache = new Map<string, PanelConfig>();
 const guildConfigCache = new Map<string, GuildBotConfig>();
 
 export const CONFIG_CHANNEL_KEYS = [
-    'ticket_panel', 'ticket_transcripts', 'regulations', 'dashboard', 'sessions', 'application_panel', 'application_reviews', 'staff_guide',
+    'ticket_panel', 'ticket_transcripts', 'regulations', 'dashboard', 'sessions', 'application_panel', 'application_reviews', 'staff_guide', 'verification_logs',
     'infractions', 'promotions', 'command_logs', 'welcome', 'general_ticket_category', 'internal_ticket_category',
     'management_ticket_category', 'highrank_ticket_category',
 ] as const;
@@ -37,6 +37,7 @@ export const CONFIG_ROLE_KEYS = [
     'infraction_strike', 'infraction_strike_1', 'infraction_strike_2',
     'infraction_suspension', 'infraction_demotion', 'infraction_termination', 'infraction_terminated',
     'infraction_blacklist', 'infraction_blacklisted',
+    'verification_verified', 'verification_unverified',
 ] as const;
 export type ConfigRoleKey = typeof CONFIG_ROLE_KEYS[number];
 
