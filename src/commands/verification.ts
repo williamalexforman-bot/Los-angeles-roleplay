@@ -53,7 +53,10 @@ function verificationPanel(): ContainerBuilder {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
         .addSectionComponents(new SectionBuilder()
             .addTextDisplayComponents(new TextDisplayBuilder().setContent('Use the button here to check your linked Roblox account.'))
-            .setButtonAccessory(startButton));
+            .setButtonAccessory(startButton))
+        .addMediaGalleryComponents(new MediaGalleryBuilder().addItems(
+            new MediaGalleryItemBuilder().setURL(bannerUrl('underbanner')),
+        ));
 }
 
 function privatePanel(title: string, body: string, buttons?: ButtonBuilder[]): ContainerBuilder {
@@ -128,7 +131,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
     await channel.send({
         components: [verificationPanel()],
-        files: [bannerAttachment('verification')],
+        files: [bannerAttachment('verification'), bannerAttachment('underbanner')],
         flags: MessageFlags.IsComponentsV2,
         allowedMentions: { parse: [] },
     });
@@ -264,10 +267,13 @@ export async function handleVerificationButton(interaction: ButtonInteraction): 
                 `**Roblox account:** [${account.username}](${profileUrl(account)})`,
                 `**Roblox user ID:** \`${account.robloxId}\``,
                 `**Verified:** <t:${Math.floor(Date.now() / 1_000)}:F>`,
-            ].join('\n')));
+            ].join('\n')))
+            .addMediaGalleryComponents(new MediaGalleryBuilder().addItems(
+                new MediaGalleryItemBuilder().setURL(bannerUrl('underbanner')),
+            ));
         await logChannel.send({
             components: [logPanel],
-            files: [bannerAttachment('verification')],
+            files: [bannerAttachment('verification'), bannerAttachment('underbanner')],
             flags: MessageFlags.IsComponentsV2,
             allowedMentions: { parse: [], users: [member.id] },
         }).catch(error => logger.warn(`CSRP verification log could not be sent: ${error instanceof Error ? error.name : 'UnknownError'}`));

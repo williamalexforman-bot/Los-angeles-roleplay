@@ -58,11 +58,10 @@ const INFRACTION_ACTIONS = [
 
 type InfractionAction = (typeof INFRACTION_ACTIONS)[number];
 
-const INFRACTION_ROLE_KEYS: Record<InfractionAction, ConfigRoleKey> = {
+const INFRACTION_ROLE_KEYS: Record<Exclude<InfractionAction, 'Demotion'>, ConfigRoleKey> = {
     Warning: 'infraction_warning',
     Strike: 'infraction_strike',
     Suspension: 'infraction_suspension',
-    Demotion: 'infraction_demotion',
     Termination: 'infraction_termination',
     Blacklist: 'infraction_blacklist',
 };
@@ -76,11 +75,10 @@ const DEFAULT_INFRACTION_ROLE_IDS: Partial<Record<ConfigRoleKey, string>> = {
     infraction_blacklisted: '1546571046004719667',
 };
 
-const INFRACTION_ROLE_NAMES: Record<InfractionAction, string[]> = {
+const INFRACTION_ROLE_NAMES: Record<Exclude<InfractionAction, 'Demotion'>, string[]> = {
     Warning: ['warning', 'warning 1', 'warning i', 'warning 2', 'warning ii'],
     Strike: ['strike', 'strike 1', 'strike i', 'strike 2', 'strike ii'],
     Suspension: ['suspension', 'suspended'],
-    Demotion: ['demotion', 'demoted'],
     Termination: ['termination', 'terminated'],
     Blacklist: ['blacklist', 'blacklisted'],
 };
@@ -123,6 +121,9 @@ async function applyInfractionRole(
     memberId: string,
     action: InfractionAction,
 ): Promise<{ message: string; displayType: string }> {
+    if (action === 'Demotion') {
+        return { message: 'No staff role was created, assigned, or changed for this demotion.', displayType: action };
+    }
     const member = await guild.members.fetch(memberId).catch(() => null);
     if (!member) return { message: 'The member could not be found, so no infraction role was applied.', displayType: action };
     await guild.roles.fetch().catch(() => null);

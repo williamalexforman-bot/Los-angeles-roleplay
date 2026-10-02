@@ -88,7 +88,7 @@ const roleLabels: Record<ConfigRoleKey, string> = {
     on_duty: 'On Duty', on_break: 'On Break',
     infraction_warning: 'Infraction: Warning (legacy)', infraction_warning_1: 'Infraction: Warning 1', infraction_warning_2: 'Infraction: Warning 2',
     infraction_strike: 'Infraction: Strike (legacy)', infraction_strike_1: 'Infraction: Strike 1', infraction_strike_2: 'Infraction: Strike 2',
-    infraction_suspension: 'Infraction: Suspension', infraction_demotion: 'Infraction: Demotion',
+    infraction_suspension: 'Infraction: Suspension',
     infraction_termination: 'Infraction: Termination (legacy)', infraction_terminated: 'Infraction: Terminated',
     infraction_blacklist: 'Infraction: Blacklist (legacy)', infraction_blacklisted: 'Infraction: Blacklisted',
     verification_verified: 'Verification: Verified Role', verification_unverified: 'Verification: Unverified Role',
