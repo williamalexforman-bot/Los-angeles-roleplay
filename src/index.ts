@@ -1,231 +1,83 @@
 import 'dotenv/config';
 import {
-    AuditLogEvent,
-    Client,
-    Events,
-    GatewayIntentBits,
-    GuildMember,
-    PermissionFlagsBits,
+  ChatInputCommandInteraction,
+  Client,
+  Events,
+  GatewayIntentBits,
+  PermissionFlagsBits,
+  REST,
+  Routes,
+  SlashCommandBuilder,
 } from 'discord.js';
-import type { Server } from 'http';
-import { interactionCreate } from './handlers/interactionCreate';
-import { onReady } from './events/ready';
-import { startWebhookServer } from './webhook/server';
-import { connectDatabase, disconnectDatabase } from './database/connection';
-import { configureInfractionDatabaseAdapter } from './database/infractionAdapter';
-import { handleMessageModeration } from './events/messageModeration';
-import { startErlcMonitor, type ErlcMonitor } from './monitors/erlcMonitor';
-import { MongoErlcMonitorStateStore } from './database/erlcStateStore';
-import { logger } from './utils/logger';
-import { configureInfractionAuthorization } from './commands/staffManagement';
-import { cleanupStaleTicketReservations } from './services/ticketRepository';
-import { getBloxlinkApiKey, getDiscordBotToken } from './config/env';
-import { setDiscordClientForDm } from './commands/punishment';
-import { handlePrefixCommand } from './commands/prefix';
-import { configuredChannelId } from './services/panelConfig';
-import { sendConfiguredWelcome } from './services/welcomeMessage';
 
-// Crash-proof error handling — prevents Node.js from exiting on unhandled rejections (Node 24+ default)
-process.on('unhandledRejection', (reason: unknown) => {
-    logger.error(`[Process] Unhandled rejection: ${reason instanceof Error ? reason.message : String(reason)}`);
-});
-process.on('uncaughtException', (error: Error) => {
-    logger.error(`[Process] Uncaught exception: ${error.message}`);
-});
+const token = process.env.BOT_TOKEN || process.env.DISCORD_TOKEN;
+const clientId = process.env.CLIENT_ID || process.env.DISCORD_CLIENT_ID;
+const guildId = process.env.GUILD_ID;
 
-// Keep-alive timer to prevent event loop from emptying if all timers/promises resolve
-setInterval(() => {}, 60_000).unref();
+if (!token || !clientId) {
+  throw new Error('Missing BOT_TOKEN (or DISCORD_TOKEN) and CLIENT_ID (or DISCORD_CLIENT_ID) environment variables.');
+}
 
-const enablePrivileged = (process.env.ENABLE_PRIVILEGED_INTENTS || 'true').toLowerCase() !== 'false';
-let erlcMonitor: ErlcMonitor | null = null;
-let webhookServer: Server | null = null;
+const sayCommand = new SlashCommandBuilder()
+  .setName('say')
+  .setDescription('Make the department bot send a message in this channel.')
+  .addStringOption(option =>
+    option
+      .setName('message')
+      .setDescription('The message the bot should send.')
+      .setRequired(true)
+      .setMaxLength(2000),
+  )
+  .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages);
 
-function createConfiguredClient(privilegedIntents: boolean): Client {
-    const intents = [GatewayIntentBits.Guilds];
-    if (privilegedIntents) {
-        intents.push(GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent);
+const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+const rest = new REST({ version: '10' }).setToken(token);
+
+client.once(Events.ClientReady, async readyClient => {
+  try {
+    const commands = [sayCommand.toJSON()];
+    if (guildId) {
+      await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: commands });
+      console.log(`Registered /say for guild ${guildId}.`);
     } else {
-            logger.info('Running in slash-command-only mode; member events and message moderation are disabled.');
+      await rest.put(Routes.applicationCommands(clientId), { body: commands });
+      console.log('Registered /say globally. Global command updates can take a little while to appear.');
     }
-    const bot = new Client({ intents });
-    bot.on('interactionCreate', interactionCreate);
-    bot.on('error', error => logger.error(`Discord client error: ${error.message}`));
+  } catch (error) {
+    console.error('Failed to register /say:', error);
+  }
 
-    bot.once(Events.ClientReady, async () => {
-        await onReady(bot);
-        if (!getBloxlinkApiKey()) {
-            logger.info('Bloxlink integration is disabled because BLOXLINK_API_KEY is not configured.');
-        }
-        if (!process.env.BOT_PERMISSIONS_ROLE_ID) {
-            logger.info('No bot-permissions role was found; administrative setup commands remain administrator-only.');
-        }
-        if (!process.env.ERLC_SERVER_KEY && !process.env.ERLC_API) {
-            logger.info('ER:LC monitoring is disabled because ERLC_API is not configured; Quick Join still works.');
-            return;
-        }
-        // OOM fix — set DISABLE_ERLC_MONITOR=true on bot-hosting.net to save ~50MB RAM
-        if (process.env.DISABLE_ERLC_MONITOR === 'true') {
-            logger.info('ER:LC monitor disabled via DISABLE_ERLC_MONITOR=true (saves memory).');
-            return;
-        }
-        const guildId = process.env.GUILD_ID || bot.guilds.cache.firstKey();
-        if (!guildId) {
-            logger.warn('ER:LC monitoring could not start because no Discord guild is available.');
-            return;
-        }
-        try {
-            erlcMonitor = await startErlcMonitor(bot, {
-                stateStore: new MongoErlcMonitorStateStore(guildId),
-                pollIntervalMs: Number(process.env.ERLC_POLL_INTERVAL_MS || 30_000),
-                onError: (error, context) => logger.warn(`ER:LC monitor ${context}: ${error.message}`),
-            });
-            logger.info('ER:LC v2 monitor started.');
-        } catch (error) {
-            logger.warn(`ER:LC monitor is unavailable: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        }
+  console.log(`Department bot online as ${readyClient.user.tag}.`);
+});
+
+client.on(Events.InteractionCreate, async (interaction: ChatInputCommandInteraction) => {
+  if (!interaction.isChatInputCommand() || interaction.commandName !== 'say') return;
+
+  const message = interaction.options.getString('message', true);
+  if (!interaction.inGuild() || !interaction.channel?.isSendable()) {
+    await interaction.reply({ content: 'Use this command in a server text channel.', ephemeral: true });
+    return;
+  }
+
+  try {
+    await interaction.channel.send({
+      content: message,
+      allowedMentions: { parse: [] },
     });
-
-    if (privilegedIntents) {
-        bot.on('guildMemberAdd', async member => {
-            const joinChannelId = await configuredChannelId(member.guild, 'welcome', process.env.JOIN_LOG_CHANNEL_ID || '');
-            const joinChannel = await member.client.channels.fetch(joinChannelId).catch(() => null);
-            if (joinChannel?.isSendable()) {
-                await sendConfiguredWelcome(member.guild, member.user, joinChannel).catch(() => undefined);
-            }
-
-        });
-
-        bot.on('guildMemberRemove', async member => {
-            const leaveChannelId = process.env.LEAVE_LOG_CHANNEL_ID || '';
-            const leaveChannel = await member.client.channels.fetch(leaveChannelId).catch(() => null);
-            if (leaveChannel?.isSendable()) await leaveChannel.send(`${member.user.tag} left the server.`).catch(() => undefined);
-
-            try {
-                const logs = await member.guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.MemberKick });
-                const entry = logs.entries.first();
-                if (entry?.targetId !== member.id) return;
-                const kickChannelId = process.env.DISCORD_KICK_LOG_CHANNEL_ID || '';
-                const kickChannel = await member.client.channels.fetch(kickChannelId).catch(() => null);
-                if (kickChannel?.isSendable()) {
-                    await kickChannel.send(`${member.user.tag} was kicked by <@${entry.executor?.id}>.`).catch(() => undefined);
-                }
-            } catch {
-                // Missing audit-log permissions should not interrupt other member events.
-            }
-        });
-
-        bot.on('guildBanAdd', async ban => {
-            const banChannelId = process.env.DISCORD_BAN_LOG_CHANNEL_ID || '';
-            const channel = await ban.client.channels.fetch(banChannelId).catch(() => null);
-            if (channel?.isSendable()) await channel.send(`${ban.user.tag} was banned.`).catch(() => undefined);
-        });
-
-        bot.on('messageCreate', async message => {
-            const handled = await handlePrefixCommand(message);
-            if (!handled) await handleMessageModeration(message);
-        });
+    await interaction.reply({ content: 'Message sent.', ephemeral: true });
+  } catch (error) {
+    console.error('Failed to send /say message:', error);
+    if (interaction.replied || interaction.deferred) {
+      await interaction.followUp({ content: 'I could not send that message. Check my channel permissions.', ephemeral: true });
+    } else {
+      await interaction.reply({ content: 'I could not send that message. Check my channel permissions.', ephemeral: true });
     }
-    return bot;
-}
+  }
+});
 
-let client = createConfiguredClient(enablePrivileged);
+client.on(Events.Error, error => console.error('Discord client error:', error));
 
-async function bootstrap(): Promise<void> {
-    // Wrap every startup step so nothing crashes the process
-    await connectDatabase().catch(error => {
-        logger.warn(`Database connection failed: ${error instanceof Error ? error.message : 'Unknown'}`);
-    });
-    await cleanupStaleTicketReservations().catch(error => {
-        logger.warn(`Startup ticket-reservation cleanup was unavailable: ${error instanceof Error ? error.name : 'UnknownError'}`);
-    });
-
-    try {
-        configureInfractionDatabaseAdapter();
-    } catch (error) {
-        logger.warn(`Infraction database adapter failed: ${error instanceof Error ? error.message : 'Unknown'}`);
-    }
-
-    try {
-        configureInfractionAuthorization(async (interaction, record) => {
-            if (interaction.user.id === record.issuedById) return true;
-            if (interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)
-                || interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)
-                || interaction.memberPermissions?.has(PermissionFlagsBits.ManageThreads)) return true;
-            const authorizedUsers = (process.env.INFRACTION_AUTHORIZED_USER_IDS || '')
-                .split(',').map(value => value.trim()).filter(Boolean);
-            if (authorizedUsers.includes(interaction.user.id)) return true;
-            const member = interaction.member;
-            const memberRoleIds = member instanceof GuildMember ? [...member.roles.cache.keys()] : member?.roles || [];
-            const roleIds = [
-                process.env.BOT_PERMISSIONS_ROLE_ID,
-                process.env.ADMIN_ROLE_ID,
-                process.env.HIGH_RANK_ROLE_ID,
-                process.env.MANAGEMENT_ROLE_ID,
-                ...(process.env.INFRACTION_AUTHORIZED_ROLE_IDS || '').split(',').map(value => value.trim()),
-            ].filter((roleId): roleId is string => Boolean(roleId));
-            return roleIds.some(roleId => memberRoleIds.includes(roleId));
-        });
-    } catch (error) {
-        logger.warn(`Infraction authorization config failed: ${error instanceof Error ? error.message : 'Unknown'}`);
-    }
-
-    const token = getDiscordBotToken();
-    if (!token) {
-        logger.error('BOT_TOKEN must be configured in environment variables.');
-        return;
-    }
-
-    try {
-        await client.login(token);
-    } catch (error) {
-        if (!enablePrivileged || !/disallowed intents/i.test(error instanceof Error ? error.message : String(error))) {
-            logger.error(`Discord login failed: ${error instanceof Error ? error.message : 'Unknown'}`);
-            return;
-        }
-        logger.warn('Discord rejected privileged intents. Retrying with slash-command-only intents so the bot can remain online.');
-        client.destroy();
-        client = createConfiguredClient(false);
-        try {
-            await client.login(token);
-        } catch (loginError) {
-            logger.error(`Discord login (fallback) failed: ${loginError instanceof Error ? loginError.message : 'Unknown'}`);
-            return;
-        }
-    }
-
-    // Enable /punish and /punishment commands to send DMs
-    setDiscordClientForDm(client);
-
-    // Start webhook server — if port is taken, just log and continue
-    try {
-        webhookServer = startWebhookServer(client);
-    } catch (error) {
-        logger.warn(`Webhook server failed to start: ${error instanceof Error ? error.message : 'Unknown'}`);
-    }
-}
-
-async function shutdown(signal: string): Promise<void> {
-    logger.info(`Received ${signal}; shutting down.`);
-    if (erlcMonitor) try { erlcMonitor.stop(); } catch { /* ignore */ }
-    client.destroy();
-    const activeServer = webhookServer;
-    webhookServer = null;
-    if (activeServer?.listening) {
-        await new Promise<void>(resolve => {
-            activeServer.close(error => {
-                if (error) logger.warn(`Webhook server shutdown encountered an error: ${error.message}`);
-                resolve();
-            });
-        });
-    }
-    await disconnectDatabase().catch(() => undefined);
-    logger.info('Shutdown complete.');
-}
-
-process.once('SIGINT', () => void shutdown('SIGINT').catch(() => undefined));
-process.once('SIGTERM', () => void shutdown('SIGTERM').catch(() => undefined));
-
-// Bootstrap and never let errors exit the process
-bootstrap().catch(error => {
-    logger.error(`Startup failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+client.login(token).catch(error => {
+  console.error('Discord login failed:', error);
+  process.exitCode = 1;
 });
