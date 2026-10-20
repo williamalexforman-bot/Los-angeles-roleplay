@@ -75,7 +75,7 @@ client.on(Events.InteractionCreate, async (interaction: ChatInputCommandInteract
   }
 });
 
-client.on(Events.Error, error => console.error('Discord client error:', error));
+client.on('error', error => console.error('Discord client error:', error));
 
 client.login(token).catch(error => {
   console.error('Discord login failed:', error);
