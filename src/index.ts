@@ -617,29 +617,9 @@ client.on(Events.ShardReady, (shardId, unavailableGuilds) => console.log(`Discor
 client.on(Events.Invalidated, () => console.error('Discord session invalidated. Restart the service and verify the bot token if this repeats.'));
 client.once(Events.ClientReady, readyClient => console.log(`Discord bot ready as ${readyClient.user.tag}`));
 async function startDiscordBot() {
-  console.log('Checking Discord API connectivity and bot token...');
-  try {
-    const apiCheck = await fetch('https://discord.com/api/v10/gateway/bot', {
-      headers: { Authorization: `Bot ${TOKEN}` },
-      signal: AbortSignal.timeout(12000),
-    });
-    const apiBody = await apiCheck.text();
-    if (!apiCheck.ok) {
-      console.error(`Discord API preflight failed with HTTP ${apiCheck.status}:`, apiBody.slice(0, 500));
-      throw new Error(`Discord API rejected the bot token or request (HTTP ${apiCheck.status}). Check BOT_TOKEN in Render.`);
-    }
-    let gatewayInfo: any;
-    try { gatewayInfo = JSON.parse(apiBody); } catch { gatewayInfo = {}; }
-    console.log('Discord API preflight passed.', {
-      gatewayUrl: gatewayInfo.url,
-      remainingSessionStarts: gatewayInfo.session_start_limit?.remaining,
-      resetAfterMs: gatewayInfo.session_start_limit?.reset_after,
-    });
-  } catch (error) {
-    console.error('Discord API preflight/network check failed:', error);
-  }
-
-  console.log('Connecting to Discord gateway...');
+  // Do not make an extra REST preflight request here: Discord may rate-limit it,
+  // and discord.js performs the required authentication when opening the gateway.
+  console.log('Starting Discord gateway connection (using discord.js)...');
   const startupDiagnostic = setTimeout(() => {
     if (!client.isReady()) {
       console.error('STARTUP DIAGNOSTIC: Discord ClientReady has not fired after 25 seconds.', {
@@ -649,7 +629,7 @@ async function startDiscordBot() {
         clientIdConfigured: Boolean(CLIENT_ID),
         guildIdConfigured: Boolean(GUILD_ID),
       });
-      console.error('Check the gateway/shard messages above. Confirm BOT_TOKEN is the Bot Token (not the client secret), and that the bot application is the one invited to the server.');
+      console.error('Review the discord.js debug, shard, and error messages above for the actual gateway failure.');
     }
   }, 25000);
   startupDiagnostic.unref?.();
