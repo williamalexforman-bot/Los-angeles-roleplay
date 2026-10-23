@@ -83,8 +83,10 @@ const promotion = new SlashCommandBuilder().setName('promotion').setDescription(
   .addStringOption(o => o.setName('reason').setDescription('Reason for promotion').setRequired(true).setMaxLength(1000))
   .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles);
 const sessionStart = new SlashCommandBuilder().setName('session-start').setDescription('Announce a roleplay session.')
-  .addStringOption(o => o.setName('host').setDescription('Session host').setRequired(false).setMaxLength(100));
-const sessionEnd = new SlashCommandBuilder().setName('session-end').setDescription('Announce that the session has ended.');
+  .addStringOption(o => o.setName('host').setDescription('Session host').setRequired(false).setMaxLength(100))
+  .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild);
+const sessionEnd = new SlashCommandBuilder().setName('session-end').setDescription('Announce that the session has ended.')
+  .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild);
 const appPanel = new SlashCommandBuilder().setName('application-panel').setDescription('Post staff/media application buttons.')
   .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild);
 const giveawayStart = new SlashCommandBuilder().setName('giveaway-start').setDescription('Start a simple giveaway.')
