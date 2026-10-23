@@ -134,7 +134,7 @@ async function showVerificationPanel(message: Message) {
     await message.reply('I cannot send the panel in this channel. Check my channel permissions.');
     return;
   }
-  await channel.send({ flags: MessageFlags.IsComponentsV2, components: [panel] });
+  await channel.send({ components: [panel] });
   await message.reply({ content: 'Verification panel posted.', allowedMentions: { parse: [] } });
 }
 
@@ -156,7 +156,7 @@ async function handleVerificationStart(interaction: import('discord.js').ButtonI
         new ButtonBuilder().setLabel('Link / Change Account').setStyle(ButtonStyle.Link).setURL('https://docksys.xyz/account'),
       ),
     );
-    await interaction.editReply({ flags: MessageFlags.IsComponentsV2, components: [container] });
+    await interaction.editReply({ components: [container] });
     return;
   }
 
@@ -172,7 +172,7 @@ async function handleVerificationStart(interaction: import('discord.js').ButtonI
       new ButtonBuilder().setLabel('Change Account').setStyle(ButtonStyle.Link).setURL('https://docksys.xyz/account'),
     ),
   );
-  await interaction.editReply({ flags: MessageFlags.IsComponentsV2, components: [container] });
+  await interaction.editReply({ components: [container] });
 }
 
 async function handleVerificationContinue(interaction: import('discord.js').ButtonInteraction) {
@@ -201,7 +201,7 @@ async function handleVerificationContinue(interaction: import('discord.js').Butt
       '### Verification Successful',
       `Verified under **[${result.username}](${profileUrl})**. Welcome to California State Roleplay!`,
     );
-    await interaction.editReply({ flags: MessageFlags.IsComponentsV2, components: [success] });
+    await interaction.editReply({ components: [success] });
 
     const logChannel = await interaction.guild.channels.fetch(verificationLogChannelId).catch(() => null);
     if (logChannel?.isTextBased() && 'send' in logChannel) {
