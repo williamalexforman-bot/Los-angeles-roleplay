@@ -1,5 +1,6 @@
 // @ts-nocheck
 import 'dotenv/config';
+import { createServer } from 'node:http';
 import {
   ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, Client, ContainerBuilder,
   EmbedBuilder, Events, GatewayIntentBits, MessageFlags, ModalBuilder, REST, Routes,
@@ -42,6 +43,13 @@ const CFG = {
 };
 
 if (!TOKEN || !CLIENT_ID) throw new Error('Set BOT_TOKEN (or DISCORD_TOKEN) and CLIENT_ID (or DISCORD_CLIENT_ID) in Render Environment.');
+
+// Render Web Services expect an HTTP listener; this lightweight endpoint keeps the service healthy.
+const port = Number(process.env.PORT || 10000);
+createServer((req, res) => {
+  res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
+  res.end('California State Roleplay bot is running.');
+}).listen(port, '0.0.0.0', () => console.log(`Health endpoint listening on port ${port}`));
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages,
@@ -600,4 +608,6 @@ client.on(Events.MessageCreate, async message => {
 });
 
 client.on('error', error => console.error('Discord client error:', error));
+client.once(Events.ClientReady, readyClient => console.log(`Discord bot ready as ${readyClient.user.tag}`));
+console.log('Connecting to Discord gateway...');
 client.login(TOKEN).catch(error => { console.error('Discord login failed:', error); process.exitCode = 1; });
