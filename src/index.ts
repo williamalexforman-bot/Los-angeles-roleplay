@@ -56,6 +56,33 @@ const client = new Client({
     GatewayIntentBits.MessageContent],
 });
 const rest = new REST({ version: '10' }).setToken(TOKEN);
+// Safe REST diagnostics: report endpoint/status and rate limits without logging headers or tokens.
+client.rest.on('restDebug', (message: string) => {
+  console.log('[Discord REST debug]', message);
+});
+client.rest.on('rateLimited', (info: any) => {
+  console.error('[Discord REST rate limited]', {
+    method: info.method,
+    route: info.route,
+    global: info.global,
+    retryAfterMs: info.timeToReset,
+    limit: info.limit,
+  });
+});
+client.rest.on('response', (request: any, response: any) => {
+  const status = response?.status;
+  if (status >= 400) {
+    console.error('[Discord REST response error]', {
+      method: request?.method,
+      route: request?.fullRoute,
+      status,
+      retryAfter: response?.headers?.get?.('retry-after') ?? null,
+    });
+  }
+});
+client.rest.on('invalidRequestWarning', (data: any) => {
+  console.warn('[Discord REST invalid request warning]', data);
+});
 const activeTickets = new Map<string, { opener: string; claimedBy?: string; type: string }>();
 const giveawayEntrants = new Map<string, Set<string>>();
 const giveawayMessages = new Map<string, any>();
@@ -629,7 +656,7 @@ async function startDiscordBot() {
         clientIdConfigured: Boolean(CLIENT_ID),
         guildIdConfigured: Boolean(GUILD_ID),
       });
-      console.error('Review the discord.js debug, shard, and error messages above for the actual gateway failure.');
+      console.error('If no REST response/error appears above, the request may be stalled before Discord returns a response. Check the REST diagnostics above and the next gateway debug line.');
     }
   }, 25000);
   startupDiagnostic.unref?.();
