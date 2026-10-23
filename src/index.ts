@@ -608,12 +608,35 @@ client.on(Events.MessageCreate, async message => {
 });
 
 client.on('error', error => console.error('Discord client error:', error));
+client.on(Events.Debug, message => console.log('[discord.js debug]', message));
+client.on(Events.Warn, message => console.warn('[discord.js warn]', message));
 client.on(Events.ShardError, (error, shardId) => console.error(`Discord gateway shard ${shardId} error:`, error));
 client.on(Events.ShardDisconnect, (event, shardId) => console.error(`Discord gateway shard ${shardId} disconnected:`, { code: event.code, reason: event.reason, wasClean: event.wasClean }));
 client.on(Events.ShardReconnecting, shardId => console.warn(`Discord gateway shard ${shardId} is reconnecting...`));
 client.on(Events.ShardReady, (shardId, unavailableGuilds) => console.log(`Discord gateway shard ${shardId} connected.`, { unavailableGuilds: unavailableGuilds?.size ?? 0 }));
 client.on(Events.Invalidated, () => console.error('Discord session invalidated. Restart the service and verify the bot token if this repeats.'));
 client.once(Events.ClientReady, readyClient => console.log(`Discord bot ready as ${readyClient.user.tag}`));
+console.log('Checking Discord API connectivity and bot token...');
+try {
+  const apiCheck = await fetch('https://discord.com/api/v10/gateway/bot', {
+    headers: { Authorization: `Bot ${TOKEN}` },
+    signal: AbortSignal.timeout(12000),
+  });
+  const apiBody = await apiCheck.text();
+  if (!apiCheck.ok) {
+    console.error(`Discord API preflight failed with HTTP ${apiCheck.status}:`, apiBody.slice(0, 500));
+    throw new Error(`Discord API rejected the bot token or request (HTTP ${apiCheck.status}). Check BOT_TOKEN in Render.`);
+  }
+  let gatewayInfo: any;
+  try { gatewayInfo = JSON.parse(apiBody); } catch { gatewayInfo = {}; }
+  console.log('Discord API preflight passed.', {
+    gatewayUrl: gatewayInfo.url,
+    remainingSessionStarts: gatewayInfo.session_start_limit?.remaining,
+    resetAfterMs: gatewayInfo.session_start_limit?.reset_after,
+  });
+} catch (error) {
+  console.error('Discord API preflight/network check failed:', error);
+}
 console.log('Connecting to Discord gateway...');
 const startupDiagnostic = setTimeout(() => {
   if (!client.isReady()) {
