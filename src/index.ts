@@ -9,8 +9,11 @@ import {
   TextDisplayBuilder,
 } from 'discord.js';
 
-const TOKEN = process.env.BOT_TOKEN || process.env.DISCORD_TOKEN;
-const CLIENT_ID = process.env.CLIENT_ID || process.env.DISCORD_CLIENT_ID;
+const TOKEN_SOURCE = process.env.BOT_TOKEN ? 'BOT_TOKEN' : process.env.DISCORD_TOKEN ? 'DISCORD_TOKEN' : null;
+const CLIENT_ID_SOURCE = process.env.CLIENT_ID ? 'CLIENT_ID' : process.env.DISCORD_CLIENT_ID ? 'DISCORD_CLIENT_ID' : null;
+// Trim accidental whitespace/newlines pasted into Render environment variables.
+const TOKEN = (process.env.BOT_TOKEN || process.env.DISCORD_TOKEN || '').trim();
+const CLIENT_ID = (process.env.CLIENT_ID || process.env.DISCORD_CLIENT_ID || '').trim();
 const GUILD_ID = process.env.GUILD_ID || '1516451513680003303';
 const PREFIX = process.env.PREFIX || '-';
 const BLOXLINK_API_KEY = process.env.BLOXLINK_API_KEY;
@@ -42,7 +45,13 @@ const CFG = {
   },
 };
 
-if (!TOKEN || !CLIENT_ID) throw new Error('Set BOT_TOKEN (or DISCORD_TOKEN) and CLIENT_ID (or DISCORD_CLIENT_ID) in Render Environment.');
+if (!TOKEN || !CLIENT_ID) {
+  throw new Error(`Missing Discord configuration. Token variable found: ${Boolean(TOKEN_SOURCE)}; client ID variable found: ${Boolean(CLIENT_ID_SOURCE)}. Set BOT_TOKEN (or DISCORD_TOKEN) and CLIENT_ID (or DISCORD_CLIENT_ID) in Render Environment.`);
+}
+if (!/^\d{17,20}$/.test(CLIENT_ID)) {
+  throw new Error('CLIENT_ID / DISCORD_CLIENT_ID must be the numeric Application ID from Discord Developer Portal.');
+}
+console.log('Discord configuration loaded:', { tokenVariable: TOKEN_SOURCE, clientIdVariable: CLIENT_ID_SOURCE, tokenPresent: true, clientIdFormatValid: true });
 
 // Render Web Services expect an HTTP listener; this lightweight endpoint keeps the service healthy.
 const port = Number(process.env.PORT || 10000);
@@ -58,7 +67,8 @@ const client = new Client({
 const rest = new REST({ version: '10' }).setToken(TOKEN);
 // Safe REST diagnostics: report endpoint/status and rate limits without logging headers or tokens.
 client.rest.on('restDebug', (message: string) => {
-  console.log('[Discord REST debug]', message);
+  // Avoid logging discord.js's token-debug line; retain useful REST diagnostics.
+  if (!/provided token/i.test(message)) console.log('[Discord REST debug]', message);
 });
 client.rest.on('rateLimited', (info: any) => {
   console.error('[Discord REST rate limited]', {
