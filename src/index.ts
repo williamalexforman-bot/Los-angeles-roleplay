@@ -135,7 +135,7 @@ const groupGroup = new SlashCommandBuilder().setName('group').setDescription('Ro
   .addSubcommand(s=>s.setName('request-lists').setDescription('Show pending requests.'));
 const feedbackGroup = new SlashCommandBuilder().setName('staff').setDescription('Staff tools.')
   .addSubcommand(s=>s.setName('feedback').setDescription('Submit staff feedback.').addUserOption(o=>o.setName('user').setDescription('Staff member').setRequired(true)).addIntegerOption(o=>o.setName('rating').setDescription('Rating from 1 to 10').setRequired(true).setMinValue(1).setMaxValue(10)).addStringOption(o=>o.setName('comments').setDescription('Comments').setRequired(true).setMaxLength(1000)));
-const commands = [say,relink,verifyPanel,getinfo,rid,erlc,ticketPanel,ticketClose,ticketAdd,infraction,promotion,sessionStart,sessionEnd,appPanel,giveawayStart,help,ping,ticketGroup,sessionGroup,commsGroup,giveawayGroup,groupGroup,feedbackGroup];
+const commands = [say,relink,verifyPanel,getinfo,rid,erlc,ticketPanel,ticketClose,ticketAdd,infraction,promotion,sessionStart,sessionEnd,appPanel,giveawayStart,help,ping,ticketGroup,sessionGroup,commsGroup,giveawayGroup,groupGroup,feedbackGroup,infractAlias,promoteAlias,mcSlash,jsonv2Slash,cloneemojiSlash];
 
 function baseEmbed(title: string, description: string) {
   return new EmbedBuilder().setColor(0x247bf1).setTitle(title).setDescription(description)
@@ -389,6 +389,23 @@ client.on(Events.InteractionCreate, async interaction => {
         if(sub==='request-lists'){if(!interaction.memberPermissions?.has(PermissionFlagsBits.ManageRoles)){await interaction.reply({content:'High Rank and above only.',ephemeral:true});break;}await interaction.reply({content:groupRequests.length?groupRequests.map((id,i)=>`${i+1}. <@${id}> (${id})`).join('\\n'):'No pending group requests.',ephemeral:true});}
         else {const user=interaction.options.getUser('user',true);if(!interaction.memberPermissions?.has(PermissionFlagsBits.ManageRoles)){await interaction.reply({content:'Staff and whitelisted members only.',ephemeral:true});break;}const roleId=process.env.GROUP_ACCEPTED_ROLE_ID;if(!roleId){await interaction.reply({content:'Set GROUP_ACCEPTED_ROLE_ID in Render to enable role assignment.',ephemeral:true});break;}const member=await guild.members.fetch(user.id);await member.roles.add(roleId,'Roblox group request accepted');const i=groupRequests.indexOf(user.id);if(i>=0)groupRequests.splice(i,1);await interaction.reply({content:`Accepted <@${user.id}> and assigned the configured group role.`,ephemeral:true});}
         break;
+      }
+
+      case 'infract':
+      case 'promote': {
+        const isInf=interaction.commandName==='infract';
+        const user=interaction.options.getUser('user',true), reason=interaction.options.getString('reason',true);
+        if(isInf){const type=interaction.options.getString('type',true);const e=baseEmbed(`Staff Infraction — ${type}`,`Target: <@${user.id}>\\nIssued by: <@${interaction.user.id}>\\nReason: ${reason}\\nStatus: Active`);await logTo(guild,CFG.channels.infractions,{embeds:[e]});await logTo(guild,CFG.channels.modLogs,{embeds:[e]});await interaction.reply({content:`Infraction recorded for <@${user.id}>.`,ephemeral:true});}
+        else {const rank=interaction.options.getString('rank',true);await logTo(guild,CFG.channels.promotions,{embeds:[baseEmbed('Staff Promotion',`Staff member: <@${user.id}>\\nNew rank: **${rank}**\\nIssued by: <@${interaction.user.id}>\\nReason: ${reason}`)]});await interaction.reply({content:`Promotion recorded for <@${user.id}>.`,ephemeral:true});}
+        break;
+      }
+      case 'mc': await interaction.reply({content:`Server member count: ${guild.memberCount}`}); break;
+      case 'jsonv2': {
+        if(!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)){await interaction.reply({content:'Administrator permission required.',ephemeral:true});break;}
+        try {const data=JSON.parse(interaction.options.getString('json',true));if(!data.content&&!data.embeds)throw new Error();await interaction.channel.send({content:data.content,embeds:data.embeds});await interaction.reply({content:'JSON message sent.',ephemeral:true});}catch{await interaction.reply({content:'Invalid JSON. Provide an object containing content or embeds.',ephemeral:true});}break;
+      }
+      case 'cloneemoji': {
+        const raw=interaction.options.getString('emoji',true),em=raw.match(/<a?:(\\w+):(\\d+)>/);if(!em){await interaction.reply({content:'Provide a custom emoji mention.',ephemeral:true});break;}const ext=raw.startsWith('<a:')?'gif':'png';const emoji=await guild.emojis.create({attachment:`https://cdn.discordapp.com/emojis/${em[2]}.${ext}`,name:em[1]});await interaction.reply({content:`Created emoji <:${emoji.name}:${emoji.id}>.`,ephemeral:true});break;
       }
       case 'staff': {
         const user=interaction.options.getUser('user',true),rating=interaction.options.getInteger('rating',true),comments=interaction.options.getString('comments',true);
