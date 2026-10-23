@@ -14,8 +14,9 @@ const GUILD_ID = process.env.GUILD_ID || '1516451513680003303';
 const PREFIX = process.env.PREFIX || '-';
 const BLOXLINK_API_KEY = process.env.BLOXLINK_API_KEY;
 const ERLC_API_KEY = process.env.ERLC_API || process.env.ERLC_SERVER_KEY;
-const VERIFIED_ROLE_ID = process.env.VERIFIED_ROLE_ID;
-const UNVERIFIED_ROLE_ID = process.env.UNVERIFIED_ROLE_ID;
+const VERIFIED_ROLE_ID = process.env.VERIFIED_ROLE_ID || '1546571043160989897';
+const UNVERIFIED_ROLE_ID = process.env.UNVERIFIED_ROLE_ID || '1546571044620476550';
+const CITIZEN_ROLE_ID = process.env.CITIZEN_ROLE_ID || '1546570995698110545';
 const VERIFY_LOG_CHANNEL_ID = process.env.VERIFICATION_LOG_CHANNEL_ID || '1546571436775309492';
 const VERIFY_BANNER = 'https://cdn.phototourl.com/member/2026-10-23-7df6376d-8d65-4981-93f6-17436d3189ca.png';
 
@@ -244,7 +245,7 @@ client.on(Events.InteractionCreate, async interaction => {
         const linked = await bloxlinkLookup(interaction.user.id, interaction.guildId);
         if (!linked) { await interaction.editReply({ content: 'Bloxlink could not confirm a linked Roblox account. Link your account first and try again.' }); return; }
         const member = await interaction.guild.members.fetch(interaction.user.id);
-        await member.roles.add(VERIFIED_ROLE_ID, 'Bloxlink account verification');
+        await member.roles.add([VERIFIED_ROLE_ID, CITIZEN_ROLE_ID], 'Bloxlink account verification');
         if (UNVERIFIED_ROLE_ID && member.roles.cache.has(UNVERIFIED_ROLE_ID)) await member.roles.remove(UNVERIFIED_ROLE_ID, 'Bloxlink account verification');
         const profile = `https://www.roblox.com/users/${linked.robloxId}/profile`;
         await interaction.editReply({ content: `Verified successfully as [${linked.username}](${profile}). Welcome to California State Roleplay!` });
