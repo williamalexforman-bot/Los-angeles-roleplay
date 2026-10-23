@@ -296,7 +296,8 @@ client.on(Events.InteractionCreate, async interaction => {
         await interaction.showModal(ticketModal(interaction.customId.slice('ticket:open:'.length)));
         return;
       }
-      if (interaction.customId === 'session:vote') { sessionVotes.add(interaction.user.id); await interaction.reply({content:`Vote recorded (${sessionVotes.size}/${sessionVoteThreshold}).`,ephemeral:true}); if(sessionVotes.size>=sessionVoteThreshold){await logTo(interaction.guild,CFG.channels.sessions,{content:'Session vote passed. Administrators may start the session.'});} return; }\n      if (interaction.customId === 'ticket:claim') {
+      if (interaction.customId === 'session:vote') { sessionVotes.add(interaction.user.id); await interaction.reply({content:`Vote recorded (${sessionVotes.size}/${sessionVoteThreshold}).`,ephemeral:true}); if(sessionVotes.size>=sessionVoteThreshold){await logTo(interaction.guild,CFG.channels.sessions,{content:'Session vote passed. Administrators may start the session.'});} return; }
+      if (interaction.customId === 'ticket:claim') {
         const ticket = activeTickets.get(interaction.channelId);
         if (!ticket) { await interaction.reply({ content: 'Ticket data was not found. This may be an older ticket.', ephemeral: true }); return; }
         if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageChannels) && !interaction.memberPermissions?.has(PermissionFlagsBits.ManageMessages)) {
@@ -306,7 +307,8 @@ client.on(Events.InteractionCreate, async interaction => {
         await interaction.reply({ content: `Ticket claimed by <@${interaction.user.id}>.` });
         return;
       }
-      if (interaction.customId === 'ticket:close-confirm') { const t=activeTickets.get(interaction.channelId); if(!t || t.opener!==interaction.user.id){await interaction.reply({content:'Only the ticket opener can confirm this request.',ephemeral:true});return;} await interaction.reply('Ticket closing in 5 seconds.'); setTimeout(()=>interaction.channel?.delete('Ticket close confirmed').catch(()=>{}),5000); return; }\n      if (interaction.customId === 'ticket:close') {
+      if (interaction.customId === 'ticket:close-confirm') { const t=activeTickets.get(interaction.channelId); if(!t || t.opener!==interaction.user.id){await interaction.reply({content:'Only the ticket opener can confirm this request.',ephemeral:true});return;} await interaction.reply('Ticket closing in 5 seconds.'); setTimeout(()=>interaction.channel?.delete('Ticket close confirmed').catch(()=>{}),5000); return; }
+      if (interaction.customId === 'ticket:close') {
         const ticket = activeTickets.get(interaction.channelId);
         const staff = interaction.memberPermissions?.has(PermissionFlagsBits.ManageChannels) || interaction.memberPermissions?.has(PermissionFlagsBits.ManageMessages);
         if (ticket && ticket.opener !== interaction.user.id && !staff) { await interaction.reply({ content: 'Only the ticket opener or staff can close this ticket.', ephemeral: true }); return; }
