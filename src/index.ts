@@ -143,7 +143,7 @@ async function handleVerificationStart(interaction: import('discord.js').ButtonI
     await interaction.reply({ content: 'Use verification inside the server.', flags: MessageFlags.Ephemeral });
     return;
   }
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2 });
   const result = await getRobloxInfo(interaction.user.id, interaction.guildId);
   if ('error' in result) {
     const container = containerWithText(
@@ -180,14 +180,14 @@ async function handleVerificationContinue(interaction: import('discord.js').Butt
     await interaction.reply({ content: 'Use verification inside the server.', flags: MessageFlags.Ephemeral });
     return;
   }
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2 });
   if (!verifiedRoleId) {
-    await interaction.editReply('Verification is not fully configured. An administrator must set VERIFIED_ROLE_ID.');
+    await interaction.editReply({ components: [containerWithText('## Verification Not Configured', 'An administrator must set VERIFIED_ROLE_ID before verification can finish.')] });
     return;
   }
   const result = await getRobloxInfo(interaction.user.id, interaction.guildId);
   if ('error' in result) {
-    await interaction.editReply(`Verification could not be completed: ${result.error} If you changed accounts, click Begin Verification again.`);
+    await interaction.editReply({ components: [containerWithText('## Verification Could Not Be Completed', result.error, 'If you changed accounts, click Begin Verification again.')] });
     return;
   }
   try {
@@ -217,7 +217,7 @@ async function handleVerificationContinue(interaction: import('discord.js').Butt
     }
   } catch (error) {
     console.error('Could not assign verification role:', error);
-    await interaction.editReply('I could not assign your verification role. Please contact staff and check the bot role hierarchy and permissions.');
+    await interaction.editReply({ components: [containerWithText('## Role Assignment Failed', 'I could not assign your verification role. Please contact staff and check the bot role hierarchy and permissions.')] });
   }
 }
 
@@ -261,7 +261,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.customId === 'verification:continue') {
       await handleVerificationContinue(interaction).catch(async (error) => {
         console.error('Verification continuation failed:', error);
-        if (interaction.deferred || interaction.replied) await interaction.editReply('Verification could not be completed. Please contact staff.').catch(() => {});
+        if (interaction.deferred || interaction.replied) await interaction.editReply({ components: [containerWithText('## Verification Error', 'Verification could not be completed. Please contact staff.')] }).catch(() => {});
         else await interaction.reply({ content: 'Verification could not be completed. Please contact staff.', flags: MessageFlags.Ephemeral }).catch(() => {});
       });
       return;
