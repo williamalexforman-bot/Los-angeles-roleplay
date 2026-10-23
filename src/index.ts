@@ -608,6 +608,29 @@ client.on(Events.MessageCreate, async message => {
 });
 
 client.on('error', error => console.error('Discord client error:', error));
+client.on(Events.ShardError, (error, shardId) => console.error(`Discord gateway shard ${shardId} error:`, error));
+client.on(Events.ShardDisconnect, (event, shardId) => console.error(`Discord gateway shard ${shardId} disconnected:`, { code: event.code, reason: event.reason, wasClean: event.wasClean }));
+client.on(Events.ShardReconnecting, shardId => console.warn(`Discord gateway shard ${shardId} is reconnecting...`));
+client.on(Events.ShardReady, (shardId, unavailableGuilds) => console.log(`Discord gateway shard ${shardId} connected.`, { unavailableGuilds: unavailableGuilds?.size ?? 0 }));
+client.on(Events.Invalidated, () => console.error('Discord session invalidated. Restart the service and verify the bot token if this repeats.'));
 client.once(Events.ClientReady, readyClient => console.log(`Discord bot ready as ${readyClient.user.tag}`));
 console.log('Connecting to Discord gateway...');
-client.login(TOKEN).catch(error => { console.error('Discord login failed:', error); process.exitCode = 1; });
+const startupDiagnostic = setTimeout(() => {
+  if (!client.isReady()) {
+    console.error('STARTUP DIAGNOSTIC: Discord ClientReady has not fired after 25 seconds.', {
+      wsStatus: client.ws.status,
+      ping: client.ws.ping,
+      tokenConfigured: Boolean(TOKEN),
+      clientIdConfigured: Boolean(CLIENT_ID),
+      guildIdConfigured: Boolean(GUILD_ID),
+    });
+    console.error('Check the gateway/shard messages above. Confirm BOT_TOKEN is the Bot Token (not the client secret), and that the bot application is the one invited to the server.');
+  }
+}, 25000);
+startupDiagnostic.unref?.();
+client.login(TOKEN).then(() => {
+  console.log('Discord login() promise resolved; waiting for gateway READY event...');
+}).catch(error => {
+  console.error('Discord login failed:', error);
+  process.exitCode = 1;
+});
