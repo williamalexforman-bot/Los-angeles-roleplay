@@ -75,6 +75,8 @@ const erlc = new SlashCommandBuilder().setName('erlc').setDescription('ER:LC pri
   .addSubcommand(s => s.setName('info').setDescription('Show server information.'))
   .addSubcommand(s => s.setName('players').setDescription('List players in the ER:LC server.'))
   .addSubcommand(s => s.setName('command').setDescription('Run an allowlisted in-game command.')
+    .addStringOption(o => o.setName('command').setDescription('Command, e.g. :h Session starting').setRequired(true).setMaxLength(300)))
+  .addSubcommand(s => s.setName('run').setDescription('Run an allowlisted in-game command.')
     .addStringOption(o => o.setName('command').setDescription('Command, e.g. :h Session starting').setRequired(true).setMaxLength(300)));
 const ticketPanel = new SlashCommandBuilder().setName('ticket-panel').setDescription('Post the CSRP support ticket panel.')
   .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild);
