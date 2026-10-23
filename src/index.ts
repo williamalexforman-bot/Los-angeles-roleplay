@@ -253,7 +253,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.customId === 'verification:start') {
       await handleVerificationStart(interaction).catch(async (error) => {
         console.error('Verification start failed:', error);
-        if (interaction.deferred || interaction.replied) await interaction.editReply('Verification could not start. Please try again later.').catch(() => {});
+        if (interaction.deferred || interaction.replied) await interaction.editReply({ components: [containerWithText('## Verification Error', 'Verification could not start. Please try again later.')] }).catch(() => {});
         else await interaction.reply({ content: 'Verification could not start. Please try again later.', flags: MessageFlags.Ephemeral }).catch(() => {});
       });
       return;
