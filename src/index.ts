@@ -222,12 +222,14 @@ client.on(Events.InteractionCreate, async interaction => {
           return;
         }
         const profile = `https://www.roblox.com/users/${linked.robloxId}/profile`;
-        const box = v2Text('## Roblox Account Found', `Linked account: **[${linked.username}](${profile})**\nIf this is correct, click **Continue** to receive the verified role.`);
-        box.addActionRowComponents(new ActionRowBuilder().addComponents(
+        const row = new ActionRowBuilder().addComponents(
           new ButtonBuilder().setCustomId('verify:continue').setLabel('Continue').setStyle(ButtonStyle.Success),
           new ButtonBuilder().setCustomId('verify:help').setLabel('How to Link').setStyle(ButtonStyle.Secondary),
-        ));
-        await interaction.editReply({ flags: MessageFlags.IsComponentsV2, components: [box] });
+        );
+        await interaction.editReply({
+          embeds: [baseEmbed('Roblox Account Found', `Linked account: **[${linked.username}](${profile})**\nIf this is correct, click **Continue** to receive the verified role.`)],
+          components: [row],
+        });
         return;
       }
       if (interaction.customId === 'verify:help') {
