@@ -50,6 +50,16 @@ const client = new Client({
 const rest = new REST({ version: '10' }).setToken(TOKEN);
 const activeTickets = new Map<string, { opener: string; claimedBy?: string; type: string }>();
 const giveawayEntrants = new Map<string, Set<string>>();
+const giveawayMessages = new Map<string, any>();
+const ticketBlocked = new Set<string>();
+const botBlocked = new Set<string>();
+const liveryWhitelist = new Set<string>();
+const commsWhitelist = new Set<string>();
+const groupRequests: string[] = [];
+let applicationsEnabled = true;
+let commsMessage = 'Please keep all communications professional and follow server regulations.';
+let sessionVoteThreshold = 10;
+let sessionVotes = new Set<string>();
 
 const say = new SlashCommandBuilder().setName('say').setDescription('Send a message as the bot.')
   .addStringOption(o => o.setName('message').setDescription('Message to send').setRequired(true).setMaxLength(2000))
@@ -97,7 +107,35 @@ const giveawayStart = new SlashCommandBuilder().setName('giveaway-start').setDes
 const help = new SlashCommandBuilder().setName('help').setDescription('Show bot commands.');
 const ping = new SlashCommandBuilder().setName('ping').setDescription('Check bot latency.');
 
-const commands = [say,relink,verifyPanel,getinfo,rid,erlc,ticketPanel,ticketClose,ticketAdd,infraction,promotion,sessionStart,sessionEnd,appPanel,giveawayStart,help,ping];
+
+const ticketGroup = new SlashCommandBuilder().setName('ticket').setDescription('Ticket management.')
+  .addSubcommand(s=>s.setName('add').setDescription('Add a user to this ticket.').addUserOption(o=>o.setName('user').setDescription('User').setRequired(true)))
+  .addSubcommand(s=>s.setName('remove').setDescription('Remove a user from this ticket.').addUserOption(o=>o.setName('user').setDescription('User').setRequired(true)))
+  .addSubcommand(s=>s.setName('claim').setDescription('Claim this ticket.'))
+  .addSubcommand(s=>s.setName('unclaim').setDescription('Unclaim this ticket.'))
+  .addSubcommand(s=>s.setName('close').setDescription('Close this ticket.'))
+  .addSubcommand(s=>s.setName('close-request').setDescription('Ask the opener to confirm closing.'));
+const sessionGroup = new SlashCommandBuilder().setName('session').setDescription('Session announcements.')
+  .addSubcommand(s=>s.setName('vote').setDescription('Start a session vote.').addIntegerOption(o=>o.setName('votes').setDescription('Votes required').setRequired(true).setMinValue(1).setMaxValue(100)))
+  .addSubcommand(s=>s.setName('startup').setDescription('Announce session startup.'))
+  .addSubcommand(s=>s.setName('shutdown').setDescription('Announce session shutdown.'))
+  .addSubcommand(s=>s.setName('low').setDescription('Announce low player count.'))
+  .addSubcommand(s=>s.setName('full').setDescription('Announce server full.'));
+const commsGroup = new SlashCommandBuilder().setName('comms').setDescription('Comms checker settings.')
+  .addSubcommand(s=>s.setName('whitelist').setDescription('Whitelist a user.').addUserOption(o=>o.setName('user').setDescription('User').setRequired(true)))
+  .addSubcommand(s=>s.setName('unwhitelist').setDescription('Remove a user from the whitelist.').addUserOption(o=>o.setName('user').setDescription('User').setRequired(true)))
+  .addSubcommand(s=>s.setName('whitelists').setDescription('List comms whitelists.'))
+  .addSubcommand(s=>s.setName('message').setDescription('View or change the checker message.').addStringOption(o=>o.setName('text').setDescription('New message').setRequired(false).setMaxLength(1000)));
+const giveawayGroup = new SlashCommandBuilder().setName('giveaway').setDescription('Manage giveaways.')
+  .addSubcommand(s=>s.setName('start').setDescription('Start a giveaway.').addStringOption(o=>o.setName('prize').setDescription('Prize').setRequired(true).setMaxLength(200)).addIntegerOption(o=>o.setName('minutes').setDescription('Duration').setRequired(true).setMinValue(1).setMaxValue(10080)))
+  .addSubcommand(s=>s.setName('end').setDescription('End a giveaway early.').addStringOption(o=>o.setName('message_id').setDescription('Giveaway message ID').setRequired(true)))
+  .addSubcommand(s=>s.setName('reroll').setDescription('Pick a new winner.').addStringOption(o=>o.setName('message_id').setDescription('Giveaway message ID').setRequired(true)));
+const groupGroup = new SlashCommandBuilder().setName('group').setDescription('Roblox group requests.')
+  .addSubcommand(s=>s.setName('accept').setDescription('Accept a group request.').addUserOption(o=>o.setName('user').setDescription('Discord member').setRequired(true)))
+  .addSubcommand(s=>s.setName('request-lists').setDescription('Show pending requests.'));
+const feedbackGroup = new SlashCommandBuilder().setName('staff').setDescription('Staff tools.')
+  .addSubcommand(s=>s.setName('feedback').setDescription('Submit staff feedback.').addUserOption(o=>o.setName('user').setDescription('Staff member').setRequired(true)).addIntegerOption(o=>o.setName('rating').setDescription('Rating from 1 to 10').setRequired(true).setMinValue(1).setMaxValue(10)).addStringOption(o=>o.setName('comments').setDescription('Comments').setRequired(true).setMaxLength(1000)));
+const commands = [say,relink,verifyPanel,getinfo,rid,erlc,ticketPanel,ticketClose,ticketAdd,infraction,promotion,sessionStart,sessionEnd,appPanel,giveawayStart,help,ping,ticketGroup,sessionGroup,commsGroup,giveawayGroup,groupGroup,feedbackGroup];
 
 function baseEmbed(title: string, description: string) {
   return new EmbedBuilder().setColor(0x247bf1).setTitle(title).setDescription(description)
@@ -256,7 +294,7 @@ client.on(Events.InteractionCreate, async interaction => {
         await interaction.showModal(ticketModal(interaction.customId.slice('ticket:open:'.length)));
         return;
       }
-      if (interaction.customId === 'ticket:claim') {
+      if (interaction.customId === 'session:vote') { sessionVotes.add(interaction.user.id); await interaction.reply({content:`Vote recorded (${sessionVotes.size}/${sessionVoteThreshold}).`,ephemeral:true}); if(sessionVotes.size>=sessionVoteThreshold){await logTo(interaction.guild,CFG.channels.sessions,{content:'Session vote passed. Administrators may start the session.'});} return; }\n      if (interaction.customId === 'ticket:claim') {
         const ticket = activeTickets.get(interaction.channelId);
         if (!ticket) { await interaction.reply({ content: 'Ticket data was not found. This may be an older ticket.', ephemeral: true }); return; }
         if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageChannels) && !interaction.memberPermissions?.has(PermissionFlagsBits.ManageMessages)) {
@@ -266,7 +304,7 @@ client.on(Events.InteractionCreate, async interaction => {
         await interaction.reply({ content: `Ticket claimed by <@${interaction.user.id}>.` });
         return;
       }
-      if (interaction.customId === 'ticket:close') {
+      if (interaction.customId === 'ticket:close-confirm') { const t=activeTickets.get(interaction.channelId); if(!t || t.opener!==interaction.user.id){await interaction.reply({content:'Only the ticket opener can confirm this request.',ephemeral:true});return;} await interaction.reply('Ticket closing in 5 seconds.'); setTimeout(()=>interaction.channel?.delete('Ticket close confirmed').catch(()=>{}),5000); return; }\n      if (interaction.customId === 'ticket:close') {
         const ticket = activeTickets.get(interaction.channelId);
         const staff = interaction.memberPermissions?.has(PermissionFlagsBits.ManageChannels) || interaction.memberPermissions?.has(PermissionFlagsBits.ManageMessages);
         if (ticket && ticket.opener !== interaction.user.id && !staff) { await interaction.reply({ content: 'Only the ticket opener or staff can close this ticket.', ephemeral: true }); return; }
@@ -314,6 +352,49 @@ client.on(Events.InteractionCreate, async interaction => {
     if (!interaction.isChatInputCommand()) return;
     const guild = interaction.guild;
     switch (interaction.commandName) {
+      case 'ticket': {
+        const sub=interaction.options.getSubcommand(), ticket=activeTickets.get(interaction.channelId), user=interaction.options.getUser('user');
+        if(!ticket && !['add','remove','claim','unclaim','close','close-request'].includes(sub)){await interaction.reply({content:'Use this in a ticket channel.',ephemeral:true});break;}
+        const staff=interaction.memberPermissions?.has(PermissionFlagsBits.ManageChannels)||interaction.memberPermissions?.has(PermissionFlagsBits.ManageMessages);
+        if(sub==='add'){if(!staff){await interaction.reply({content:'Staff only.',ephemeral:true});break;} await interaction.channel.permissionOverwrites.edit(user.id,{ViewChannel:true,SendMessages:true,ReadMessageHistory:true});await interaction.reply(`Added <@${user.id}>.`);}
+        else if(sub==='remove'){if(!staff){await interaction.reply({content:'Staff only.',ephemeral:true});break;} await interaction.channel.permissionOverwrites.delete(user.id).catch(()=>{});await interaction.reply(`Removed <@${user.id}>.`);}
+        else if(sub==='claim'){if(!staff){await interaction.reply({content:'Staff only.',ephemeral:true});break;}ticket.claimedBy=interaction.user.id;await interaction.reply(`Claimed by <@${interaction.user.id}>.`);}
+        else if(sub==='unclaim'){if(!staff){await interaction.reply({content:'Staff only.',ephemeral:true});break;}ticket.claimedBy=undefined;await interaction.reply('Ticket unclaimed.');}
+        else if(sub==='close-request'){if(!staff){await interaction.reply({content:'Staff only.',ephemeral:true});break;} const row=new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('ticket:close-confirm').setLabel('Confirm close').setStyle(ButtonStyle.Danger)); await interaction.channel.send({content:`<@${ticket.opener}> Staff requested to close this ticket.`,components:[row]});await interaction.reply({content:'Close request sent.',ephemeral:true});}
+        else {if(!ticket || (ticket.opener!==interaction.user.id&&!staff)){await interaction.reply({content:'Only the opener or staff can close this ticket.',ephemeral:true});break;}await interaction.reply('Ticket closing in 5 seconds.');setTimeout(()=>interaction.channel?.delete('Ticket closed').catch(()=>{}),5000);}
+        break;
+      }
+      case 'session': {
+        const sub=interaction.options.getSubcommand();
+        if(sub==='vote'){sessionVoteThreshold=interaction.options.getInteger('votes',true);sessionVotes=new Set();const row=new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('session:vote').setLabel('Vote to start').setStyle(ButtonStyle.Success));await logTo(guild,CFG.channels.sessions,{content:`<@&${CFG.roles.sessionPing}> Session vote started. ${sessionVoteThreshold} votes required.`,components:[row],allowedMentions:{roles:[CFG.roles.sessionPing]}});await interaction.reply({content:'Session vote posted.',ephemeral:true});}
+        else {const labels={startup:'Session Started',shutdown:'Session Shutdown',low:'Low Player Count',full:'Server Full'};const desc={startup:'The roleplay session is now starting.',shutdown:'The roleplay session has ended.',low:'The server currently has a low player count. More players are welcome.',full:'The server is currently full. Please wait for an available slot.'};await logTo(guild,CFG.channels.sessions,{content:sub==='startup'? `<@&${CFG.roles.sessionPing}>`:undefined,embeds:[baseEmbed(`CaliRP — ${labels[sub]}`,desc[sub])],allowedMentions:{roles:sub==='startup'?[CFG.roles.sessionPing]:[]}});await interaction.reply({content:`${labels[sub]} announcement sent.`,ephemeral:true});}
+        break;
+      }
+      case 'comms': {
+        const sub=interaction.options.getSubcommand(), user=interaction.options.getUser('user');
+        if(sub==='whitelist'){if(!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)){await interaction.reply({content:'Administrator permission required.',ephemeral:true});break;}commsWhitelist.add(user.id);await interaction.reply({content:`Added <@${user.id}> to the comms whitelist.`,ephemeral:true});}
+        else if(sub==='unwhitelist'){if(!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)){await interaction.reply({content:'Administrator permission required.',ephemeral:true});break;}commsWhitelist.delete(user.id);await interaction.reply({content:`Removed <@${user.id}> from the comms whitelist.`,ephemeral:true});}
+        else if(sub==='whitelists'){if(!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)){await interaction.reply({content:'Administrator permission required.',ephemeral:true});break;}await interaction.reply({content:commsWhitelist.size?[...commsWhitelist].map(id=>`• <@${id}> (${id})`).join('\\n'):'No comms whitelist entries.',ephemeral:true});}
+        else {if(interaction.options.getString('text')){if(!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)){await interaction.reply({content:'Administrator permission required to change this message.',ephemeral:true});break;}commsMessage=interaction.options.getString('text',true);}await interaction.reply({content:commsMessage,ephemeral:true});}
+        break;
+      }
+      case 'giveaway': {
+        const sub=interaction.options.getSubcommand(), id=interaction.options.getString('message_id');
+        if(sub==='start'){const prize=interaction.options.getString('prize',true),minutes=interaction.options.getInteger('minutes',true),gid=`${Date.now()}`;giveawayEntrants.set(gid,new Set());const row=new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`giveaway:join:${gid}`).setLabel('Enter Giveaway').setStyle(ButtonStyle.Success));const msg=await interaction.channel.send({embeds:[baseEmbed('🎉 CaliRP Giveaway',`Prize: **${prize}**\\nHosted by <@${interaction.user.id}>\\nEnds in ${minutes} minutes.`)],components:[row]});giveawayMessages.set(msg.id,{msg,prize,gid,channel:interaction.channel});await interaction.reply({content:`Giveaway started: ${msg.url}`,ephemeral:true});setTimeout(()=>finishGiveaway(msg.id,false).catch(console.error),minutes*60000);}
+        else {if(!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)){await interaction.reply({content:'Administrator permission required.',ephemeral:true});break;}const g=giveawayMessages.get(id);if(!g){await interaction.reply({content:'Giveaway not found in this bot session. Restarted giveaways are not recoverable.',ephemeral:true});break;}await finishGiveaway(id,sub==='reroll');await interaction.reply({content:sub==='end'?'Giveaway ended.':'Giveaway rerolled.',ephemeral:true});}
+        break;
+      }
+      case 'group': {
+        const sub=interaction.options.getSubcommand();
+        if(sub==='request-lists'){if(!interaction.memberPermissions?.has(PermissionFlagsBits.ManageRoles)){await interaction.reply({content:'High Rank and above only.',ephemeral:true});break;}await interaction.reply({content:groupRequests.length?groupRequests.map((id,i)=>`${i+1}. <@${id}> (${id})`).join('\\n'):'No pending group requests.',ephemeral:true});}
+        else {const user=interaction.options.getUser('user',true);if(!interaction.memberPermissions?.has(PermissionFlagsBits.ManageRoles)){await interaction.reply({content:'Staff and whitelisted members only.',ephemeral:true});break;}const roleId=process.env.GROUP_ACCEPTED_ROLE_ID;if(!roleId){await interaction.reply({content:'Set GROUP_ACCEPTED_ROLE_ID in Render to enable role assignment.',ephemeral:true});break;}const member=await guild.members.fetch(user.id);await member.roles.add(roleId,'Roblox group request accepted');const i=groupRequests.indexOf(user.id);if(i>=0)groupRequests.splice(i,1);await interaction.reply({content:`Accepted <@${user.id}> and assigned the configured group role.`,ephemeral:true});}
+        break;
+      }
+      case 'staff': {
+        const user=interaction.options.getUser('user',true),rating=interaction.options.getInteger('rating',true),comments=interaction.options.getString('comments',true);
+        await logTo(guild,CFG.channels.modLogs,{embeds:[baseEmbed('Staff Feedback',`Staff member: <@${user.id}>\\nRating: **${rating}/10**\\nSubmitted by: <@${interaction.user.id}>\\nComments: ${comments}`)]});await interaction.reply({content:'Thank you. Your feedback has been submitted.',ephemeral:true});break;
+      }
+
       case 'say': {
         if (!interaction.channel?.isSendable()) { await interaction.reply({ content: 'Use this in a text channel.', ephemeral: true }); break; }
         await interaction.channel.send({ content: interaction.options.getString('message', true), allowedMentions: { parse: [] } });
@@ -445,13 +526,41 @@ client.on(Events.InteractionCreate, async interaction => {
   } catch (error) { await replyError(interaction, error); }
 });
 
+
 client.on(Events.MessageCreate, async message => {
   if (message.author.bot || !message.guild || !message.content.startsWith(PREFIX)) return;
-  const [command] = message.content.slice(PREFIX.length).trim().split(/\s+/);
-  if (command?.toLowerCase() === 'verificationpanel' && message.member?.permissions.has(PermissionFlagsBits.ManageGuild)) {
-    await sendVerificationPanel(message.channel).catch(e => console.error('Prefix verification panel failed:', e));
-    await message.reply('Verification panel posted.').catch(() => {});
-  }
+  const args=message.content.slice(PREFIX.length).trim().split(/\\s+/), cmd=(args.shift()||'').toLowerCase(), member=message.member, guild=message.guild;
+  const isAdmin=!!member?.permissions.has(PermissionFlagsBits.Administrator);
+  const isHR=!!member?.permissions.has(PermissionFlagsBits.ManageRoles)||isAdmin;
+  const isStaff=!!member?.permissions.has(PermissionFlagsBits.ManageMessages)||isHR;
+  const reply=(content)=>message.reply({content,allowedMentions:{repliedUser:false}}).catch(()=>{});
+  const sendSession=async(title,desc,ping=false)=>logTo(guild,CFG.channels.sessions,{content:ping?`<@&${CFG.roles.sessionPing}>`:undefined,embeds:[baseEmbed(title,desc)],allowedMentions:{roles:ping?[CFG.roles.sessionPing]:[]}});
+  if(botBlocked.has(message.author.id)&&!isAdmin)return reply('You are blocked from using this bot.');
+  try {
+    if(cmd==='verificationpanel'){if(!isAdmin)return reply('Administrator permission required.');await sendVerificationPanel(message.channel);return reply('Verification panel posted.');}
+    if(cmd==='ticketpanel'){if(!isAdmin)return reply('Administrator permission required.');const row1=new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('ticket:open:General Support').setLabel('General Support').setStyle(ButtonStyle.Primary),new ButtonBuilder().setCustomId('ticket:open:Internal Affairs').setLabel('Internal Affairs').setStyle(ButtonStyle.Secondary));const row2=new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('ticket:open:Report a Player').setLabel('Report a Player').setStyle(ButtonStyle.Danger),new ButtonBuilder().setCustomId('ticket:open:Staff Feedback').setLabel('Staff Feedback').setStyle(ButtonStyle.Secondary));await message.channel.send({embeds:[baseEmbed('CaliRP Support','Choose the category that best matches your request.')],components:[row1,row2]});return;}
+    if(cmd==='ticketbl'||cmd==='ticketunbl'){if(!isStaff)return reply('Support staff only.');const u=message.mentions.users.first()||await client.users.fetch(args[0]).catch(()=>null);if(!u)return reply('Mention a user or provide a Discord ID.');if(cmd==='ticketbl')ticketBlocked.add(u.id);else ticketBlocked.delete(u.id);return reply(cmd==='ticketbl'?`Blocked <@${u.id}> from opening tickets.`:`Unblocked <@${u.id}> from opening tickets.`);}
+    if(cmd==='testidle'){if(!isStaff)return reply('Support staff only.');const raw=args[0]||'2m',m=raw.match(/^(\\d+)(s|m|h)$/i);if(!m)return reply('Use a duration such as 30s, 2m, or 1h.');const ms=Number(m[1])*({s:1000,m:60000,h:3600000}[m[2].toLowerCase()]);await reply(`Idle warning test scheduled for ${raw}.`);setTimeout(()=>message.channel.send('⚠️ Ticket inactivity test: please reply if you still need assistance.').catch(()=>{}),ms);return;}
+    if(cmd==='sessionpanel'){if(!isAdmin)return reply('Administrators only.');const row=new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('session:vote').setLabel('Vote to start').setStyle(ButtonStyle.Success));await message.channel.send({embeds:[baseEmbed('CaliRP Live Session Panel','Use the button to vote for a session. Administrators can use the session commands to announce status.')],components:[row]});return;}
+    if(cmd==='ssv'){if(!isAdmin)return reply('Administrators only.');sessionVoteThreshold=Math.max(1,Number(args[0])||10);sessionVotes=new Set();const row=new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('session:vote').setLabel('Vote to start').setStyle(ButtonStyle.Success));await logTo(guild,CFG.channels.sessions,{content:`<@&${CFG.roles.sessionPing}> Session vote started — ${sessionVoteThreshold} votes required.`,components:[row],allowedMentions:{roles:[CFG.roles.sessionPing]}});return reply('Session vote posted.');}
+    if(['ssu','ssd','ssl','ssf'].includes(cmd)){if(!isAdmin)return reply('Administrators only.');const map={ssu:['Session Started','The roleplay session is starting.',true],ssd:['Session Shutdown','The roleplay session has ended.',false],ssl:['Low Player Count','The server has a low player count. Join if available.',false],ssf:['Server Full','The server is currently full.',false]};const x=map[cmd];await sendSession('CaliRP — '+x[0],x[1],x[2]);return reply(x[0]+' announcement sent.');}
+    if(cmd==='erlc'){if(!isHR)return reply('High Rank and above only.');if((args[0]||'').toLowerCase()==='info'){const d=await erlcRequest('server');return reply(`Server: ${d.Name||'Unknown'} | Owner: ${d.Owner||'Unknown'} | Players: ${d.CurrentPlayers??'Unknown'} | Join key: ${d.JoinKey||'N/A'}`);}const command=args.join(' ');if(!command)return reply('Usage: -erlc <command> or -erlc info');const allowed=(process.env.ERLC_ALLOWED_COMMAND_PREFIXES||':h,:m,:pm,:kick,:ban,:tempban,:unban').split(',').map(x=>x.trim().toLowerCase());if(!allowed.some(p=>command.toLowerCase()===p||command.toLowerCase().startsWith(p+' ')))return reply('That command is not allowlisted.');await erlcRequest('server/command','POST',{command});await logTo(guild,CFG.channels.modLogs,{embeds:[baseEmbed('ER:LC Command',`By: <@${message.author.id}>\\nCommand: \`${command}\``)]});return reply('Command submitted to ER:LC.');}
+    if(cmd==='whitelist'||cmd==='unwhitelist'){if(!isAdmin)return reply('Administrators only.');const u=message.mentions.users.first()||args[0];if(!u)return reply('Mention a user or provide a Discord ID.');const id=typeof u==='string'?u:u.id;if(cmd==='whitelist')liveryWhitelist.add(id);else liveryWhitelist.delete(id);return reply(cmd==='whitelist'?`Added ${id} to the livery whitelist.`:`Removed ${id} from the livery whitelist.`);}
+    if(cmd==='gban'||cmd==='gunban'||cmd==='botbl'||cmd==='botunbl'){if(!(process.env.GLOBAL_BAN_ROLE_ID&&member.roles.cache.has(process.env.GLOBAL_BAN_ROLE_ID)))return reply('Global ban role required.');const u=message.mentions.users.first()||await client.users.fetch(args[0]).catch(()=>null);if(!u)return reply('Mention a user or provide a Discord ID.');const block=cmd==='gban'||cmd==='botbl',isBot=cmd==='botbl'||cmd==='botunbl';const set=isBot?botBlocked:ticketBlocked;if(block)set.add(u.id);else set.delete(u.id);const second=process.env.SECOND_GUILD_ID;if(!isBot&&block&&second){const g2=client.guilds.cache.get(second);if(g2)await g2.members.ban(u.id,{reason:`Global ban by ${message.author.tag}`}).catch(()=>{});}if(!isBot&&block)await guild.members.ban(u.id,{reason:`Global ban by ${message.author.tag}`}).catch(()=>{});return reply(`${cmd} applied to <@${u.id}>. Note: blocklists are currently in memory and reset after restart.`);}
+    if(cmd==='applicationpanel'){if(!isAdmin)return reply('Administrators only.');const row=new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('application:Staff').setLabel('Staff Application').setStyle(ButtonStyle.Primary),new ButtonBuilder().setCustomId('application:Media').setLabel('Media Application').setStyle(ButtonStyle.Secondary));await message.channel.send({embeds:[baseEmbed('CaliRP Applications',applicationsEnabled?'Applications are open.':'Applications are currently closed.')],components:applicationsEnabled?[row]:[]});return;}
+    if(cmd==='disableapplications'||cmd==='enableapplications'){if(!isAdmin)return reply('Administrators only.');applicationsEnabled=cmd==='enableapplications';return reply(`Applications ${applicationsEnabled?'enabled':'disabled'}.`);}
+    if(cmd==='group'){const sub=(args.shift()||'').toLowerCase();if(sub==='request-lists'){if(!isHR)return reply('High Rank and above only.');return reply(groupRequests.length?groupRequests.map(id=>'<@'+id+'> ('+id+')').join('\\n'):'No pending group requests.');}if(sub==='accept'){if(!isHR)return reply('Staff and whitelisted members only.');const u=message.mentions.users.first()||await client.users.fetch(args[0]).catch(()=>null);if(!u)return reply('Usage: -group accept @user');const roleId=process.env.GROUP_ACCEPTED_ROLE_ID;if(!roleId)return reply('Set GROUP_ACCEPTED_ROLE_ID in Render to enable group role assignment.');await guild.members.fetch(u.id).then(m=>m.roles.add(roleId));const i=groupRequests.indexOf(u.id);if(i>=0)groupRequests.splice(i,1);return reply(`Accepted <@${u.id}> and assigned the group role.`);}}
+    if(cmd==='mc'){return reply(`Server member count: ${guild.memberCount}`);}
+    if(cmd==='commands'){return reply('Tickets: -ticketpanel, -ticketbl, -ticketunbl, -testidle | Sessions: -ssv, -ssu, -ssd, -ssl, -ssf, -sessionpanel | ER:LC: -erlc, -whitelist, -unwhitelist | Staff: -gban, -gunban, -botbl, -botunbl, /infract, /promote | Applications: -applicationpanel, -disableapplications, -enableapplications | Utility: -mc, -verificationpanel, -purge, -dashboard, -regulation, -testwelcome, -testboost, -testtag, /say, /jsonv2, /cloneemoji.');}
+    if(cmd==='purge'){if(!isStaff)return reply('Staff only.');const n=Number(args[0]);if(!Number.isInteger(n)||n<1||n>100)return reply('Usage: -purge <1-100>');const deleted=await message.channel.bulkDelete(n,true);return reply(`Deleted ${deleted.size} messages.`);}
+    if(['testwelcome','testboost','testtag'].includes(cmd)){if(!isAdmin)return reply('Administrators only.');const content=cmd==='testwelcome'?'Welcome preview: please read the rules and complete verification.':cmd==='testboost'?'Thank you for boosting California State Roleplay!':'Thank you for supporting California State Roleplay with a server tag!';return reply(content);}
+    if(cmd==='dashboard'||cmd==='regulation'){if(!isAdmin)return reply('Administrators only.');const content=cmd==='dashboard'?'## California State Roleplay Dashboard\\nChoose the relevant panel to get started.':'## California State Roleplay Regulations\\nFollow Discord rules, Roblox rules, and all server staff instructions.';return message.channel.send({embeds:[baseEmbed(cmd==='dashboard'?'CaliRP Dashboard':'CaliRP Regulations',content)]});}
+    if(cmd==='mc' || cmd==='ping')return reply(`Members: ${guild.memberCount} | Ping: ${client.ws.ping}ms`);
+    if(cmd==='say'){if(!isStaff)return reply('Staff only.');return message.channel.send({content:args.join(' '),allowedMentions:{parse:[]}});}
+    if(cmd==='jsonv2'){if(!isAdmin)return reply('Administrators only.');try{const data=JSON.parse(args.join(' '));if(data.content||data.embeds)return message.channel.send({content:data.content,embeds:data.embeds});return reply('JSON must contain content or embeds.');}catch{return reply('Provide valid JSON, e.g. {"content":"Hello"}');}}
+    if(cmd==='cloneemoji'){if(!isAdmin)return reply('Administrators only.');const em=message.content.match(/<a?:(\\w+):(\\d+)>/);if(!em)return reply('Mention an emoji to clone.');const ext=message.content.includes('<a:')?'gif':'png';const emoji=await guild.emojis.create({attachment:`https://cdn.discordapp.com/emojis/${em[2]}.${ext}`,name:em[1]});return reply(`Created emoji <:${emoji.name}:${emoji.id}>.`);}
+    if(cmd==='dashboard'||cmd==='regulation')return;
+  } catch(e){console.error('Prefix command failed',e);return reply('Command failed. Check bot logs and confirm permissions/configuration.');}
 });
 
 client.on('error', error => console.error('Discord client error:', error));
