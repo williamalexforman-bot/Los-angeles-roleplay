@@ -137,6 +137,21 @@ const groupGroup = new SlashCommandBuilder().setName('group').setDescription('Ro
   .addSubcommand(s=>s.setName('request-lists').setDescription('Show pending requests.'));
 const feedbackGroup = new SlashCommandBuilder().setName('staff').setDescription('Staff tools.')
   .addSubcommand(s=>s.setName('feedback').setDescription('Submit staff feedback.').addUserOption(o=>o.setName('user').setDescription('Staff member').setRequired(true)).addIntegerOption(o=>o.setName('rating').setDescription('Rating from 1 to 10').setRequired(true).setMinValue(1).setMaxValue(10)).addStringOption(o=>o.setName('comments').setDescription('Comments').setRequired(true).setMaxLength(1000)));
+const infractAlias = new SlashCommandBuilder().setName('infract').setDescription('Log a staff infraction.')
+  .addUserOption(o=>o.setName('user').setDescription('Staff member').setRequired(true))
+  .addStringOption(o=>o.setName('type').setDescription('Infraction type').setRequired(true).addChoices({name:'Warning',value:'Warning'},{name:'Strike',value:'Strike'},{name:'Suspension',value:'Suspension'},{name:'Demotion',value:'Demotion'},{name:'Termination',value:'Termination'},{name:'Under Investigation',value:'Under Investigation'},{name:'Note',value:'Note'}))
+  .addStringOption(o=>o.setName('reason').setDescription('Reason').setRequired(true).setMaxLength(1000)).setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers);
+const promoteAlias = new SlashCommandBuilder().setName('promote').setDescription('Log a staff promotion.')
+  .addUserOption(o=>o.setName('user').setDescription('Staff member').setRequired(true))
+  .addStringOption(o=>o.setName('rank').setDescription('New rank').setRequired(true).setMaxLength(100))
+  .addStringOption(o=>o.setName('reason').setDescription('Reason').setRequired(true).setMaxLength(1000)).setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles);
+const mcSlash = new SlashCommandBuilder().setName('mc').setDescription('Show server member count.');
+const jsonv2Slash = new SlashCommandBuilder().setName('jsonv2').setDescription('Send a JSON message.')
+  .addStringOption(o=>o.setName('json').setDescription('JSON object containing content or embeds').setRequired(true).setMaxLength(4000))
+  .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild);
+const cloneemojiSlash = new SlashCommandBuilder().setName('cloneemoji').setDescription('Clone a custom emoji into this server.')
+  .addStringOption(o=>o.setName('emoji').setDescription('Custom emoji mention').setRequired(true))
+  .setDefaultMemberPermissions(PermissionFlagsBits.ManageEmojisAndStickers);
 const commands = [say,relink,verifyPanel,getinfo,rid,erlc,ticketPanel,ticketClose,ticketAdd,infraction,promotion,sessionStart,sessionEnd,appPanel,giveawayStart,help,ping,ticketGroup,sessionGroup,commsGroup,giveawayGroup,groupGroup,feedbackGroup,infractAlias,promoteAlias,mcSlash,jsonv2Slash,cloneemojiSlash];
 
 function baseEmbed(title: string, description: string) {
