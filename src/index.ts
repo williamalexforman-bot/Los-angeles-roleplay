@@ -616,44 +616,53 @@ client.on(Events.ShardReconnecting, shardId => console.warn(`Discord gateway sha
 client.on(Events.ShardReady, (shardId, unavailableGuilds) => console.log(`Discord gateway shard ${shardId} connected.`, { unavailableGuilds: unavailableGuilds?.size ?? 0 }));
 client.on(Events.Invalidated, () => console.error('Discord session invalidated. Restart the service and verify the bot token if this repeats.'));
 client.once(Events.ClientReady, readyClient => console.log(`Discord bot ready as ${readyClient.user.tag}`));
-console.log('Checking Discord API connectivity and bot token...');
-try {
-  const apiCheck = await fetch('https://discord.com/api/v10/gateway/bot', {
-    headers: { Authorization: `Bot ${TOKEN}` },
-    signal: AbortSignal.timeout(12000),
-  });
-  const apiBody = await apiCheck.text();
-  if (!apiCheck.ok) {
-    console.error(`Discord API preflight failed with HTTP ${apiCheck.status}:`, apiBody.slice(0, 500));
-    throw new Error(`Discord API rejected the bot token or request (HTTP ${apiCheck.status}). Check BOT_TOKEN in Render.`);
-  }
-  let gatewayInfo: any;
-  try { gatewayInfo = JSON.parse(apiBody); } catch { gatewayInfo = {}; }
-  console.log('Discord API preflight passed.', {
-    gatewayUrl: gatewayInfo.url,
-    remainingSessionStarts: gatewayInfo.session_start_limit?.remaining,
-    resetAfterMs: gatewayInfo.session_start_limit?.reset_after,
-  });
-} catch (error) {
-  console.error('Discord API preflight/network check failed:', error);
-}
-console.log('Connecting to Discord gateway...');
-const startupDiagnostic = setTimeout(() => {
-  if (!client.isReady()) {
-    console.error('STARTUP DIAGNOSTIC: Discord ClientReady has not fired after 25 seconds.', {
-      wsStatus: client.ws.status,
-      ping: client.ws.ping,
-      tokenConfigured: Boolean(TOKEN),
-      clientIdConfigured: Boolean(CLIENT_ID),
-      guildIdConfigured: Boolean(GUILD_ID),
+async function startDiscordBot() {
+  console.log('Checking Discord API connectivity and bot token...');
+  try {
+    const apiCheck = await fetch('https://discord.com/api/v10/gateway/bot', {
+      headers: { Authorization: `Bot ${TOKEN}` },
+      signal: AbortSignal.timeout(12000),
     });
-    console.error('Check the gateway/shard messages above. Confirm BOT_TOKEN is the Bot Token (not the client secret), and that the bot application is the one invited to the server.');
+    const apiBody = await apiCheck.text();
+    if (!apiCheck.ok) {
+      console.error(`Discord API preflight failed with HTTP ${apiCheck.status}:`, apiBody.slice(0, 500));
+      throw new Error(`Discord API rejected the bot token or request (HTTP ${apiCheck.status}). Check BOT_TOKEN in Render.`);
+    }
+    let gatewayInfo: any;
+    try { gatewayInfo = JSON.parse(apiBody); } catch { gatewayInfo = {}; }
+    console.log('Discord API preflight passed.', {
+      gatewayUrl: gatewayInfo.url,
+      remainingSessionStarts: gatewayInfo.session_start_limit?.remaining,
+      resetAfterMs: gatewayInfo.session_start_limit?.reset_after,
+    });
+  } catch (error) {
+    console.error('Discord API preflight/network check failed:', error);
   }
-}, 25000);
-startupDiagnostic.unref?.();
-client.login(TOKEN).then(() => {
-  console.log('Discord login() promise resolved; waiting for gateway READY event...');
-}).catch(error => {
-  console.error('Discord login failed:', error);
+
+  console.log('Connecting to Discord gateway...');
+  const startupDiagnostic = setTimeout(() => {
+    if (!client.isReady()) {
+      console.error('STARTUP DIAGNOSTIC: Discord ClientReady has not fired after 25 seconds.', {
+        wsStatus: client.ws.status,
+        ping: client.ws.ping,
+        tokenConfigured: Boolean(TOKEN),
+        clientIdConfigured: Boolean(CLIENT_ID),
+        guildIdConfigured: Boolean(GUILD_ID),
+      });
+      console.error('Check the gateway/shard messages above. Confirm BOT_TOKEN is the Bot Token (not the client secret), and that the bot application is the one invited to the server.');
+    }
+  }, 25000);
+  startupDiagnostic.unref?.();
+
+  try {
+    await client.login(TOKEN);
+    console.log('Discord login() promise resolved; waiting for gateway READY event...');
+  } catch (error) {
+    console.error('Discord login failed:', error);
+    process.exitCode = 1;
+  }
+}
+void startDiscordBot().catch(error => {
+  console.error('Fatal bot startup error:', error);
   process.exitCode = 1;
 });
